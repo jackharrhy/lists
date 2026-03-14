@@ -54,10 +54,11 @@ export const campaigns = sqliteTable("campaigns", {
   templateSlug: text("template_slug").notNull().default("newsletter"),
   fromAddress: text("from_address").notNull(),
   status: text("status", {
-    enum: ["draft", "sending", "sent"],
+    enum: ["draft", "sending", "sent", "failed"],
   })
     .notNull()
     .default("draft"),
+  lastError: text("last_error"),
   sentAt: text("sent_at"),
   createdAt: text("created_at")
     .notNull()

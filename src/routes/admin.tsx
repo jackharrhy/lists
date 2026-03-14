@@ -202,6 +202,8 @@ function AdminLayout({
           .badge-draft { background: #fef3c7; color: #92400e; }
           .badge-sending { background: #dbeafe; color: #1e40af; }
           .badge-sent { background: #dcfce7; color: #166534; }
+          .badge-failed { background: #fee2e2; color: #991b1b; }
+          .error-box { background: #fef2f2; border: 1px solid #fecaca; border-radius: 6px; padding: 1rem; margin-bottom: 1.5rem; font-family: monospace; font-size: 0.8125rem; white-space: pre-wrap; word-break: break-all; color: #991b1b; }
           a { color: #2563eb; }
           dl { margin: 0; }
           dt { font-weight: 600; font-size: 0.75rem; text-transform: uppercase; color: #666; margin-top: 0.75rem; }
@@ -255,7 +257,9 @@ function CampaignBadge({ status }: { status: string }) {
       ? "badge badge-draft"
       : status === "sending"
         ? "badge badge-sending"
-        : "badge badge-sent";
+        : status === "failed"
+          ? "badge badge-failed"
+          : "badge badge-sent";
   return <span class={cls}>{status}</span>;
 }
 
@@ -777,12 +781,43 @@ export function adminRoutes(db: Db, config: Config) {
           </span>
         </div>
 
+        {campaign.lastError && (
+          <div class="error-box">
+            <strong>Error:</strong>{"\n"}{campaign.lastError}
+          </div>
+        )}
+
         {campaign.status === "draft" && (
           <form method="post" action={`/admin/campaigns/${id}/send`} style="margin-bottom:1.5rem">
             <button type="submit" class="btn-danger" style="padding:0.5rem 1rem;border:none;border-radius:4px;color:#fff;cursor:pointer;font-size:0.875rem">
               Send Campaign
             </button>
           </form>
+        )}
+
+        {campaign.status === "failed" && (
+          <div style="display:flex;gap:0.5rem;margin-bottom:1.5rem">
+            <form method="post" action={`/admin/campaigns/${id}/retry`}>
+              <button type="submit" style="padding:0.5rem 1rem;background:#2563eb;border:none;border-radius:4px;color:#fff;cursor:pointer;font-size:0.875rem">
+                Retry (skip already sent)
+              </button>
+            </form>
+            <form method="post" action={`/admin/campaigns/${id}/reset`}>
+              <button type="submit" class="btn-secondary" style="padding:0.5rem 1rem;border:1px solid #ccc;border-radius:4px;cursor:pointer;font-size:0.875rem">
+                Reset to Draft
+              </button>
+            </form>
+          </div>
+        )}
+
+        {campaign.status === "sending" && (
+          <div style="display:flex;gap:0.5rem;margin-bottom:1.5rem">
+            <form method="post" action={`/admin/campaigns/${id}/reset`}>
+              <button type="submit" class="btn-secondary" style="padding:0.5rem 1rem;border:1px solid #ccc;border-radius:4px;cursor:pointer;font-size:0.875rem">
+                Force Reset to Draft (stuck?)
+              </button>
+            </form>
+          </div>
         )}
 
         <h2>Preview</h2>
@@ -822,8 +857,27 @@ export function adminRoutes(db: Db, config: Config) {
     try {
       await sendCampaign(db, config, id);
     } catch (err) {
-      // Redirect back regardless; campaign status reflects outcome
+      // error is recorded in campaign.lastError by sender
     }
+    return c.redirect(`/admin/campaigns/${id}`);
+  });
+
+  app.post("/campaigns/:id/retry", async (c) => {
+    const id = Number(c.req.param("id"));
+    try {
+      await sendCampaign(db, config, id);
+    } catch (err) {
+      // error is recorded in campaign.lastError by sender
+    }
+    return c.redirect(`/admin/campaigns/${id}`);
+  });
+
+  app.post("/campaigns/:id/reset", (c) => {
+    const id = Number(c.req.param("id"));
+    db.update(schema.campaigns)
+      .set({ status: "draft", lastError: null })
+      .where(eq(schema.campaigns.id, id))
+      .run();
     return c.redirect(`/admin/campaigns/${id}`);
   });
 

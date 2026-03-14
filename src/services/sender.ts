@@ -56,92 +56,118 @@ export async function sendCampaign(
   config: Config,
   campaignId: number,
 ) {
-  const campaign = db.select().from(schema.campaigns).where(and(
-    eq(schema.campaigns.id, campaignId),
-    eq(schema.campaigns.status, "draft"),
-  )).get();
-  if (!campaign) throw new Error(`Campaign ${campaignId} not found or not draft`);
+  const campaign = db.select().from(schema.campaigns).where(eq(schema.campaigns.id, campaignId)).get();
+  if (!campaign) throw new Error(`Campaign ${campaignId} not found`);
+  if (campaign.status !== "draft" && campaign.status !== "failed") {
+    throw new Error(`Campaign ${campaignId} is ${campaign.status}, must be draft or failed to send`);
+  }
 
   const list = db.select().from(schema.lists).where(eq(schema.lists.id, campaign.listId)).get();
   if (!list) throw new Error(`List ${campaign.listId} not found`);
 
   db.update(schema.campaigns)
-    .set({ status: "sending" })
+    .set({ status: "sending", lastError: null })
     .where(eq(schema.campaigns.id, campaignId))
     .run();
 
-  const subscribers = getConfirmedSubscribers(db, list.id);
+  try {
+    const subscribers = getConfirmedSubscribers(db, list.id);
+    const contentHtml = await marked(campaign.bodyMarkdown);
+    const ses = new SESv2Client({ region: config.awsRegion });
 
-  const contentHtml = await marked(campaign.bodyMarkdown);
-
-  const ses = new SESv2Client({ region: config.awsRegion });
-
-  for (const subscriber of subscribers) {
-    const unsubscribeUrl = buildUnsubscribeUrl(
-      config.baseUrl,
-      subscriber.unsubscribeToken,
+    // figure out which subscribers already got this (for retries)
+    const alreadySent = new Set(
+      db.select({ subscriberId: schema.campaignSends.subscriberId })
+        .from(schema.campaignSends)
+        .where(and(
+          eq(schema.campaignSends.campaignId, campaignId),
+          eq(schema.campaignSends.status, "sent"),
+        ))
+        .all()
+        .map((r) => r.subscriberId),
     );
-    const preferencesUrl = buildPreferencesUrl(
-      config.baseUrl,
-      subscriber.unsubscribeToken,
-    );
-    const listUnsubHeaders = buildListUnsubscribeHeader(unsubscribeUrl);
 
-    const { html } = await renderNewsletter({
-      subject: campaign.subject,
-      contentHtml,
-      listName: list.name,
-      unsubscribeUrl,
-      preferencesUrl,
-    });
+    for (const subscriber of subscribers) {
+      if (alreadySent.has(subscriber.id)) continue;
 
-    const replyTo = `${list.slug}@reply.${config.fromDomain}`;
-
-    const rawEmail = buildRawEmail({
-      from: campaign.fromAddress,
-      to: subscriber.email,
-      subject: campaign.subject,
-      html,
-      headers: {
-        ...listUnsubHeaders,
-        "Reply-To": replyTo,
-      },
-    });
-
-    try {
-      const result = await ses.send(
-        new SendEmailCommand({
-          Content: {
-            Raw: {
-              Data: new TextEncoder().encode(rawEmail),
-            },
-          },
-        }),
+      const unsubscribeUrl = buildUnsubscribeUrl(
+        config.baseUrl,
+        subscriber.unsubscribeToken,
       );
+      const preferencesUrl = buildPreferencesUrl(
+        config.baseUrl,
+        subscriber.unsubscribeToken,
+      );
+      const listUnsubHeaders = buildListUnsubscribeHeader(unsubscribeUrl);
 
-      db.insert(schema.campaignSends)
-        .values({
-          campaignId,
-          subscriberId: subscriber.id,
-          sesMessageId: result.MessageId ?? null,
-          status: "sent",
-          sentAt: new Date().toISOString(),
-        })
-        .run();
-    } catch (err) {
-      db.insert(schema.campaignSends)
-        .values({
-          campaignId,
-          subscriberId: subscriber.id,
-          status: "bounced",
-          sentAt: new Date().toISOString(),
-        })
-        .run();
+      const { html } = await renderNewsletter({
+        subject: campaign.subject,
+        contentHtml,
+        listName: list.name,
+        unsubscribeUrl,
+        preferencesUrl,
+      });
+
+      const replyTo = `${list.slug}@reply.${config.fromDomain}`;
+
+      const rawEmail = buildRawEmail({
+        from: campaign.fromAddress,
+        to: subscriber.email,
+        subject: campaign.subject,
+        html,
+        headers: {
+          ...listUnsubHeaders,
+          "Reply-To": replyTo,
+        },
+      });
+
+      try {
+        const result = await ses.send(
+          new SendEmailCommand({
+            Content: {
+              Raw: {
+                Data: new TextEncoder().encode(rawEmail),
+              },
+            },
+          }),
+        );
+
+        db.insert(schema.campaignSends)
+          .values({
+            campaignId,
+            subscriberId: subscriber.id,
+            sesMessageId: result.MessageId ?? null,
+            status: "sent",
+            sentAt: new Date().toISOString(),
+          })
+          .run();
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        db.insert(schema.campaignSends)
+          .values({
+            campaignId,
+            subscriberId: subscriber.id,
+            status: "bounced",
+            sentAt: new Date().toISOString(),
+          })
+          .run();
+        console.error(`Failed to send to ${subscriber.email}: ${msg}`);
+      }
     }
-  }
 
-  db.update(schema.campaigns)
-    .set({ status: "sent", sentAt: new Date().toISOString() })
-    .where(eq(schema.campaigns.id, campaignId))
-    .run();
+    db.update(schema.campaigns)
+      .set({ status: "sent", sentAt: new Date().toISOString() })
+      .where(eq(schema.campaigns.id, campaignId))
+      .run();
+  } catch (err) {
+    const msg = err instanceof Error
+      ? `${err.message}\n${err.stack ?? ""}`
+      : String(err);
+    console.error(`Campaign ${campaignId} failed: ${msg}`);
+    db.update(schema.campaigns)
+      .set({ status: "failed", lastError: msg })
+      .where(eq(schema.campaigns.id, campaignId))
+      .run();
+    throw err;
+  }
 }
