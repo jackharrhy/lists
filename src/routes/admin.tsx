@@ -10,6 +10,7 @@ import { schema } from "../db";
 import type { Config } from "../config";
 import { adminAuth, createSession, destroySession } from "../auth";
 import { sendCampaign } from "../services/sender";
+import { createSubscriber, confirmSubscriber } from "../services/subscriber";
 
 // ---------------------------------------------------------------------------
 // Layout & components
@@ -481,16 +482,54 @@ export function adminRoutes(db: Db, config: Config) {
   });
 
   // Subscribers
-  app.get("/subscribers", (c) => {
+   app.get("/subscribers", (c) => {
     const allSubscribers = db
       .select()
       .from(schema.subscribers)
       .orderBy(desc(schema.subscribers.createdAt))
       .all();
 
+    const allLists = db.select().from(schema.lists).all();
+
     return c.html(
       <AdminLayout title="Subscribers">
         <h1>Subscribers</h1>
+
+        <h2>Add subscriber</h2>
+        <form method="post" action="/admin/subscribers/new">
+          <div class="field">
+            <label>
+              Email
+              <input type="email" name="email" required />
+            </label>
+          </div>
+          <div class="field">
+            <label>
+              Name (optional)
+              <input type="text" name="name" />
+            </label>
+          </div>
+          <div class="field">
+            <label>
+              <input type="checkbox" name="skip_confirm" value="1" />
+              {" "}Pre-confirm (skip double opt-in)
+            </label>
+          </div>
+          {allLists.length > 0 && (
+            <div class="field">
+              <p style="margin: 0 0 0.25rem; font-weight: 500;">Lists</p>
+              {allLists.map((list) => (
+                <label style="display: block;">
+                  <input type="checkbox" name="lists" value={list.slug} />
+                  {" "}{list.name}
+                </label>
+              ))}
+            </div>
+          )}
+          <button type="submit">Add subscriber</button>
+        </form>
+
+        <h2>All subscribers</h2>
         <table>
           <thead>
             <tr>
@@ -515,6 +554,27 @@ export function adminRoutes(db: Db, config: Config) {
         </table>
       </AdminLayout>,
     );
+  });
+
+  app.post("/subscribers/new", async (c) => {
+    const body = await c.req.parseBody({ all: true });
+    const email = body["email"] as string;
+    const name = (body["name"] as string) || null;
+    const skipConfirm = body["skip_confirm"] === "1";
+    let listSlugs: string[] = [];
+    if (body["lists"]) {
+      listSlugs = Array.isArray(body["lists"])
+        ? (body["lists"] as string[])
+        : [body["lists"] as string];
+    }
+
+    const subscriber = createSubscriber(db, email, name, listSlugs);
+
+    if (skipConfirm) {
+      confirmSubscriber(db, subscriber.unsubscribeToken);
+    }
+
+    return c.redirect("/admin/subscribers");
   });
 
   // Lists
