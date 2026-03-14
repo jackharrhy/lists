@@ -32,7 +32,7 @@ export function Newsletter({
       <Body style={body}>
         <Container style={container}>
           <Text style={listNameText}>{listName}</Text>
-          <Section
+          <div
             dangerouslySetInnerHTML={{ __html: contentHtml }}
             style={content}
           />
