@@ -11,6 +11,7 @@ const db = createDb(config.dbPath);
 
 const app = new Hono();
 
+app.get("/", (c) => c.redirect("/subscribe"));
 app.route("/", publicRoutes(db, config));
 app.route("/api", apiRoutes(db, config));
 app.route("/admin", adminRoutes(db, config));
