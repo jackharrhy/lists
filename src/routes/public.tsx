@@ -30,9 +30,18 @@ function Layout({ children }: { children: any }) {
 export function publicRoutes(db: Db, config: Config) {
   const app = new Hono();
 
-  // GET /subscribe - landing page with subscribe form
+  // GET /subscribe - landing page with subscribe forms grouped by domain
   app.get("/subscribe", (c) => {
     const allLists = db.select().from(schema.lists).all();
+
+    // group lists by fromDomain
+    const byDomain = new Map<string, typeof allLists>();
+    for (const list of allLists) {
+      const domain = list.fromDomain;
+      if (!byDomain.has(domain)) byDomain.set(domain, []);
+      byDomain.get(domain)!.push(list);
+    }
+    const domains = [...byDomain.entries()];
 
     return c.html(
       <Layout>
@@ -43,36 +52,35 @@ export function publicRoutes(db: Db, config: Config) {
           Subscribe to hear about things being worked on, written about, or found interesting.
         </p>
 
-        <details class="mb-6">
-          <summary class="cursor-pointer text-sm font-medium text-blue-600 hover:text-blue-800 select-none">
-            Subscribe
-          </summary>
-          <form method="post" action="/subscribe" class="mt-4 space-y-4">
-            <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">
-                Email
-                <input
-                  type="email"
-                  name="email"
-                  required
-                  class="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                />
-              </label>
-            </div>
-            <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">
-                Name (optional)
-                <input
-                  type="text"
-                  name="name"
-                  class="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                />
-              </label>
-            </div>
-            {allLists.length > 0 && (
+        {domains.map(([domain, lists]) => (
+          <details class="mb-4">
+            <summary class="cursor-pointer text-sm font-medium text-gray-800 hover:text-blue-600 select-none">
+              {domain}
+            </summary>
+            <form method="post" action="/subscribe" class="mt-4 space-y-4 pl-4 border-l-2 border-gray-200 mb-6">
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">
+                  Email
+                  <input
+                    type="email"
+                    name="email"
+                    required
+                    class="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </label>
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">
+                  Name (optional)
+                  <input
+                    type="text"
+                    name="name"
+                    class="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </label>
+              </div>
               <div class="space-y-2">
-                <p class="text-sm font-medium text-gray-700">Lists</p>
-                {allLists.map((list) => (
+                {lists.map((list) => (
                   <label class="flex items-start gap-2 text-sm text-gray-800">
                     <input type="checkbox" name="lists" value={list.slug} class="rounded mt-0.5" />
                     <span>
@@ -82,15 +90,19 @@ export function publicRoutes(db: Db, config: Config) {
                   </label>
                 ))}
               </div>
-            )}
-            <button
-              type="submit"
-              class="w-full px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none"
-            >
-              Subscribe
-            </button>
-          </form>
-        </details>
+              <button
+                type="submit"
+                class="w-full px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none"
+              >
+                Subscribe
+              </button>
+            </form>
+          </details>
+        ))}
+
+        {domains.length === 0 && (
+          <p class="text-gray-400 text-sm">No lists yet.</p>
+        )}
       </Layout>,
     );
   });
