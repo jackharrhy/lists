@@ -461,6 +461,77 @@ describe("confirmSubscriber dedup", () => {
   });
 });
 
+describe("Tag CRUD", () => {
+  test("can create tag, link to subscriber, and delete the link without deleting the tag", () => {
+    const db = createTestDb();
+
+    // Insert a tag
+    const tag = db
+      .insert(schema.tags)
+      .values({ name: "beta-testers" })
+      .returning()
+      .get();
+    expect(tag.id).toBeDefined();
+    expect(tag.name).toBe("beta-testers");
+
+    // Create a subscriber
+    seedList(db, { slug: "news" });
+    const sub = createSubscriber(db, "tester@example.com", "Tester", ["news"]);
+
+    // Link subscriber to tag
+    db.insert(schema.subscriberTags)
+      .values({ subscriberId: sub.id, tagId: tag.id })
+      .run();
+
+    // Verify link exists
+    const links = db
+      .select()
+      .from(schema.subscriberTags)
+      .where(
+        and(
+          eq(schema.subscriberTags.subscriberId, sub.id),
+          eq(schema.subscriberTags.tagId, tag.id),
+        ),
+      )
+      .all();
+    expect(links).toHaveLength(1);
+    expect(links[0].subscriberId).toBe(sub.id);
+    expect(links[0].tagId).toBe(tag.id);
+
+    // Delete the link
+    db.delete(schema.subscriberTags)
+      .where(
+        and(
+          eq(schema.subscriberTags.subscriberId, sub.id),
+          eq(schema.subscriberTags.tagId, tag.id),
+        ),
+      )
+      .run();
+
+    // Verify link is gone
+    const linksAfter = db
+      .select()
+      .from(schema.subscriberTags)
+      .where(
+        and(
+          eq(schema.subscriberTags.subscriberId, sub.id),
+          eq(schema.subscriberTags.tagId, tag.id),
+        ),
+      )
+      .all();
+    expect(linksAfter).toHaveLength(0);
+
+    // Verify tag still exists
+    const tagStillExists = db
+      .select()
+      .from(schema.tags)
+      .where(eq(schema.tags.id, tag.id))
+      .get();
+    expect(tagStillExists).toBeDefined();
+    expect(tagStillExists!.name).toBe("beta-testers");
+  });
+});
+
 describe("getConfirmedSubscribers", () => {
   test("returns only active + confirmed subscribers for a list", () => {
     const db = createTestDb();

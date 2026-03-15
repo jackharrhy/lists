@@ -661,6 +661,134 @@ describe("Campaign with null listId (all-subscribers send)", () => {
 });
 
 // ---------------------------------------------------------------------------
+// 11. Tag-targeted campaign send
+// ---------------------------------------------------------------------------
+describe("Tag-targeted campaign send", () => {
+  test("sends only to subscribers with the target tag", async () => {
+    const db = createTestDb();
+    const list = seedList(db, { slug: "newsletter", fromDomain: "example.com" });
+
+    // Create 3 confirmed subscribers
+    const sub1 = createSubscriber(db, "tagged1@example.com", "Tagged1", ["newsletter"]);
+    confirmSubscriber(db, sub1.unsubscribeToken);
+    const sub2 = createSubscriber(db, "tagged2@example.com", "Tagged2", ["newsletter"]);
+    confirmSubscriber(db, sub2.unsubscribeToken);
+    const sub3 = createSubscriber(db, "untagged@example.com", "Untagged", ["newsletter"]);
+    confirmSubscriber(db, sub3.unsubscribeToken);
+
+    // Create a tag and apply it to sub1 and sub2 only
+    const tag = db
+      .insert(schema.tags)
+      .values({ name: "vip" })
+      .returning()
+      .get();
+
+    db.insert(schema.subscriberTags).values({ subscriberId: sub1.id, tagId: tag.id }).run();
+    db.insert(schema.subscriberTags).values({ subscriberId: sub2.id, tagId: tag.id }).run();
+
+    // Campaign with tag audience (no listId)
+    const campaign = db
+      .insert(schema.campaigns)
+      .values({
+        listId: null,
+        subject: "VIP Only",
+        bodyMarkdown: "# VIP content",
+        fromAddress: "vip@example.com",
+        status: "draft",
+        audience: JSON.stringify({ type: "tag", tagId: tag.id }),
+      })
+      .returning()
+      .get();
+
+    sesMock.on(SendEmailCommand).resolves({ MessageId: "tag-msg" });
+
+    await sendCampaign(db, testConfig, campaign.id);
+
+    // SES called exactly 2 times (sub1, sub2)
+    const sesCalls = sesMock.commandCalls(SendEmailCommand);
+    expect(sesCalls).toHaveLength(2);
+
+    // Campaign status is "sent"
+    const updated = db
+      .select()
+      .from(schema.campaigns)
+      .where(eq(schema.campaigns.id, campaign.id))
+      .get();
+    expect(updated!.status).toBe("sent");
+
+    // campaignSends should have 2 entries
+    const sends = db
+      .select()
+      .from(schema.campaignSends)
+      .where(eq(schema.campaignSends.campaignId, campaign.id))
+      .all();
+    expect(sends).toHaveLength(2);
+
+    const sentSubscriberIds = sends.map((s) => s.subscriberId).sort();
+    expect(sentSubscriberIds).toEqual([sub1.id, sub2.id].sort());
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 12. Specific-subscribers campaign send
+// ---------------------------------------------------------------------------
+describe("Specific-subscribers campaign send", () => {
+  test("sends only to the specified subscriber IDs", async () => {
+    const db = createTestDb();
+    const list = seedList(db, { slug: "newsletter", fromDomain: "example.com" });
+
+    // Create 3 confirmed subscribers
+    const sub1 = createSubscriber(db, "pick1@example.com", "Pick1", ["newsletter"]);
+    confirmSubscriber(db, sub1.unsubscribeToken);
+    const sub2 = createSubscriber(db, "skip@example.com", "Skip", ["newsletter"]);
+    confirmSubscriber(db, sub2.unsubscribeToken);
+    const sub3 = createSubscriber(db, "pick3@example.com", "Pick3", ["newsletter"]);
+    confirmSubscriber(db, sub3.unsubscribeToken);
+
+    // Campaign targeting sub1 and sub3 only
+    const campaign = db
+      .insert(schema.campaigns)
+      .values({
+        listId: null,
+        subject: "Selected Subscribers",
+        bodyMarkdown: "# Just for you",
+        fromAddress: "news@example.com",
+        status: "draft",
+        audience: JSON.stringify({ type: "subscribers", subscriberIds: [sub1.id, sub3.id] }),
+      })
+      .returning()
+      .get();
+
+    sesMock.on(SendEmailCommand).resolves({ MessageId: "specific-msg" });
+
+    await sendCampaign(db, testConfig, campaign.id);
+
+    // SES called exactly 2 times (sub1, sub3)
+    const sesCalls = sesMock.commandCalls(SendEmailCommand);
+    expect(sesCalls).toHaveLength(2);
+
+    // Campaign status is "sent"
+    const updated = db
+      .select()
+      .from(schema.campaigns)
+      .where(eq(schema.campaigns.id, campaign.id))
+      .get();
+    expect(updated!.status).toBe("sent");
+
+    // campaignSends should have 2 entries for the right subscribers
+    const sends = db
+      .select()
+      .from(schema.campaignSends)
+      .where(eq(schema.campaignSends.campaignId, campaign.id))
+      .all();
+    expect(sends).toHaveLength(2);
+
+    const sentSubscriberIds = sends.map((s) => s.subscriberId).sort();
+    expect(sentSubscriberIds).toEqual([sub1.id, sub3.id].sort());
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Helper: create owner user + login session for admin tests
 // ---------------------------------------------------------------------------
 function createOwnerAndSession(db: ReturnType<typeof createTestDb>) {
