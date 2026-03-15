@@ -30,7 +30,7 @@ function Layout({ children }: { children: any }) {
 export function publicRoutes(db: Db, config: Config) {
   const app = new Hono();
 
-  // GET /subscribe - landing page with subscribe forms grouped by domain
+  // GET /subscribe - landing page with subscribe form
   app.get("/subscribe", (c) => {
     const allLists = db.select().from(schema.lists).all();
 
@@ -42,6 +42,7 @@ export function publicRoutes(db: Db, config: Config) {
       byDomain.get(domain)!.push(list);
     }
     const domains = [...byDomain.entries()];
+    const multipleDomains = domains.length > 1;
 
     return c.html(
       <Layout>
@@ -52,12 +53,12 @@ export function publicRoutes(db: Db, config: Config) {
           Subscribe to hear about things being worked on, written about, or found interesting.
         </p>
 
-        {domains.map(([domain, lists]) => (
-          <details class="mb-4">
-            <summary class="cursor-pointer text-sm font-medium text-gray-800 hover:text-blue-600 select-none">
-              {domain}
+        {domains.length > 0 ? (
+          <details class="mb-6">
+            <summary class="cursor-pointer text-sm font-medium text-blue-600 hover:text-blue-800 select-none">
+              Subscribe to a list
             </summary>
-            <form method="post" action="/subscribe" class="mt-4 space-y-4 pl-4 border-l-2 border-gray-200 mb-6">
+            <form method="post" action="/subscribe" class="mt-4 space-y-4">
               <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">
                   Email
@@ -79,17 +80,30 @@ export function publicRoutes(db: Db, config: Config) {
                   />
                 </label>
               </div>
-              <div class="space-y-2">
-                {lists.map((list) => (
-                  <label class="flex items-start gap-2 text-sm text-gray-800">
-                    <input type="checkbox" name="lists" value={list.slug} class="rounded mt-0.5" />
-                    <span>
-                      <span class="font-medium">{list.name}</span>
-                      {list.description ? <span class="text-gray-500"> - {list.description}</span> : ""}
-                    </span>
-                  </label>
-                ))}
-              </div>
+
+              {domains.map(([domain, lists]) => (
+                <div class="space-y-2">
+                  {multipleDomains && (
+                    <p class="text-xs font-medium text-gray-400 uppercase tracking-wide">{domain}</p>
+                  )}
+                  {lists.map((list) => (
+                    <label class="flex items-start gap-2 text-sm text-gray-800">
+                      <input type="checkbox" name="lists" value={list.slug} class="rounded mt-0.5" />
+                      <span>
+                        <span class="font-medium">{list.name}</span>
+                        {list.description ? <span class="text-gray-500"> - {list.description}</span> : ""}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              ))}
+
+              {multipleDomains && (
+                <p class="text-xs text-gray-400">
+                  Selecting lists from different domains will send a separate confirmation email for each.
+                </p>
+              )}
+
               <button
                 type="submit"
                 class="w-full px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none"
@@ -98,9 +112,7 @@ export function publicRoutes(db: Db, config: Config) {
               </button>
             </form>
           </details>
-        ))}
-
-        {domains.length === 0 && (
+        ) : (
           <p class="text-gray-400 text-sm">No lists yet.</p>
         )}
       </Layout>,
@@ -141,39 +153,57 @@ export function publicRoutes(db: Db, config: Config) {
     // Build confirmation URL
     const confirmUrl = `${config.baseUrl}/confirm/${subscriber.unsubscribeToken}`;
 
-    // Look up selected lists for the email
+    // Look up selected lists and group by domain
     const allLists = db.select().from(schema.lists).all();
     const selectedLists = allLists.filter((l) => listSlugs.includes(l.slug));
-    const listNames = selectedLists.map((l) => l.name);
 
-    // Send confirmation from the first selected list's domain
-    const sendingDomain = selectedLists[0]?.fromDomain ?? config.fromDomain;
+    const byDomain = new Map<string, typeof selectedLists>();
+    for (const list of selectedLists) {
+      if (!byDomain.has(list.fromDomain)) byDomain.set(list.fromDomain, []);
+      byDomain.get(list.fromDomain)!.push(list);
+    }
 
-    const { html } = await renderConfirmation({ confirmUrl, listNames });
-
+    // Send one confirmation per domain
     const ses = new SESv2Client({ region: config.awsRegion });
-    await ses.send(
-      new SendEmailCommand({
-        FromEmailAddress: `noreply@${sendingDomain}`,
-        Destination: { ToAddresses: [email] },
-        Content: {
-          Simple: {
-            Subject: { Data: "Confirm your subscription" },
-            Body: { Html: { Data: html } },
+    const domainsSent: string[] = [];
+
+    for (const [domain, lists] of byDomain) {
+      const listNames = lists.map((l) => l.name);
+      const { html } = await renderConfirmation({ confirmUrl, listNames });
+
+      await ses.send(
+        new SendEmailCommand({
+          FromEmailAddress: `noreply@${domain}`,
+          Destination: { ToAddresses: [email] },
+          Content: {
+            Simple: {
+              Subject: { Data: "Confirm your subscription" },
+              Body: { Html: { Data: html } },
+            },
           },
-        },
-        ConfigurationSetName: config.sesConfigSet || undefined,
-      }),
-    );
+          ConfigurationSetName: config.sesConfigSet || undefined,
+        }),
+      );
+      domainsSent.push(domain);
+    }
+
+    const multipleConfirms = domainsSent.length > 1;
 
     return c.html(
       <Layout>
         <h1 class="text-2xl font-bold mb-6">Check your email</h1>
         <div class="bg-white rounded-lg border border-gray-200 p-6">
           <p class="text-sm text-gray-700">
-            We sent a confirmation link to <strong>{email}</strong>. Click the
-            link to confirm your subscription.
+            We sent {multipleConfirms ? `${domainsSent.length} confirmation emails` : "a confirmation link"} to <strong>{email}</strong>.
+            {multipleConfirms
+              ? " You'll need to confirm each one separately."
+              : " Click the link to confirm your subscription."}
           </p>
+          {multipleConfirms && (
+            <ul class="mt-3 text-sm text-gray-500 list-disc list-inside">
+              {domainsSent.map((d) => <li>From {d}</li>)}
+            </ul>
+          )}
         </div>
       </Layout>,
     );
