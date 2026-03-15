@@ -4,9 +4,10 @@ import { Confirm, type ConfirmProps } from "./templates/confirm";
 
 export async function renderNewsletter(
   props: NewsletterProps,
-): Promise<{ html: string }> {
+): Promise<{ html: string; text: string }> {
   const html = await render(Newsletter(props));
-  return { html };
+  const text = await render(Newsletter(props), { plainText: true });
+  return { html, text };
 }
 
 export async function renderConfirmation(

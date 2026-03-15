@@ -12,29 +12,12 @@ import {
 import { renderNewsletter } from "../../emails/render";
 import { logEvent } from "./events";
 
-function stripHtmlToText(html: string): string {
-  return html
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<\/p>/gi, "\n\n")
-    .replace(/<\/div>/gi, "\n")
-    .replace(/<\/h[1-6]>/gi, "\n\n")
-    .replace(/<li>/gi, "- ")
-    .replace(/<[^>]+>/g, "")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&nbsp;/g, " ")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-}
-
 function buildRawEmail({
   from,
   to,
   subject,
   html,
+  text,
   fromDomain,
   headers,
 }: {
@@ -42,12 +25,12 @@ function buildRawEmail({
   to: string;
   subject: string;
   html: string;
+  text: string;
   fromDomain: string;
   headers: Record<string, string>;
 }): string {
   const boundary = `----=_Part_${Date.now().toString(36)}`;
   const messageId = `<${crypto.randomUUID()}@${fromDomain}>`;
-  const text = stripHtmlToText(html);
 
   const headerLines = [
     `From: ${from}`,
@@ -136,7 +119,7 @@ export async function sendCampaign(
       );
       const listUnsubHeaders = buildListUnsubscribeHeader(unsubscribeUrl);
 
-      const { html } = await renderNewsletter({
+      const { html, text } = await renderNewsletter({
         subject: campaign.subject,
         contentHtml,
         listName: list.name,
@@ -145,20 +128,20 @@ export async function sendCampaign(
       });
 
       const replyTo = `${list.slug}@reply.${config.fromDomain}`;
+      const fromWithName = `"${list.name}" <${campaign.fromAddress}>`;
 
-    const fromWithName = `"${list.name}" <${campaign.fromAddress}>`;
-
-    const rawEmail = buildRawEmail({
-      from: fromWithName,
-      to: subscriber.email,
-      subject: campaign.subject,
-      html,
-      fromDomain: config.fromDomain,
-      headers: {
-        ...listUnsubHeaders,
-        "Reply-To": replyTo,
-      },
-    });
+      const rawEmail = buildRawEmail({
+        from: fromWithName,
+        to: subscriber.email,
+        subject: campaign.subject,
+        html,
+        text,
+        fromDomain: config.fromDomain,
+        headers: {
+          ...listUnsubHeaders,
+          "Reply-To": replyTo,
+        },
+      });
 
       try {
         const result = await ses.send(
