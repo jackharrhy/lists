@@ -20,6 +20,7 @@ type SQSPayload = {
   spfVerdict: string;
   dkimVerdict: string;
   dmarcVerdict: string;
+  s3Key?: string;
   action: {
     type: string;
     bucketName: string;
@@ -50,6 +51,7 @@ export async function startPoller(db: Db, config: Config) {
         try {
           const payload: SQSPayload = JSON.parse(msg.Body!);
           const s3Key =
+            payload.s3Key ||
             payload.action.objectKey ||
             payload.action.objectKeyPrefix + payload.messageId;
 
