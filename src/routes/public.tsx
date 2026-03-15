@@ -30,54 +30,67 @@ function Layout({ children }: { children: any }) {
 export function publicRoutes(db: Db, config: Config) {
   const app = new Hono();
 
-  // GET /subscribe - show subscribe form
+  // GET /subscribe - landing page with subscribe form
   app.get("/subscribe", (c) => {
     const allLists = db.select().from(schema.lists).all();
 
     return c.html(
       <Layout>
-        <h1 class="text-2xl font-bold mb-6">Subscribe</h1>
-        <form method="post" action="/subscribe" class="space-y-4">
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">
-              Email
-              <input
-                type="email"
-                name="email"
-                required
-                class="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              />
-            </label>
-          </div>
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">
-              Name (optional)
-              <input
-                type="text"
-                name="name"
-                class="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              />
-            </label>
-          </div>
-          <div class="space-y-2">
-            <p class="text-sm font-medium text-gray-700">Lists:</p>
-            {allLists.map((list) => (
-              <label class="flex items-center gap-2 text-sm text-gray-800">
-                <input type="checkbox" name="lists" value={list.slug} class="rounded" />
-                <span>
-                  {list.name}
-                  {list.description ? ` — ${list.description}` : ""}
-                </span>
-              </label>
-            ))}
-          </div>
-          <button
-            type="submit"
-            class="w-full px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none"
-          >
+        <h1 class="text-2xl font-bold mb-2">Lists</h1>
+        <p class="text-gray-600 mb-8">
+          Email lists affiliated with{" "}
+          <a href="https://jackharrhy.dev" class="text-blue-600 hover:text-blue-800">Jack Harrhy</a>.
+          Subscribe to hear about things being worked on, written about, or found interesting.
+        </p>
+
+        <details class="mb-6">
+          <summary class="cursor-pointer text-sm font-medium text-blue-600 hover:text-blue-800 select-none">
             Subscribe
-          </button>
-        </form>
+          </summary>
+          <form method="post" action="/subscribe" class="mt-4 space-y-4">
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">
+                Email
+                <input
+                  type="email"
+                  name="email"
+                  required
+                  class="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+              </label>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">
+                Name (optional)
+                <input
+                  type="text"
+                  name="name"
+                  class="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+              </label>
+            </div>
+            {allLists.length > 0 && (
+              <div class="space-y-2">
+                <p class="text-sm font-medium text-gray-700">Lists</p>
+                {allLists.map((list) => (
+                  <label class="flex items-start gap-2 text-sm text-gray-800">
+                    <input type="checkbox" name="lists" value={list.slug} class="rounded mt-0.5" />
+                    <span>
+                      <span class="font-medium">{list.name}</span>
+                      {list.description ? <span class="text-gray-500"> - {list.description}</span> : ""}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            )}
+            <button
+              type="submit"
+              class="w-full px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none"
+            >
+              Subscribe
+            </button>
+          </form>
+        </details>
       </Layout>,
     );
   });
