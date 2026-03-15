@@ -7,6 +7,7 @@ export type Config = {
   dbPath: string;
   fromDomain: string;
   baseUrl: string;
+  sesConfigSet: string;
 };
 
 export function loadConfig(): Config {
@@ -25,5 +26,6 @@ export function loadConfig(): Config {
     dbPath: process.env.DB_PATH ?? "lists.db",
     fromDomain: process.env.FROM_DOMAIN ?? "jackharrhy.dev",
     baseUrl: required("BASE_URL"),
+    sesConfigSet: process.env.SES_CONFIG_SET ?? "",
   };
 }

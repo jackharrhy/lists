@@ -139,8 +139,10 @@ export async function sendCampaign(
 
       const replyTo = `${list.slug}@reply.${config.fromDomain}`;
 
+    const fromWithName = `"${list.name}" <${campaign.fromAddress}>`;
+
     const rawEmail = buildRawEmail({
-      from: campaign.fromAddress,
+      from: fromWithName,
       to: subscriber.email,
       subject: campaign.subject,
       html,
@@ -159,6 +161,7 @@ export async function sendCampaign(
                 Data: new TextEncoder().encode(rawEmail),
               },
             },
+            ConfigurationSetName: config.sesConfigSet || undefined,
           }),
         );
 
