@@ -2497,6 +2497,11 @@ export function adminRoutes(db: Db, config: Config) {
             </label>
           </div>
 
+          <div class="bg-white border border-gray-200 rounded-lg p-5 mb-6">
+            <label class="block text-sm font-medium text-gray-700 mb-1">Apply tag to all imported subscribers (optional)</label>
+            <input type="text" name="importTag" placeholder="e.g. imported-2026-03" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+          </div>
+
           <input type="hidden" name="csvData" value={JSON.stringify(dataRows)} />
           <input type="hidden" name="headers" value={JSON.stringify(headers)} />
 
@@ -2554,6 +2559,23 @@ export function adminRoutes(db: Db, config: Config) {
     }
 
     const preconfirm = body["preconfirm"] === "1";
+    const importTag = String(body["importTag"] ?? "").trim();
+
+    // Find or create the tag once before the loop
+    let tagId: number | null = null;
+    if (importTag) {
+      const existing = db.select().from(schema.tags).where(eq(schema.tags.name, importTag)).get();
+      if (existing) {
+        tagId = existing.id;
+      } else {
+        const created = db
+          .insert(schema.tags)
+          .values({ name: importTag })
+          .returning({ id: schema.tags.id })
+          .get();
+        tagId = created.id;
+      }
+    }
 
     let imported = 0;
     let skipped = 0;
@@ -2586,6 +2608,13 @@ export function adminRoutes(db: Db, config: Config) {
 
         if (preconfirm) {
           confirmSubscriber(db, subscriber.unsubscribeToken);
+        }
+
+        if (tagId !== null) {
+          db.insert(schema.subscriberTags)
+            .values({ subscriberId: subscriber.id, tagId })
+            .onConflictDoNothing()
+            .run();
         }
       } catch {
         errors++;
