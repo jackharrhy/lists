@@ -129,18 +129,20 @@ export function publicRoutes(db: Db, config: Config) {
     // Build confirmation URL
     const confirmUrl = `${config.baseUrl}/confirm/${subscriber.unsubscribeToken}`;
 
-    // Look up selected list names for the email
-    const selectedLists = db.select().from(schema.lists).all();
-    const listNames = selectedLists
-      .filter((l) => listSlugs.includes(l.slug))
-      .map((l) => l.name);
+    // Look up selected lists for the email
+    const allLists = db.select().from(schema.lists).all();
+    const selectedLists = allLists.filter((l) => listSlugs.includes(l.slug));
+    const listNames = selectedLists.map((l) => l.name);
+
+    // Send confirmation from the first selected list's domain
+    const sendingDomain = selectedLists[0]?.fromDomain ?? config.fromDomain;
 
     const { html } = await renderConfirmation({ confirmUrl, listNames });
 
     const ses = new SESv2Client({ region: config.awsRegion });
     await ses.send(
       new SendEmailCommand({
-        FromEmailAddress: `noreply@${config.fromDomain}`,
+        FromEmailAddress: `noreply@${sendingDomain}`,
         Destination: { ToAddresses: [email] },
         Content: {
           Simple: {
@@ -148,6 +150,7 @@ export function publicRoutes(db: Db, config: Config) {
             Body: { Html: { Data: html } },
           },
         },
+        ConfigurationSetName: config.sesConfigSet || undefined,
       }),
     );
 

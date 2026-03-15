@@ -127,7 +127,7 @@ export async function sendCampaign(
         preferencesUrl,
       });
 
-      const replyTo = `${list.slug}@reply.${config.fromDomain}`;
+      const replyTo = `${list.slug}@reply.${list.fromDomain}`;
       const fromWithName = `"${list.name}" <${campaign.fromAddress}>`;
 
       const rawEmail = buildRawEmail({

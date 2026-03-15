@@ -25,6 +25,7 @@ export const lists = sqliteTable("lists", {
   slug: text("slug").unique().notNull(),
   name: text("name").notNull(),
   description: text("description").notNull().default(""),
+  fromDomain: text("from_domain").notNull().default("jackharrhy.dev"),
 });
 
 export const subscriberLists = sqliteTable("subscriber_lists", {
