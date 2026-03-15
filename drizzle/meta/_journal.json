@@ -43,6 +43,13 @@
       "when": 1773549415012,
       "tag": "0005_add-users",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1773587644671,
+      "tag": "0006_add-list-from-address",
+      "breakpoints": true
     }
   ]
 }

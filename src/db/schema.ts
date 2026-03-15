@@ -37,6 +37,7 @@ export const lists = sqliteTable("lists", {
   name: text("name").notNull(),
   description: text("description").notNull().default(""),
   fromDomain: text("from_domain").notNull().default("jackharrhy.dev"),
+  fromAddress: text("from_address").notNull().default(""),
 });
 
 export const userLists = sqliteTable("user_lists", {

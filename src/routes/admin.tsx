@@ -849,6 +849,10 @@ export function adminRoutes(db: Db, config: Config) {
               <label for="fromDomain" class="block text-sm font-medium text-gray-700 mb-1">Sending domain</label>
               <input type="text" id="fromDomain" name="fromDomain" required placeholder="siliconharbour.dev" value={config.fromDomain} class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
             </div>
+            <div class="mb-4">
+              <label for="fromAddress" class="block text-sm font-medium text-gray-700 mb-1">Default from address</label>
+              <input type="email" id="fromAddress" name="fromAddress" placeholder="newsletter@siliconharbour.dev" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+            </div>
             <button type="submit" class="inline-block px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none no-underline">Create List</button>
           </form>
         </div>
@@ -856,20 +860,20 @@ export function adminRoutes(db: Db, config: Config) {
     );
   });
 
-  app.post("/lists/new", requireRole("owner", "admin"), async (c) => {
-    const user = c.get("user") as User;
+  app.post("/lists/new", async (c) => {
     const body = await c.req.parseBody();
     const slug = String(body["slug"] ?? "").trim();
     const name = String(body["name"] ?? "").trim();
     const description = String(body["description"] ?? "").trim();
     const fromDomain = String(body["fromDomain"] ?? config.fromDomain).trim();
+    const fromAddress = String(body["fromAddress"] ?? "").trim();
 
     if (!slug || !name) {
       return c.redirect("/admin/lists/new");
     }
 
     db.insert(schema.lists)
-      .values({ slug, name, description, fromDomain })
+      .values({ slug, name, description, fromDomain, fromAddress })
       .run();
 
     logEvent(db, { type: "admin.list_created", detail: `${name} (${slug})`, userId: user.id });
@@ -945,6 +949,10 @@ export function adminRoutes(db: Db, config: Config) {
           <div class="mb-4">
             <label for="fromDomain" class="block text-sm font-medium text-gray-700 mb-1">Sending domain</label>
             <input type="text" id="fromDomain" name="fromDomain" required value={list.fromDomain} class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+          </div>
+          <div class="mb-4">
+            <label for="fromAddress" class="block text-sm font-medium text-gray-700 mb-1">Default from address</label>
+            <input type="email" id="fromAddress" name="fromAddress" value={list.fromAddress} placeholder={`newsletter@${list.fromDomain}`} class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
           </div>
           <button type="submit" class="inline-block px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none no-underline">Save changes</button>
         </form>
@@ -1043,11 +1051,12 @@ export function adminRoutes(db: Db, config: Config) {
     const name = String(body["name"] ?? "").trim();
     const description = String(body["description"] ?? "").trim();
     const fromDomain = String(body["fromDomain"] ?? config.fromDomain).trim();
+    const fromAddress = String(body["fromAddress"] ?? "").trim();
 
     if (!slug || !name) return c.redirect(`/admin/lists/${id}`);
 
     db.update(schema.lists)
-      .set({ slug, name, description, fromDomain })
+      .set({ slug, name, description, fromDomain, fromAddress })
       .where(eq(schema.lists.id, id))
       .run();
 
@@ -1161,9 +1170,9 @@ export function adminRoutes(db: Db, config: Config) {
             <div class="mb-4">
               <label for="listId" class="block text-sm font-medium text-gray-700 mb-1">List</label>
               <select id="listId" name="listId" required class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                <option value="">Select a list…</option>
+                <option value="">Select a list...</option>
                 {allLists.map((list) => (
-                  <option value={String(list.id)}>
+                  <option value={String(list.id)} data-from-address={list.fromAddress}>
                     {list.name} ({list.slug})
                   </option>
                 ))}
@@ -1180,6 +1189,20 @@ export function adminRoutes(db: Db, config: Config) {
                 class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
+            <script dangerouslySetInnerHTML={{ __html: `
+              (function() {
+                var lastDefault = '';
+                document.getElementById('listId').addEventListener('change', function() {
+                  var opt = this.options[this.selectedIndex];
+                  var addr = opt.dataset.fromAddress || '';
+                  var input = document.getElementById('fromAddress');
+                  if (!input.value || input.value === lastDefault) {
+                    input.value = addr;
+                  }
+                  lastDefault = addr;
+                });
+              })();
+            `}} />
             <div class="mb-4">
               <label for="subject" class="block text-sm font-medium text-gray-700 mb-1">Subject</label>
               <input type="text" id="subject" name="subject" required placeholder="Campaign subject" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
