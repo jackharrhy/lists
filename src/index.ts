@@ -7,9 +7,11 @@ import { publicRoutes } from "./routes/public";
 import { apiRoutes } from "./routes/api";
 import { adminRoutes } from "./routes/admin";
 import { startPoller } from "./services/poller";
+import { bootstrapOwner } from "./bootstrap";
 
 const config = loadConfig();
 const db = createDb(config.dbPath);
+await bootstrapOwner(db, config);
 
 const app = new Hono();
 

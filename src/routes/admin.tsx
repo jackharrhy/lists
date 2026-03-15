@@ -123,11 +123,18 @@ export function adminRoutes(db: Db, config: Config) {
             <h1 class="m-0 mb-4 text-xl text-center font-bold">Lists Admin</h1>
             <form method="post" action="/admin/login">
               <input
+                type="email"
+                name="email"
+                placeholder="Email"
+                required
+                autofocus
+                class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-4 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 box-border"
+              />
+              <input
                 type="password"
                 name="password"
                 placeholder="Password"
                 required
-                autofocus
                 class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-4 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 box-border"
               />
               <button type="submit" class="w-full px-3 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none">
@@ -142,9 +149,11 @@ export function adminRoutes(db: Db, config: Config) {
 
   app.post("/login", async (c) => {
     const body = await c.req.parseBody();
-    const password = body["password"];
-    if (password !== config.authPassword) {
-      return c.html(
+    const email = body["email"] as string;
+    const password = body["password"] as string;
+
+    const renderError = (message: string) =>
+      c.html(
         <html lang="en">
           <head>
             <meta charset="utf-8" />
@@ -154,14 +163,21 @@ export function adminRoutes(db: Db, config: Config) {
           <body class="font-sans flex items-center justify-center min-h-screen m-0 bg-gray-50">
             <div class="bg-white p-8 rounded-lg border border-gray-200 w-80">
               <h1 class="m-0 mb-4 text-xl text-center font-bold">Lists Admin</h1>
-              <p class="text-red-600 text-sm mb-3 text-center">Invalid password.</p>
+              <p class="text-red-600 text-sm mb-3 text-center">{message}</p>
               <form method="post" action="/admin/login">
+                <input
+                  type="email"
+                  name="email"
+                  placeholder="Email"
+                  required
+                  autofocus
+                  class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-4 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 box-border"
+                />
                 <input
                   type="password"
                   name="password"
                   placeholder="Password"
                   required
-                  autofocus
                   class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-4 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 box-border"
                 />
                 <button type="submit" class="w-full px-3 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none">
@@ -173,9 +189,21 @@ export function adminRoutes(db: Db, config: Config) {
         </html>,
         401,
       );
-    }
 
-    const token = createSession();
+    if (!email || !password) return renderError("Email and password are required.");
+
+    const user = db
+      .select()
+      .from(schema.users)
+      .where(eq(schema.users.email, email))
+      .get();
+
+    if (!user) return renderError("Invalid email or password.");
+
+    const valid = await Bun.password.verify(password, user.passwordHash);
+    if (!valid) return renderError("Invalid email or password.");
+
+    const token = createSession(user.id);
     setCookie(c, "session", token, {
       path: "/",
       httpOnly: true,
@@ -196,7 +224,7 @@ export function adminRoutes(db: Db, config: Config) {
 
   // ---- Protected ---------------------------------------------------------
 
-  app.use("/*", adminAuth(config.authPassword));
+  app.use("/*", adminAuth(db));
 
   // Dashboard
   app.get("/", (c) => {

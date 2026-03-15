@@ -26,12 +26,13 @@ const testConfig: Config = {
   awsRegion: "us-east-1",
   sqsQueueUrl: "https://sqs.us-east-1.amazonaws.com/123/test-queue",
   s3Bucket: "test-bucket",
-  authPassword: "test-password",
   apiToken: "test-token",
   dbPath: ":memory:",
   fromDomain: "example.com",
   baseUrl: "http://localhost:8080",
   sesConfigSet: "test-config-set",
+  ownerEmail: "",
+  ownerPassword: "",
 };
 
 beforeEach(() => {
