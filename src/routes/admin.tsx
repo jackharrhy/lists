@@ -54,6 +54,7 @@ function AdminLayout({
             <a href="/admin/campaigns" class="text-gray-400 text-sm no-underline hover:text-white">Campaigns</a>
             <a href="/admin/inbound" class="text-gray-400 text-sm no-underline hover:text-white">Inbound</a>
             <a href="/admin/activity" class="text-gray-400 text-sm no-underline hover:text-white">Activity</a>
+            <a href="/admin/import" class="text-gray-400 text-sm no-underline hover:text-white">Import</a>
             {isAdmin && (
               <a href="/admin/users" class="text-gray-400 text-sm no-underline hover:text-white">Users</a>
             )}
@@ -2094,6 +2095,293 @@ export function adminRoutes(db: Db, config: Config) {
             );
           })}
           {recentEvents.length === 0 && <p class="text-gray-400">No events yet.</p>}
+        </div>
+      </AdminLayout>,
+    );
+  });
+
+  // CSV Import
+  function parseCSV(text: string): string[][] {
+    const rows: string[][] = [];
+    const lines = text.split(/\r?\n/).filter((l) => l.trim());
+    for (const line of lines) {
+      const row: string[] = [];
+      let current = "";
+      let inQuotes = false;
+      for (const char of line) {
+        if (char === '"') {
+          inQuotes = !inQuotes;
+        } else if (char === "," && !inQuotes) {
+          row.push(current.trim());
+          current = "";
+        } else {
+          current += char;
+        }
+      }
+      row.push(current.trim());
+      rows.push(row);
+    }
+    return rows;
+  }
+
+  app.get("/import", (c) => {
+    const user = c.get("user") as User;
+    return c.html(
+      <AdminLayout title="Import Subscribers" user={user}>
+        <h1 class="text-2xl font-bold mt-0 mb-4">Import Subscribers</h1>
+        <div class="bg-white border border-gray-200 rounded-lg p-5 mb-6">
+          <form method="post" action="/admin/import/upload" enctype="multipart/form-data">
+            <div class="mb-4">
+              <label for="csv" class="block text-sm font-medium text-gray-700 mb-1">CSV File</label>
+              <input
+                type="file"
+                id="csv"
+                name="csv"
+                accept=".csv"
+                required
+                class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              />
+            </div>
+            <button
+              type="submit"
+              class="inline-block px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none no-underline"
+            >
+              Upload CSV
+            </button>
+          </form>
+        </div>
+      </AdminLayout>,
+    );
+  });
+
+  app.post("/import/upload", async (c) => {
+    const user = c.get("user") as User;
+    const body = await c.req.parseBody();
+    const file = body["csv"];
+
+    if (!file || typeof file === "string") {
+      return c.redirect("/admin/import");
+    }
+
+    const text = await (file as File).text();
+    const allRows = parseCSV(text);
+
+    if (allRows.length < 2) {
+      return c.html(
+        <AdminLayout title="Import Subscribers" user={user}>
+          <h1 class="text-2xl font-bold mt-0 mb-4">Import Subscribers</h1>
+          <div class="bg-red-100 border border-red-300 text-red-800 px-4 py-3 rounded-md mb-4 text-sm">
+            CSV file must contain a header row and at least one data row.
+          </div>
+          <a href="/admin/import" class="text-blue-600 hover:text-blue-800">Back to Import</a>
+        </AdminLayout>,
+      );
+    }
+
+    const headers = allRows[0]!;
+    const dataRows = allRows.slice(1);
+    const previewRows = dataRows.slice(0, 5);
+
+    // Auto-detect column mappings
+    const autoMappings = headers.map((h) => {
+      const lower = h.toLowerCase();
+      if (lower.includes("email") || lower.includes("mail")) return "email";
+      if (lower.includes("name")) return "name";
+      return "ignore";
+    });
+
+    // Get accessible lists
+    const listAccess = getAccessibleListIds(db, user);
+    let allLists: (typeof schema.lists.$inferSelect)[];
+    if (listAccess === "all") {
+      allLists = db.select().from(schema.lists).all();
+    } else if (listAccess.length === 0) {
+      allLists = [];
+    } else {
+      allLists = db.select().from(schema.lists).where(inArray(schema.lists.id, listAccess)).all();
+    }
+
+    return c.html(
+      <AdminLayout title="Map Columns" user={user}>
+        <h1 class="text-2xl font-bold mt-0 mb-4">Map Columns</h1>
+        <form method="post" action="/admin/import/process">
+          <div class="bg-white border border-gray-200 rounded-lg p-5 mb-6 overflow-x-auto">
+            <table class="w-full bg-white rounded-lg overflow-hidden mb-4 text-sm">
+              <thead>
+                <tr>
+                  {headers.map((_, i) => (
+                    <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">
+                      <select
+                        name={`col_${i}`}
+                        class="w-full px-2 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      >
+                        <option value="ignore" selected={autoMappings[i] === "ignore"}>Ignore</option>
+                        <option value="email" selected={autoMappings[i] === "email"}>Email</option>
+                        <option value="name" selected={autoMappings[i] === "name"}>Name</option>
+                      </select>
+                    </th>
+                  ))}
+                </tr>
+                <tr>
+                  {headers.map((h) => (
+                    <th class="bg-gray-50 px-4 py-2 text-left text-xs font-medium text-gray-700 border-b border-gray-200">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {previewRows.map((row) => (
+                  <tr>
+                    {headers.map((_, i) => (
+                      <td class="px-4 py-2 border-b border-gray-100 text-sm">{row[i] ?? ""}</td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {dataRows.length > 5 && (
+              <p class="text-sm text-gray-500">Showing 5 of {dataRows.length} rows.</p>
+            )}
+          </div>
+
+          {allLists.length > 0 && (
+            <div class="bg-white border border-gray-200 rounded-lg p-5 mb-6">
+              <p class="text-sm font-medium text-gray-700 mb-2">Import to lists</p>
+              {allLists.map((list) => (
+                <label class="flex items-center gap-2 text-sm text-gray-800 mb-1">
+                  <input type="checkbox" name="lists" value={list.slug} />
+                  {list.name}
+                </label>
+              ))}
+            </div>
+          )}
+
+          <div class="bg-white border border-gray-200 rounded-lg p-5 mb-6">
+            <label class="flex items-center gap-2 text-sm font-medium text-gray-700">
+              <input type="checkbox" name="preconfirm" value="1" />
+              Pre-confirm subscribers (skip double opt-in)
+            </label>
+          </div>
+
+          <input type="hidden" name="csvData" value={JSON.stringify(dataRows)} />
+          <input type="hidden" name="headers" value={JSON.stringify(headers)} />
+
+          <button
+            type="submit"
+            class="inline-block px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none no-underline"
+          >
+            Import {dataRows.length} subscribers
+          </button>
+        </form>
+      </AdminLayout>,
+    );
+  });
+
+  app.post("/import/process", async (c) => {
+    const user = c.get("user") as User;
+    const body = await c.req.parseBody({ all: true });
+
+    let dataRows: string[][];
+    let headers: string[];
+    try {
+      dataRows = JSON.parse(body["csvData"] as string);
+      headers = JSON.parse(body["headers"] as string);
+    } catch {
+      return c.redirect("/admin/import");
+    }
+
+    // Determine column mappings
+    let emailCol = -1;
+    let nameCol = -1;
+    for (let i = 0; i < headers.length; i++) {
+      const mapping = body[`col_${i}`] as string;
+      if (mapping === "email") emailCol = i;
+      if (mapping === "name") nameCol = i;
+    }
+
+    if (emailCol === -1) {
+      return c.html(
+        <AdminLayout title="Import Error" user={user}>
+          <h1 class="text-2xl font-bold mt-0 mb-4">Import Error</h1>
+          <div class="bg-red-100 border border-red-300 text-red-800 px-4 py-3 rounded-md mb-4 text-sm">
+            No column mapped to "email". Please go back and map at least one column as email.
+          </div>
+          <a href="/admin/import" class="text-blue-600 hover:text-blue-800">Back to Import</a>
+        </AdminLayout>,
+      );
+    }
+
+    // Get list slugs
+    let listSlugs: string[] = [];
+    if (body["lists"]) {
+      listSlugs = Array.isArray(body["lists"])
+        ? (body["lists"] as string[])
+        : [body["lists"] as string];
+    }
+
+    const preconfirm = body["preconfirm"] === "1";
+
+    let imported = 0;
+    let skipped = 0;
+    let errors = 0;
+
+    for (const row of dataRows) {
+      const email = (row[emailCol] ?? "").trim().toLowerCase();
+      if (!email || !email.includes("@")) {
+        errors++;
+        continue;
+      }
+
+      const name = nameCol >= 0 ? (row[nameCol] ?? "").trim() || null : null;
+
+      try {
+        // Check if subscriber already exists before creating
+        const existingBefore = db
+          .select()
+          .from(schema.subscribers)
+          .where(eq(schema.subscribers.email, email))
+          .get();
+
+        const subscriber = createSubscriber(db, email, name, listSlugs);
+
+        if (existingBefore) {
+          skipped++;
+        } else {
+          imported++;
+        }
+
+        if (preconfirm) {
+          confirmSubscriber(db, subscriber.unsubscribeToken);
+        }
+      } catch {
+        errors++;
+      }
+    }
+
+    logEvent(db, {
+      type: "admin.import_completed",
+      detail: `Imported ${imported}, skipped ${skipped}, errors ${errors}`,
+      userId: user.id,
+    });
+
+    return c.html(
+      <AdminLayout title="Import Complete" user={user}>
+        <h1 class="text-2xl font-bold mt-0 mb-4">Import Complete</h1>
+        <div class="bg-white border border-gray-200 rounded-lg p-5 mb-6">
+          <div class="flex gap-4 mb-4">
+            <div class="inline-flex flex-col items-center bg-green-50 border border-green-200 rounded-lg px-6 py-4 min-w-[120px] text-center">
+              <span class="text-3xl font-bold text-green-600">{imported}</span>
+              <span class="text-xs text-gray-500 uppercase tracking-wide">Imported</span>
+            </div>
+            <div class="inline-flex flex-col items-center bg-amber-50 border border-amber-200 rounded-lg px-6 py-4 min-w-[120px] text-center">
+              <span class="text-3xl font-bold text-amber-600">{skipped}</span>
+              <span class="text-xs text-gray-500 uppercase tracking-wide">Skipped</span>
+            </div>
+            <div class="inline-flex flex-col items-center bg-red-50 border border-red-200 rounded-lg px-6 py-4 min-w-[120px] text-center">
+              <span class="text-3xl font-bold text-red-600">{errors}</span>
+              <span class="text-xs text-gray-500 uppercase tracking-wide">Errors</span>
+            </div>
+          </div>
+          <a href="/admin/subscribers" class="text-blue-600 hover:text-blue-800">View subscribers</a>
         </div>
       </AdminLayout>,
     );
