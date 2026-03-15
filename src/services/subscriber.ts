@@ -26,7 +26,7 @@ export function createSubscriber(
 
     logEvent(db, {
       type: "subscriber.created",
-      detail: `Subscriber ${normalized} created`,
+      detail: `${normalized} subscribed to: ${listSlugs.join(", ")}`,
       subscriberId: subscriber.id,
     });
   }
@@ -57,26 +57,50 @@ export function confirmSubscriber(db: Db, token: string): boolean {
   const subscriber = db.select().from(schema.subscribers).where(eq(schema.subscribers.unsubscribeToken, token)).get();
   if (!subscriber) return false;
 
-  db.update(schema.subscribers)
-    .set({ confirmedAt: new Date().toISOString() })
-    .where(eq(schema.subscribers.id, subscriber.id))
-    .run();
-
-  db.update(schema.subscriberLists)
-    .set({ status: "confirmed" })
+  // find which lists are being confirmed
+  const unconfirmedSubs = db
+    .select({ listId: schema.subscriberLists.listId })
+    .from(schema.subscriberLists)
     .where(
       and(
         eq(schema.subscriberLists.subscriberId, subscriber.id),
         eq(schema.subscriberLists.status, "unconfirmed"),
       ),
     )
-    .run();
+    .all();
 
-  logEvent(db, {
-    type: "subscriber.confirmed",
-    detail: `Subscriber ${subscriber.email} confirmed`,
-    subscriberId: subscriber.id,
-  });
+  if (!subscriber.confirmedAt) {
+    db.update(schema.subscribers)
+      .set({ confirmedAt: new Date().toISOString() })
+      .where(eq(schema.subscribers.id, subscriber.id))
+      .run();
+  }
+
+  if (unconfirmedSubs.length > 0) {
+    db.update(schema.subscriberLists)
+      .set({ status: "confirmed" })
+      .where(
+        and(
+          eq(schema.subscriberLists.subscriberId, subscriber.id),
+          eq(schema.subscriberLists.status, "unconfirmed"),
+        ),
+      )
+      .run();
+
+    // get list names for the event
+    const listNames = unconfirmedSubs
+      .map((s) => {
+        const list = db.select().from(schema.lists).where(eq(schema.lists.id, s.listId)).get();
+        return list?.name;
+      })
+      .filter(Boolean);
+
+    logEvent(db, {
+      type: "subscriber.confirmed",
+      detail: `${subscriber.email} confirmed: ${listNames.join(", ")}`,
+      subscriberId: subscriber.id,
+    });
+  }
 
   return true;
 }
@@ -84,6 +108,21 @@ export function confirmSubscriber(db: Db, token: string): boolean {
 export function unsubscribeAll(db: Db, token: string): boolean {
   const subscriber = db.select().from(schema.subscribers).where(eq(schema.subscribers.unsubscribeToken, token)).get();
   if (!subscriber) return false;
+
+  // get list names before unsubscribing
+  const activeSubs = db
+    .select({ listId: schema.subscriberLists.listId })
+    .from(schema.subscriberLists)
+    .where(
+      and(
+        eq(schema.subscriberLists.subscriberId, subscriber.id),
+        eq(schema.subscriberLists.status, "confirmed"),
+      ),
+    )
+    .all();
+  const listNames = activeSubs
+    .map((s) => db.select().from(schema.lists).where(eq(schema.lists.id, s.listId)).get()?.name)
+    .filter(Boolean);
 
   db.update(schema.subscribers)
     .set({ status: "unsubscribed" })
@@ -97,7 +136,7 @@ export function unsubscribeAll(db: Db, token: string): boolean {
 
   logEvent(db, {
     type: "subscriber.unsubscribed",
-    detail: `Subscriber ${subscriber.email} unsubscribed from all lists`,
+    detail: `${subscriber.email} unsubscribed from: ${listNames.length > 0 ? listNames.join(", ") : "all lists"}`,
     subscriberId: subscriber.id,
   });
 
