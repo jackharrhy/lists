@@ -11,26 +11,50 @@ import {
 } from "../compliance";
 import { renderNewsletter } from "../../emails/render";
 
+function stripHtmlToText(html: string): string {
+  return html
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n\n")
+    .replace(/<\/div>/gi, "\n")
+    .replace(/<\/h[1-6]>/gi, "\n\n")
+    .replace(/<li>/gi, "- ")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 function buildRawEmail({
   from,
   to,
   subject,
   html,
+  fromDomain,
   headers,
 }: {
   from: string;
   to: string;
   subject: string;
   html: string;
+  fromDomain: string;
   headers: Record<string, string>;
 }): string {
   const boundary = `----=_Part_${Date.now().toString(36)}`;
+  const messageId = `<${crypto.randomUUID()}@${fromDomain}>`;
+  const text = stripHtmlToText(html);
 
   const headerLines = [
     `From: ${from}`,
     `To: ${to}`,
     `Subject: ${subject}`,
     `MIME-Version: 1.0`,
+    `Message-ID: ${messageId}`,
+    `Date: ${new Date().toUTCString()}`,
   ];
 
   for (const [key, value] of Object.entries(headers)) {
@@ -40,6 +64,11 @@ function buildRawEmail({
   headerLines.push(`Content-Type: multipart/alternative; boundary="${boundary}"`);
 
   const body = [
+    `--${boundary}`,
+    `Content-Type: text/plain; charset=UTF-8`,
+    `Content-Transfer-Encoding: 7bit`,
+    ``,
+    text,
     `--${boundary}`,
     `Content-Type: text/html; charset=UTF-8`,
     `Content-Transfer-Encoding: 7bit`,
@@ -110,16 +139,17 @@ export async function sendCampaign(
 
       const replyTo = `${list.slug}@reply.${config.fromDomain}`;
 
-      const rawEmail = buildRawEmail({
-        from: campaign.fromAddress,
-        to: subscriber.email,
-        subject: campaign.subject,
-        html,
-        headers: {
-          ...listUnsubHeaders,
-          "Reply-To": replyTo,
-        },
-      });
+    const rawEmail = buildRawEmail({
+      from: campaign.fromAddress,
+      to: subscriber.email,
+      subject: campaign.subject,
+      html,
+      fromDomain: config.fromDomain,
+      headers: {
+        ...listUnsubHeaders,
+        "Reply-To": replyTo,
+      },
+    });
 
       try {
         const result = await ses.send(
