@@ -1006,7 +1006,7 @@ export function adminRoutes(db: Db, config: Config) {
                 id="fromAddr"
                 name="fromAddr"
                 required
-                value={`reply@${config.fromDomain}`}
+                value={msg.toAddrs.includes(",") ? msg.toAddrs.split(",")[0]!.trim() : msg.toAddrs}
               />
             </div>
             <div class="form-group">
@@ -1026,7 +1026,7 @@ export function adminRoutes(db: Db, config: Config) {
                 id="replySubject"
                 name="subject"
                 required
-                value={`Re: ${msg.subject}`}
+                value={msg.subject.startsWith("Re:") ? msg.subject : `Re: ${msg.subject}`}
               />
             </div>
             <div class="form-group">
@@ -1069,13 +1069,16 @@ export function adminRoutes(db: Db, config: Config) {
       return c.redirect(`/admin/inbound/${id}`);
     }
 
-    const boundary = `----=_Part_${Date.now().toString(36)}`;
     const inReplyTo = msg.messageId;
+    const fromDomain = fromAddr.split("@")[1] ?? config.fromDomain;
+    const messageId = `<${crypto.randomUUID()}@${fromDomain}>`;
     const rawLines = [
       `From: ${fromAddr}`,
       `To: ${toAddr}`,
       `Subject: ${subject}`,
       `MIME-Version: 1.0`,
+      `Message-ID: ${messageId}`,
+      `Date: ${new Date().toUTCString()}`,
       `In-Reply-To: <${inReplyTo}>`,
       `References: <${inReplyTo}>`,
       `Content-Type: text/plain; charset=UTF-8`,
@@ -1093,6 +1096,7 @@ export function adminRoutes(db: Db, config: Config) {
             Data: new TextEncoder().encode(rawEmail),
           },
         },
+        ConfigurationSetName: config.sesConfigSet || undefined,
       }),
     );
 
