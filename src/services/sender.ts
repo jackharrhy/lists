@@ -12,7 +12,7 @@ import {
 import { renderNewsletter } from "../../emails/render";
 import { logEvent } from "./events";
 
-function buildRawEmail({
+export function buildRawEmail({
   from,
   to,
   subject,
