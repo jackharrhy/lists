@@ -54,6 +54,7 @@ export function publicRoutes(db: Db, config: Config) {
         </p>
 
         {domains.length > 0 ? (
+          <>
           <details class="mb-6">
             <summary class="cursor-pointer text-sm font-medium text-blue-600 hover:text-blue-800 select-none">
               Subscribe to a list
@@ -88,7 +89,7 @@ export function publicRoutes(db: Db, config: Config) {
                   )}
                   {lists.map((list) => (
                     <label class="flex items-start gap-2 text-sm text-gray-800">
-                      <input type="checkbox" name="lists" value={list.slug} class="rounded mt-0.5" />
+                      <input type="checkbox" name="lists" value={list.slug} data-domain={list.fromDomain} class="rounded mt-0.5" />
                       <span>
                         <span class="font-medium">{list.name}</span>
                         {list.description ? <span class="text-gray-500"> - {list.description}</span> : ""}
@@ -99,7 +100,7 @@ export function publicRoutes(db: Db, config: Config) {
               ))}
 
               {multipleDomains && (
-                <p class="text-xs text-gray-400">
+                <p id="multi-domain-hint" class="text-xs text-gray-400 hidden">
                   Selecting lists from different domains will send a separate confirmation email for each.
                 </p>
               )}
@@ -112,6 +113,20 @@ export function publicRoutes(db: Db, config: Config) {
               </button>
             </form>
           </details>
+          {multipleDomains && (
+            <script dangerouslySetInnerHTML={{ __html: `
+              document.querySelectorAll('input[name="lists"]').forEach(function(cb) {
+                cb.addEventListener('change', function() {
+                  var checked = document.querySelectorAll('input[name="lists"]:checked');
+                  var domains = new Set();
+                  checked.forEach(function(el) { domains.add(el.dataset.domain); });
+                  var hint = document.getElementById('multi-domain-hint');
+                  if (hint) hint.classList.toggle('hidden', domains.size < 2);
+                });
+              });
+            `}} />
+          )}
+        </>
         ) : (
           <p class="text-gray-400 text-sm">No lists yet.</p>
         )}
