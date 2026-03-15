@@ -769,6 +769,13 @@ export function adminRoutes(db: Db, config: Config) {
       .where(eq(schema.campaignSends.campaignId, id))
       .all();
 
+    const inboundReplies = db
+      .select()
+      .from(schema.inboundMessages)
+      .where(eq(schema.inboundMessages.campaignId, id))
+      .orderBy(desc(schema.inboundMessages.createdAt))
+      .all();
+
     const htmlContent = await marked(campaign.bodyMarkdown);
 
     return c.html(
@@ -842,6 +849,32 @@ export function adminRoutes(db: Db, config: Config) {
                     <td>{send.status}</td>
                     <td>{fmtDateTime(send.sentAt)}</td>
                     <td style="font-size:0.75rem">{send.sesMessageId ?? "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </>
+        )}
+
+        {inboundReplies.length > 0 && (
+          <>
+            <h2>Replies ({inboundReplies.length})</h2>
+            <table>
+              <thead>
+                <tr>
+                  <th>From</th>
+                  <th>Subject</th>
+                  <th>Received</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {inboundReplies.map((r) => (
+                  <tr>
+                    <td>{r.source}</td>
+                    <td>{r.subject}</td>
+                    <td>{fmtDateTime(r.createdAt)}</td>
+                    <td><a href={`/admin/inbound/${r.id}`}>View</a></td>
                   </tr>
                 ))}
               </tbody>

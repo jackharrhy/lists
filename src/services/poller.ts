@@ -3,7 +3,7 @@ import {
   ReceiveMessageCommand,
   DeleteMessageCommand,
 } from "@aws-sdk/client-sqs";
-import { eq } from "drizzle-orm";
+import { eq, desc, and } from "drizzle-orm";
 import type { Config } from "../config";
 import type { Db } from "../db";
 import { schema } from "../db";
@@ -53,8 +53,38 @@ export async function startPoller(db: Db, config: Config) {
             payload.action.objectKey ||
             payload.action.objectKeyPrefix + payload.messageId;
 
-          await db
-            .insert(schema.inboundMessages)
+          // try to match inbound to a campaign via reply-to address
+          // campaign sends use Reply-To: {list.slug}@reply.{domain}
+          let campaignId: number | null = null;
+          for (const toAddr of payload.to) {
+            const match = toAddr.match(/^([^@]+)@reply\./);
+            if (!match) continue;
+            const slug = match[1];
+            const list = db
+              .select()
+              .from(schema.lists)
+              .where(eq(schema.lists.slug, slug!))
+              .get();
+            if (!list) continue;
+            // find the most recent sent campaign for this list
+            const campaign = db
+              .select()
+              .from(schema.campaigns)
+              .where(
+                and(
+                  eq(schema.campaigns.listId, list.id),
+                  eq(schema.campaigns.status, "sent"),
+                ),
+              )
+              .orderBy(desc(schema.campaigns.sentAt))
+              .get();
+            if (campaign) {
+              campaignId = campaign.id;
+              break;
+            }
+          }
+
+          db.insert(schema.inboundMessages)
             .values({
               messageId: payload.messageId,
               timestamp: payload.timestamp,
@@ -68,13 +98,14 @@ export async function startPoller(db: Db, config: Config) {
               dkimVerdict: payload.dkimVerdict,
               dmarcVerdict: payload.dmarcVerdict,
               s3Key,
+              campaignId,
             })
             .onConflictDoNothing({
               target: schema.inboundMessages.messageId,
             });
 
           console.log(
-            `Stored inbound message ${payload.messageId} from ${payload.source} (${payload.subject})`,
+            `Stored inbound message ${payload.messageId} from ${payload.source} (${payload.subject})${campaignId ? ` [campaign ${campaignId}]` : ""}`,
           );
 
           await sqs.send(
