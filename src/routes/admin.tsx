@@ -1296,6 +1296,9 @@ export function adminRoutes(db: Db, config: Config) {
       allLists = db.select().from(schema.lists).where(inArray(schema.lists.id, listAccess)).all();
     }
 
+    const allTags = db.select().from(schema.tags).all();
+    const allSubscribers = db.select().from(schema.subscribers).where(eq(schema.subscribers.status, "active")).all();
+
     return c.html(
       <AdminLayout title="New Campaign" user={user}>
         <h1 class="text-2xl font-bold mt-0 mb-4">New Campaign</h1>
@@ -1304,10 +1307,19 @@ export function adminRoutes(db: Db, config: Config) {
             <div class="bg-white border border-gray-200 rounded-lg p-5 mb-6">
               <form method="post" action="/admin/campaigns/new">
                 <div class="mb-4">
-                  <label for="listId" class="block text-sm font-medium text-gray-700 mb-1">List</label>
-                  <select id="listId" name="listId" required class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                    <option value="">Select a list...</option>
+                  <label for="audienceMode" class="block text-sm font-medium text-gray-700 mb-1">Audience</label>
+                  <select id="audienceMode" name="audienceMode" required class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                    <option value="list">A list</option>
                     <option value="all">All subscribers</option>
+                    <option value="tag">A tag</option>
+                    <option value="specific">Specific people</option>
+                  </select>
+                </div>
+
+                <div data-audience="list" class="mb-4">
+                  <label for="listId" class="block text-sm font-medium text-gray-700 mb-1">List</label>
+                  <select id="listId" name="listId" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                    <option value="">Select a list...</option>
                     {allLists.map((list) => (
                       <option value={String(list.id)} data-from-address={list.fromAddress}>
                         {list.name} ({list.slug})
@@ -1315,6 +1327,25 @@ export function adminRoutes(db: Db, config: Config) {
                     ))}
                   </select>
                 </div>
+
+                <div data-audience="tag" class="mb-4 hidden">
+                  <label for="tagId" class="block text-sm font-medium text-gray-700 mb-1">Tag</label>
+                  <select id="tagId" name="tagId" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                    <option value="">Select a tag...</option>
+                    {allTags.map((tag) => (
+                      <option value={String(tag.id)}>{tag.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div data-audience="specific" class="mb-4 hidden">
+                  <label class="block text-sm font-medium text-gray-700 mb-1">Subscribers</label>
+                  <input type="text" id="subscriberSearch" placeholder="Search by email or name..." class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm mb-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+                  <div id="searchResults" class="border border-gray-200 rounded-md max-h-40 overflow-y-auto hidden"></div>
+                  <div id="selectedSubscribers" class="flex flex-wrap gap-2 mt-2"></div>
+                  <input type="hidden" name="subscriberIds" id="subscriberIds" />
+                </div>
+
                 <div class="mb-4">
                   <label for="fromAddress" class="block text-sm font-medium text-gray-700 mb-1">From Address</label>
                   <input
@@ -1326,20 +1357,6 @@ export function adminRoutes(db: Db, config: Config) {
                     class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   />
                 </div>
-                <script dangerouslySetInnerHTML={{ __html: `
-                  (function() {
-                    var lastDefault = '';
-                    document.getElementById('listId').addEventListener('change', function() {
-                      var opt = this.options[this.selectedIndex];
-                      var addr = (this.value === 'all') ? '' : (opt.dataset.fromAddress || '');
-                      var input = document.getElementById('fromAddress');
-                      if (!input.value || input.value === lastDefault) {
-                        input.value = addr;
-                      }
-                      lastDefault = addr;
-                    });
-                  })();
-                `}} />
                 <div class="mb-4">
                   <label for="subject" class="block text-sm font-medium text-gray-700 mb-1">Subject</label>
                   <input type="text" id="subject" name="subject" required placeholder="Campaign subject" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
@@ -1359,8 +1376,76 @@ export function adminRoutes(db: Db, config: Config) {
             </div>
           </div>
         </div>
+        <script dangerouslySetInnerHTML={{ __html: `var subscribers = ${JSON.stringify(allSubscribers.map(s => ({ id: s.id, email: s.email, name: s.name })))};` }} />
         <script dangerouslySetInnerHTML={{ __html: `
           (function() {
+            // Mode switching
+            var mode = document.getElementById('audienceMode');
+            mode.addEventListener('change', function() {
+              document.querySelectorAll('[data-audience]').forEach(function(el) { el.classList.add('hidden'); });
+              var target = document.querySelector('[data-audience="' + this.value + '"]');
+              if (target) target.classList.remove('hidden');
+            });
+
+            // From address auto-fill: only for list mode
+            var lastDefault = '';
+            var listSelect = document.getElementById('listId');
+            if (listSelect) {
+              listSelect.addEventListener('change', function() {
+                var opt = this.options[this.selectedIndex];
+                var addr = opt.dataset.fromAddress || '';
+                var input = document.getElementById('fromAddress');
+                if (!input.value || input.value === lastDefault) input.value = addr;
+                lastDefault = addr;
+              });
+            }
+
+            // Subscriber picker
+            var selected = new Set();
+            var search = document.getElementById('subscriberSearch');
+            var results = document.getElementById('searchResults');
+            var chips = document.getElementById('selectedSubscribers');
+            var hidden = document.getElementById('subscriberIds');
+
+            function render() {
+              chips.innerHTML = '';
+              selected.forEach(function(id) {
+                var sub = subscribers.find(function(s) { return s.id === id; });
+                if (!sub) return;
+                var chip = document.createElement('span');
+                chip.className = 'inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800';
+                chip.textContent = sub.email;
+                var btn = document.createElement('button');
+                btn.type = 'button';
+                btn.textContent = '\\u00d7';
+                btn.className = 'ml-1 text-blue-600 hover:text-blue-800 cursor-pointer';
+                btn.onclick = function() { selected.delete(id); render(); };
+                chip.appendChild(btn);
+                chips.appendChild(chip);
+              });
+              hidden.value = Array.from(selected).join(',');
+            }
+
+            if (search) {
+              search.addEventListener('input', function() {
+                var q = this.value.toLowerCase();
+                if (!q) { results.classList.add('hidden'); return; }
+                var matches = subscribers.filter(function(s) {
+                  return !selected.has(s.id) && (s.email.toLowerCase().includes(q) || (s.name || '').toLowerCase().includes(q));
+                }).slice(0, 10);
+                results.innerHTML = '';
+                matches.forEach(function(s) {
+                  var div = document.createElement('div');
+                  div.className = 'px-3 py-2 cursor-pointer hover:bg-gray-50 text-sm';
+                  div.textContent = s.email + (s.name ? ' (' + s.name + ')' : '');
+                  div.onclick = function() { selected.add(s.id); search.value = ''; results.classList.add('hidden'); render(); };
+                  results.appendChild(div);
+                });
+                results.classList.toggle('hidden', matches.length === 0);
+              });
+            }
+
+            // Preview
             var timer;
             var textarea = document.getElementById('bodyMarkdown');
             var subject = document.getElementById('subject');
@@ -1399,14 +1484,31 @@ export function adminRoutes(db: Db, config: Config) {
   app.post("/campaigns/new", async (c) => {
     const user = c.get("user") as User;
     const body = await c.req.parseBody();
-    const rawListId = String(body["listId"] ?? "");
-    const isAll = rawListId === "all";
-    const listId = isAll ? null : Number(rawListId);
     const fromAddress = String(body["fromAddress"] ?? "").trim();
     const subject = String(body["subject"] ?? "").trim();
     const bodyMarkdown = String(body["bodyMarkdown"] ?? "");
 
-    if ((!isAll && !listId) || !fromAddress || !subject || !bodyMarkdown) {
+    const audienceMode = String(body["audienceMode"] ?? "list");
+    let listId: number | null = null;
+    let audience: string | null = null;
+
+    if (audienceMode === "list") {
+      const rawListId = body["listId"];
+      if (!rawListId) return c.redirect("/admin/campaigns/new");
+      listId = Number(rawListId);
+    } else if (audienceMode === "all") {
+      audience = JSON.stringify({ type: "all" });
+    } else if (audienceMode === "tag") {
+      const tagId = Number(body["tagId"]);
+      if (!tagId) return c.redirect("/admin/campaigns/new");
+      audience = JSON.stringify({ type: "tag", tagId });
+    } else if (audienceMode === "specific") {
+      const ids = String(body["subscriberIds"] ?? "").split(",").map(Number).filter(Boolean);
+      if (ids.length === 0) return c.redirect("/admin/campaigns/new");
+      audience = JSON.stringify({ type: "subscribers", subscriberIds: ids });
+    }
+
+    if (!fromAddress || !subject || !bodyMarkdown) {
       return c.redirect("/admin/campaigns/new");
     }
 
@@ -1420,7 +1522,7 @@ export function adminRoutes(db: Db, config: Config) {
 
     const result = db
       .insert(schema.campaigns)
-      .values({ listId, fromAddress, subject, bodyMarkdown })
+      .values({ listId, audience, fromAddress, subject, bodyMarkdown })
       .returning({ id: schema.campaigns.id })
       .get();
 
