@@ -11,6 +11,7 @@ import type { Config } from "../config";
 import { adminAuth, createSession, destroySession } from "../auth";
 import { sendCampaign } from "../services/sender";
 import { createSubscriber, confirmSubscriber } from "../services/subscriber";
+import { logEvent } from "../services/events";
 
 // ---------------------------------------------------------------------------
 // Layout & components
@@ -222,6 +223,7 @@ function AdminLayout({
             <a href="/admin/lists">Lists</a>
             <a href="/admin/campaigns">Campaigns</a>
             <a href="/admin/inbound">Inbound</a>
+            <a href="/admin/activity">Activity</a>
             <form method="post" action="/admin/logout" style="margin:0">
               <button
                 type="submit"
@@ -584,6 +586,12 @@ export function adminRoutes(db: Db, config: Config) {
       confirmSubscriber(db, subscriber.unsubscribeToken);
     }
 
+    logEvent(db, {
+      type: "admin.subscriber_added",
+      detail: email,
+      subscriberId: subscriber.id,
+    });
+
     return c.redirect("/admin/subscribers");
   });
 
@@ -599,6 +607,27 @@ export function adminRoutes(db: Db, config: Config) {
       .where(eq(schema.subscriberLists.subscriberId, id))
       .all();
     const subListMap = new Map(subLists.map((sl) => [sl.listId, sl.status]));
+
+    const subEvents = db
+      .select()
+      .from(schema.events)
+      .where(eq(schema.events.subscriberId, id))
+      .orderBy(desc(schema.events.createdAt))
+      .limit(50)
+      .all();
+
+    const subSends = db
+      .select({
+        campaignId: schema.campaignSends.campaignId,
+        status: schema.campaignSends.status,
+        sentAt: schema.campaignSends.sentAt,
+        subject: schema.campaigns.subject,
+      })
+      .from(schema.campaignSends)
+      .leftJoin(schema.campaigns, eq(schema.campaignSends.campaignId, schema.campaigns.id))
+      .where(eq(schema.campaignSends.subscriberId, id))
+      .orderBy(desc(schema.campaignSends.sentAt))
+      .all();
 
     return c.html(
       <AdminLayout title={sub.email}>
@@ -654,6 +683,45 @@ export function adminRoutes(db: Db, config: Config) {
           <dt>Unsubscribe token</dt>
           <dd style="font-size:0.75rem;font-family:monospace">{sub.unsubscribeToken}</dd>
         </dl>
+
+        {subSends.length > 0 && (
+          <>
+            <h2>Campaigns received ({subSends.length})</h2>
+            <table>
+              <thead>
+                <tr>
+                  <th>Campaign</th>
+                  <th>Status</th>
+                  <th>Sent</th>
+                </tr>
+              </thead>
+              <tbody>
+                {subSends.map((s) => (
+                  <tr>
+                    <td><a href={`/admin/campaigns/${s.campaignId}`}>{s.subject ?? `Campaign ${s.campaignId}`}</a></td>
+                    <td>{s.status}</td>
+                    <td>{fmtDateTime(s.sentAt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </>
+        )}
+
+        {subEvents.length > 0 && (
+          <>
+            <h2>Activity</h2>
+            <div style="display:flex;flex-direction:column;gap:0.125rem">
+              {subEvents.map((e) => (
+                <div style="display:flex;gap:0.75rem;padding:0.375rem 0;border-bottom:1px solid #f5f5f5;font-size:0.8125rem">
+                  <span style="font-weight:500;min-width:12rem">{e.type}</span>
+                  <span style="color:#555;flex:1">{e.detail}</span>
+                  <span style="color:#999;white-space:nowrap">{fmtDateTime(e.createdAt)}</span>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
 
         <hr style="margin:2rem 0" />
         <form method="post" action={`/admin/subscribers/${id}/delete`} onsubmit="return confirm('Delete this subscriber and all their list subscriptions? This cannot be undone.')">
@@ -728,11 +796,25 @@ export function adminRoutes(db: Db, config: Config) {
       }
     }
 
+    logEvent(db, {
+      type: "admin.subscriber_edited",
+      detail: email,
+      subscriberId: id,
+    });
+
     return c.redirect(`/admin/subscribers/${id}`);
   });
 
   app.post("/subscribers/:id/delete", (c) => {
     const id = Number(c.req.param("id"));
+    const sub = db.select().from(schema.subscribers).where(eq(schema.subscribers.id, id)).get();
+
+    logEvent(db, {
+      type: "admin.subscriber_deleted",
+      detail: sub?.email ?? `id=${id}`,
+      subscriberId: id,
+    });
+
     // delete list subscriptions
     db.delete(schema.subscriberLists)
       .where(eq(schema.subscriberLists.subscriberId, id))
@@ -920,6 +1002,12 @@ export function adminRoutes(db: Db, config: Config) {
       .returning({ id: schema.campaigns.id })
       .get();
 
+    logEvent(db, {
+      type: "admin.campaign_created",
+      detail: subject,
+      campaignId: result.id,
+    });
+
     return c.redirect(`/admin/campaigns/${result.id}`);
   });
 
@@ -1090,6 +1178,14 @@ export function adminRoutes(db: Db, config: Config) {
 
   app.post("/campaigns/:id/delete", (c) => {
     const id = Number(c.req.param("id"));
+    const campaign = db.select().from(schema.campaigns).where(eq(schema.campaigns.id, id)).get();
+
+    logEvent(db, {
+      type: "admin.campaign_deleted",
+      detail: campaign?.subject ?? `id=${id}`,
+      campaignId: id,
+    });
+
     // clear linked inbound messages (unlink, don't delete)
     db.update(schema.inboundMessages)
       .set({ campaignId: null })
@@ -1300,6 +1396,14 @@ export function adminRoutes(db: Db, config: Config) {
 
   app.post("/inbound/:id/delete", (c) => {
     const id = Number(c.req.param("id"));
+    const msg = db.select().from(schema.inboundMessages).where(eq(schema.inboundMessages.id, id)).get();
+
+    logEvent(db, {
+      type: "admin.inbound_deleted",
+      detail: msg?.subject ?? `id=${id}`,
+      inboundMessageId: id,
+    });
+
     // delete replies first (FK)
     db.delete(schema.replies)
       .where(eq(schema.replies.inboundMessageId, id))
@@ -1382,7 +1486,75 @@ export function adminRoutes(db: Db, config: Config) {
       })
       .run();
 
+    logEvent(db, {
+      type: "admin.reply_sent",
+      detail: toAddr,
+      inboundMessageId: id,
+    });
+
     return c.redirect(`/admin/inbound/${id}`);
+  });
+
+  // Activity feed
+  app.get("/activity", (c) => {
+    const recentEvents = db
+      .select()
+      .from(schema.events)
+      .orderBy(desc(schema.events.createdAt))
+      .limit(200)
+      .all();
+
+    function eventIcon(type: string): string {
+      if (type.startsWith("subscriber.")) return "sub";
+      if (type.startsWith("campaign.")) return "cam";
+      if (type.startsWith("inbound.")) return "in";
+      if (type.startsWith("admin.")) return "adm";
+      return "?";
+    }
+
+    function eventColor(type: string): string {
+      if (type.includes("created") || type.includes("added") || type.includes("confirmed")) return "#166534";
+      if (type.includes("deleted") || type.includes("failed")) return "#991b1b";
+      if (type.includes("unsubscribed")) return "#92400e";
+      if (type.includes("sending") || type.includes("sent") || type.includes("reply_sent")) return "#1e40af";
+      if (type.includes("received")) return "#6d28d9";
+      return "#374151";
+    }
+
+    function eventLink(e: typeof recentEvents[number]): string | null {
+      if (e.subscriberId) return `/admin/subscribers/${e.subscriberId}`;
+      if (e.campaignId) return `/admin/campaigns/${e.campaignId}`;
+      if (e.inboundMessageId) return `/admin/inbound/${e.inboundMessageId}`;
+      return null;
+    }
+
+    return c.html(
+      <AdminLayout title="Activity">
+        <h1>Activity</h1>
+        <div style="display:flex;flex-direction:column;gap:0.25rem">
+          {recentEvents.map((e) => {
+            const link = eventLink(e);
+            return (
+              <div style="display:flex;align-items:baseline;gap:0.75rem;padding:0.5rem 0;border-bottom:1px solid #f0f0f0">
+                <span style={`font-size:0.6875rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:${eventColor(e.type)};min-width:2.5rem`}>
+                  {eventIcon(e.type)}
+                </span>
+                <span style="font-size:0.8125rem;font-weight:500;min-width:12rem">
+                  {e.type}
+                </span>
+                <span style="font-size:0.8125rem;color:#555;flex:1">
+                  {link ? <a href={link}>{e.detail}</a> : e.detail}
+                </span>
+                <span style="font-size:0.75rem;color:#999;white-space:nowrap">
+                  {fmtDateTime(e.createdAt)}
+                </span>
+              </div>
+            );
+          })}
+          {recentEvents.length === 0 && <p style="color:#999">No events yet.</p>}
+        </div>
+      </AdminLayout>,
+    );
   });
 
   return app;

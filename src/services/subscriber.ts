@@ -1,6 +1,7 @@
 import { eq, and } from "drizzle-orm";
 import { type Db, schema } from "../db";
 import { generateToken } from "../compliance";
+import { logEvent } from "./events";
 
 export function createSubscriber(
   db: Db,
@@ -22,6 +23,12 @@ export function createSubscriber(
       })
       .returning()
       .get();
+
+    logEvent(db, {
+      type: "subscriber.created",
+      detail: `Subscriber ${normalized} created`,
+      subscriberId: subscriber.id,
+    });
   }
 
   for (const slug of listSlugs) {
@@ -65,6 +72,12 @@ export function confirmSubscriber(db: Db, token: string): boolean {
     )
     .run();
 
+  logEvent(db, {
+    type: "subscriber.confirmed",
+    detail: `Subscriber ${subscriber.email} confirmed`,
+    subscriberId: subscriber.id,
+  });
+
   return true;
 }
 
@@ -81,6 +94,12 @@ export function unsubscribeAll(db: Db, token: string): boolean {
     .set({ status: "unsubscribed" })
     .where(eq(schema.subscriberLists.subscriberId, subscriber.id))
     .run();
+
+  logEvent(db, {
+    type: "subscriber.unsubscribed",
+    detail: `Subscriber ${subscriber.email} unsubscribed from all lists`,
+    subscriberId: subscriber.id,
+  });
 
   return true;
 }
@@ -157,6 +176,13 @@ export function updatePreferences(
       }
     }
   }
+
+  logEvent(db, {
+    type: "subscriber.preferences_updated",
+    detail: `Subscriber ${subscriber.email} updated preferences`,
+    meta: { subscribedListIds },
+    subscriberId: subscriber.id,
+  });
 
   return true;
 }

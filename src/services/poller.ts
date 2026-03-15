@@ -7,6 +7,7 @@ import { eq, desc, and } from "drizzle-orm";
 import type { Config } from "../config";
 import type { Db } from "../db";
 import { schema } from "../db";
+import { logEvent } from "./events";
 
 type SQSPayload = {
   messageId: string;
@@ -105,6 +106,17 @@ export async function startPoller(db: Db, config: Config) {
             .onConflictDoNothing({
               target: schema.inboundMessages.messageId,
             });
+
+          const inserted = db.select().from(schema.inboundMessages).where(eq(schema.inboundMessages.messageId, payload.messageId)).get();
+
+          if (inserted) {
+            logEvent(db, {
+              type: "inbound.received",
+              detail: `Inbound from ${payload.source}: ${payload.subject}`,
+              inboundMessageId: inserted.id,
+              campaignId: campaignId ?? undefined,
+            });
+          }
 
           console.log(
             `Stored inbound message ${payload.messageId} from ${payload.source} (${payload.subject})${campaignId ? ` [campaign ${campaignId}]` : ""}`,

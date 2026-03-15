@@ -10,6 +10,7 @@ import {
   buildListUnsubscribeHeader,
 } from "../compliance";
 import { renderNewsletter } from "../../emails/render";
+import { logEvent } from "./events";
 
 function stripHtmlToText(html: string): string {
   return html
@@ -98,6 +99,12 @@ export async function sendCampaign(
     .set({ status: "sending", lastError: null })
     .where(eq(schema.campaigns.id, campaignId))
     .run();
+
+  logEvent(db, {
+    type: "campaign.sending",
+    detail: `Campaign "${campaign.subject}" started sending`,
+    campaignId,
+  });
 
   try {
     const subscribers = getConfirmedSubscribers(db, list.id);
@@ -192,6 +199,13 @@ export async function sendCampaign(
       .set({ status: "sent", sentAt: new Date().toISOString() })
       .where(eq(schema.campaigns.id, campaignId))
       .run();
+
+    logEvent(db, {
+      type: "campaign.sent",
+      detail: `Campaign "${campaign.subject}" sent`,
+      meta: { subscriberCount: subscribers.length },
+      campaignId,
+    });
   } catch (err) {
     const msg = err instanceof Error
       ? `${err.message}\n${err.stack ?? ""}`
@@ -201,6 +215,13 @@ export async function sendCampaign(
       .set({ status: "failed", lastError: msg })
       .where(eq(schema.campaigns.id, campaignId))
       .run();
+
+    logEvent(db, {
+      type: "campaign.failed",
+      detail: `Campaign "${campaign.subject}" failed: ${msg}`,
+      campaignId,
+    });
+
     throw err;
   }
 }

@@ -118,3 +118,16 @@ export const replies = sqliteTable("replies", {
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
 });
+
+export const events = sqliteTable("events", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  type: text("type").notNull(),
+  detail: text("detail").notNull().default(""),
+  meta: text("meta"), // JSON blob for structured data
+  subscriberId: integer("subscriber_id").references(() => subscribers.id),
+  campaignId: integer("campaign_id").references(() => campaigns.id),
+  inboundMessageId: integer("inbound_message_id").references(() => inboundMessages.id),
+  createdAt: text("created_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+});
