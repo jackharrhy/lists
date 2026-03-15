@@ -1,5 +1,5 @@
 import { SESv2Client, SendEmailCommand } from "@aws-sdk/client-sesv2";
-import { eq, and, isNotNull } from "drizzle-orm";
+import { eq, and, isNotNull, inArray } from "drizzle-orm";
 import { marked } from "marked";
 import type { Config } from "../config";
 import { type Db, schema } from "../db";
@@ -24,6 +24,45 @@ function getAllActiveConfirmedSubscribers(db: Db) {
     .from(schema.subscribers)
     .where(
       and(
+        eq(schema.subscribers.status, "active"),
+        isNotNull(schema.subscribers.confirmedAt),
+      ),
+    )
+    .all();
+}
+
+function getSubscribersByTag(db: Db, tagId: number) {
+  return db
+    .selectDistinct({
+      id: schema.subscribers.id,
+      email: schema.subscribers.email,
+      name: schema.subscribers.name,
+      unsubscribeToken: schema.subscribers.unsubscribeToken,
+    })
+    .from(schema.subscribers)
+    .innerJoin(schema.subscriberTags, eq(schema.subscriberTags.subscriberId, schema.subscribers.id))
+    .where(
+      and(
+        eq(schema.subscriberTags.tagId, tagId),
+        eq(schema.subscribers.status, "active"),
+        isNotNull(schema.subscribers.confirmedAt),
+      ),
+    )
+    .all();
+}
+
+function getSubscribersByIds(db: Db, ids: number[]) {
+  return db
+    .select({
+      id: schema.subscribers.id,
+      email: schema.subscribers.email,
+      name: schema.subscribers.name,
+      unsubscribeToken: schema.subscribers.unsubscribeToken,
+    })
+    .from(schema.subscribers)
+    .where(
+      and(
+        inArray(schema.subscribers.id, ids),
         eq(schema.subscribers.status, "active"),
         isNotNull(schema.subscribers.confirmedAt),
       ),
@@ -112,9 +151,25 @@ export async function sendCampaign(
   });
 
   try {
-    const subscribers = list
-      ? getConfirmedSubscribers(db, list.id)
-      : getAllActiveConfirmedSubscribers(db);
+    let subscribers: { id: number; email: string; name: string | null; unsubscribeToken: string }[];
+    if (list) {
+      subscribers = getConfirmedSubscribers(db, list.id);
+    } else if (campaign.audience) {
+      const aud = JSON.parse(campaign.audience) as { type: string; tagId?: number; subscriberIds?: number[] };
+
+      if (aud.type === "all") {
+        subscribers = getAllActiveConfirmedSubscribers(db);
+      } else if (aud.type === "tag" && aud.tagId) {
+        subscribers = getSubscribersByTag(db, aud.tagId);
+      } else if (aud.type === "subscribers" && aud.subscriberIds) {
+        subscribers = getSubscribersByIds(db, aud.subscriberIds);
+      } else {
+        throw new Error(`Unknown audience type: ${aud.type}`);
+      }
+    } else {
+      // fallback: no list, no audience — shouldn't happen but handle gracefully
+      subscribers = getAllActiveConfirmedSubscribers(db);
+    }
     const contentHtml = await marked(campaign.bodyMarkdown);
     const ses = new SESv2Client({ region: config.awsRegion });
 

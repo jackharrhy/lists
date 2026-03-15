@@ -120,6 +120,16 @@ function fmtDateTime(d: string | null): string {
 export function adminRoutes(db: Db, config: Config) {
   const app = new Hono();
 
+  function describeAudience(campaign: { listId: number | null; audience: string | null }, lists: Map<number, string>, tags: Map<number, string>): string {
+    if (campaign.listId) return lists.get(campaign.listId) ?? "Unknown list";
+    if (!campaign.audience) return "All";
+    const aud = JSON.parse(campaign.audience);
+    if (aud.type === "all") return "All subscribers";
+    if (aud.type === "tag") return `Tag: ${tags.get(aud.tagId) ?? "Unknown"}`;
+    if (aud.type === "subscribers") return `${aud.subscriberIds.length} specific`;
+    return "Unknown";
+  }
+
   // ---- Unprotected -------------------------------------------------------
 
   app.get("/login", (c) => {
@@ -1241,9 +1251,11 @@ export function adminRoutes(db: Db, config: Config) {
         .all();
     }
 
-    // Build a lookup map for list names
+    // Build lookup maps for list and tag names
     const allLists = db.select().from(schema.lists).all();
     const listNameMap = new Map(allLists.map((l) => [l.id, l.name]));
+    const allTags = db.select().from(schema.tags).all();
+    const tagNameMap = new Map(allTags.map((t) => [t.id, t.name]));
 
     return c.html(
       <AdminLayout title="Campaigns" user={user}>
@@ -1257,7 +1269,7 @@ export function adminRoutes(db: Db, config: Config) {
           <thead>
             <tr>
               <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Subject</th>
-              <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">List</th>
+              <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Audience</th>
               <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">From</th>
               <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Status</th>
               <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Created</th>
@@ -1269,7 +1281,7 @@ export function adminRoutes(db: Db, config: Config) {
                 <td class="px-4 py-3 border-b border-gray-100">
                   <a href={`/admin/campaigns/${cam.id}`} class="text-blue-600 hover:text-blue-800">{cam.subject}</a>
                 </td>
-                <td class="px-4 py-3 border-b border-gray-100">{cam.listId ? (listNameMap.get(cam.listId) ?? "Unknown") : "All"}</td>
+                <td class="px-4 py-3 border-b border-gray-100">{describeAudience(cam, listNameMap, tagNameMap)}</td>
                 <td class="px-4 py-3 border-b border-gray-100">{cam.fromAddress}</td>
                 <td class="px-4 py-3 border-b border-gray-100">
                   <CampaignBadge status={cam.status} />
@@ -1552,6 +1564,13 @@ export function adminRoutes(db: Db, config: Config) {
       ? db.select().from(schema.lists).where(eq(schema.lists.id, campaign.listId)).get()
       : null;
 
+    // Build lookup maps for audience description
+    const detailLists = db.select().from(schema.lists).all();
+    const detailListMap = new Map(detailLists.map((l) => [l.id, l.name]));
+    const detailTags = db.select().from(schema.tags).all();
+    const detailTagMap = new Map(detailTags.map((t) => [t.id, t.name]));
+    const audienceDesc = describeAudience(campaign, detailListMap, detailTagMap);
+
     const sends = db
       .select()
       .from(schema.campaignSends)
@@ -1565,10 +1584,59 @@ export function adminRoutes(db: Db, config: Config) {
       .orderBy(desc(schema.inboundMessages.createdAt))
       .all();
 
-    // Get subscribers for preview picker
+    // Get subscribers for preview picker based on audience
     let previewSubscribers: { id: number; email: string }[];
     if (campaign.listId) {
       previewSubscribers = getConfirmedSubscribers(db, campaign.listId);
+    } else if (campaign.audience) {
+      const aud = JSON.parse(campaign.audience) as { type: string; tagId?: number; subscriberIds?: number[] };
+      if (aud.type === "tag" && aud.tagId) {
+        previewSubscribers = db
+          .selectDistinct({
+            id: schema.subscribers.id,
+            email: schema.subscribers.email,
+          })
+          .from(schema.subscribers)
+          .innerJoin(schema.subscriberTags, eq(schema.subscriberTags.subscriberId, schema.subscribers.id))
+          .where(
+            and(
+              eq(schema.subscriberTags.tagId, aud.tagId),
+              eq(schema.subscribers.status, "active"),
+              isNotNull(schema.subscribers.confirmedAt),
+            ),
+          )
+          .all();
+      } else if (aud.type === "subscribers" && aud.subscriberIds) {
+        previewSubscribers = db
+          .select({
+            id: schema.subscribers.id,
+            email: schema.subscribers.email,
+          })
+          .from(schema.subscribers)
+          .where(
+            and(
+              inArray(schema.subscribers.id, aud.subscriberIds),
+              eq(schema.subscribers.status, "active"),
+              isNotNull(schema.subscribers.confirmedAt),
+            ),
+          )
+          .all();
+      } else {
+        // "all" type or unknown — get all active confirmed
+        previewSubscribers = db
+          .selectDistinct({
+            id: schema.subscribers.id,
+            email: schema.subscribers.email,
+          })
+          .from(schema.subscribers)
+          .where(
+            and(
+              eq(schema.subscribers.status, "active"),
+              isNotNull(schema.subscribers.confirmedAt),
+            ),
+          )
+          .all();
+      }
     } else {
       previewSubscribers = db
         .selectDistinct({
@@ -1591,7 +1659,7 @@ export function adminRoutes(db: Db, config: Config) {
         <div class="flex gap-4 items-center mb-4">
           <CampaignBadge status={campaign.status} />
           <span class="text-sm text-gray-500">
-            List: {list?.name ?? (campaign.listId ? "Unknown" : "All subscribers")} &middot; From: {campaign.fromAddress}
+            Audience: {audienceDesc} &middot; From: {campaign.fromAddress}
           </span>
         </div>
 
