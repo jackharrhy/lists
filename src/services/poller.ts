@@ -105,7 +105,8 @@ export async function startPoller(db: Db, config: Config) {
             })
             .onConflictDoNothing({
               target: schema.inboundMessages.messageId,
-            });
+            })
+            .run();
 
           const inserted = db.select().from(schema.inboundMessages).where(eq(schema.inboundMessages.messageId, payload.messageId)).get();
 
