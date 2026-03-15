@@ -57,6 +57,13 @@
       "when": 1773589374801,
       "tag": "0007_nullable-campaign-listid",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1773593920394,
+      "tag": "0008_add-tags-and-audience",
+      "breakpoints": true
     }
   ]
 }

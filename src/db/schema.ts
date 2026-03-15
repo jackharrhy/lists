@@ -66,6 +66,23 @@ export const subscriberLists = sqliteTable("subscriber_lists", {
     .$defaultFn(() => new Date().toISOString()),
 });
 
+export const tags = sqliteTable("tags", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  name: text("name").unique().notNull(),
+  createdAt: text("created_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+});
+
+export const subscriberTags = sqliteTable("subscriber_tags", {
+  subscriberId: integer("subscriber_id")
+    .notNull()
+    .references(() => subscribers.id),
+  tagId: integer("tag_id")
+    .notNull()
+    .references(() => tags.id),
+});
+
 export const campaigns = sqliteTable("campaigns", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   listId: integer("list_id")
@@ -74,6 +91,7 @@ export const campaigns = sqliteTable("campaigns", {
   bodyMarkdown: text("body_markdown").notNull(),
   templateSlug: text("template_slug").notNull().default("newsletter"),
   fromAddress: text("from_address").notNull(),
+  audience: text("audience"),
   status: text("status", {
     enum: ["draft", "sending", "sent", "failed"],
   })
