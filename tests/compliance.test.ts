@@ -21,9 +21,14 @@ describe("generateToken", () => {
 });
 
 describe("buildUnsubscribeUrl", () => {
-  test("builds correct URL", () => {
+  test("builds correct URL without listId", () => {
     const url = buildUnsubscribeUrl("https://example.com", "abc123");
     expect(url).toBe("https://example.com/unsubscribe/abc123");
+  });
+
+  test("builds correct URL with listId", () => {
+    const url = buildUnsubscribeUrl("https://example.com", "abc123", 42);
+    expect(url).toBe("https://example.com/unsubscribe/abc123/42");
   });
 });
 

@@ -4,7 +4,10 @@ export function generateToken(): string {
   return randomBytes(32).toString("hex");
 }
 
-export function buildUnsubscribeUrl(baseUrl: string, token: string): string {
+export function buildUnsubscribeUrl(baseUrl: string, token: string, listId?: number): string {
+  if (listId !== undefined) {
+    return `${baseUrl}/unsubscribe/${token}/${listId}`;
+  }
   return `${baseUrl}/unsubscribe/${token}`;
 }
 

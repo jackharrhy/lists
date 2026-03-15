@@ -143,6 +143,52 @@ export function unsubscribeAll(db: Db, token: string): boolean {
   return true;
 }
 
+export function unsubscribeFromList(db: Db, token: string, listId: number): boolean {
+  const subscriber = db.select().from(schema.subscribers).where(eq(schema.subscribers.unsubscribeToken, token)).get();
+  if (!subscriber) return false;
+
+  const list = db.select().from(schema.lists).where(eq(schema.lists.id, listId)).get();
+  if (!list) return false;
+
+  db.update(schema.subscriberLists)
+    .set({ status: "unsubscribed" })
+    .where(
+      and(
+        eq(schema.subscriberLists.subscriberId, subscriber.id),
+        eq(schema.subscriberLists.listId, listId),
+      ),
+    )
+    .run();
+
+  // check if they have any remaining active subscriptions
+  const remaining = db
+    .select()
+    .from(schema.subscriberLists)
+    .where(
+      and(
+        eq(schema.subscriberLists.subscriberId, subscriber.id),
+        eq(schema.subscriberLists.status, "confirmed"),
+      ),
+    )
+    .all();
+
+  // if no active subscriptions left, mark subscriber as unsubscribed
+  if (remaining.length === 0) {
+    db.update(schema.subscribers)
+      .set({ status: "unsubscribed" })
+      .where(eq(schema.subscribers.id, subscriber.id))
+      .run();
+  }
+
+  logEvent(db, {
+    type: "subscriber.unsubscribed",
+    detail: `${subscriber.email} unsubscribed from: ${list.name}`,
+    subscriberId: subscriber.id,
+  });
+
+  return true;
+}
+
 export function getSubscriberPreferences(db: Db, token: string) {
   const subscriber = db.select().from(schema.subscribers).where(eq(schema.subscribers.unsubscribeToken, token)).get();
   if (!subscriber) return null;

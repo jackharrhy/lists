@@ -112,6 +112,7 @@ export async function sendCampaign(
       const unsubscribeUrl = buildUnsubscribeUrl(
         config.baseUrl,
         subscriber.unsubscribeToken,
+        list.id,
       );
       const preferencesUrl = buildPreferencesUrl(
         config.baseUrl,

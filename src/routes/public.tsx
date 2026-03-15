@@ -1,10 +1,12 @@
 import { Hono } from "hono";
+import { eq } from "drizzle-orm";
 import { type Db, schema } from "../db";
 import type { Config } from "../config";
 import {
   createSubscriber,
   confirmSubscriber,
   unsubscribeAll,
+  unsubscribeFromList,
   getSubscriberPreferences,
   updatePreferences,
 } from "../services/subscriber";
@@ -255,19 +257,32 @@ export function publicRoutes(db: Db, config: Config) {
     );
   });
 
-  // GET /unsubscribe/:token
-  app.get("/unsubscribe/:token", (c) => {
+  // GET /unsubscribe/:token/:listId - per-list unsubscribe
+  app.get("/unsubscribe/:token/:listId", (c) => {
     const token = c.req.param("token");
-    const ok = unsubscribeAll(db, token);
+    const listId = Number(c.req.param("listId"));
+    const list = db.select().from(schema.lists).where(eq(schema.lists.id, listId)).get();
+    const ok = unsubscribeFromList(db, token, listId);
 
     if (ok) {
+      const prefs = getSubscriberPreferences(db, token);
+      const otherActive = prefs?.lists.filter((l) => l.status === "confirmed") ?? [];
+
       return c.html(
         <Layout>
           <h1 class="text-2xl font-bold mb-6">Unsubscribed</h1>
           <div class="bg-white rounded-lg border border-gray-200 p-6">
-            <p class="text-sm text-gray-700">
-              You have been unsubscribed from all lists.
+            <p class="text-sm text-gray-700 mb-4">
+              You have been unsubscribed from <strong>{list?.name ?? "this list"}</strong>.
             </p>
+            {otherActive.length > 0 && (
+              <p class="text-sm text-gray-500 mb-4">
+                You are still subscribed to {otherActive.length} other {otherActive.length === 1 ? "list" : "lists"}.
+              </p>
+            )}
+            <a href={`/preferences/${token}`} class="text-blue-600 hover:text-blue-800 text-sm">
+              Manage all your subscriptions
+            </a>
           </div>
         </Layout>,
       );
@@ -277,16 +292,54 @@ export function publicRoutes(db: Db, config: Config) {
       <Layout>
         <h1 class="text-2xl font-bold mb-6">Invalid link</h1>
         <div class="bg-white rounded-lg border border-gray-200 p-6">
-          <p class="text-sm text-gray-700">
-            This unsubscribe link is invalid.
-          </p>
+          <p class="text-sm text-gray-700">This unsubscribe link is invalid.</p>
         </div>
       </Layout>,
       400,
     );
   });
 
-  // POST /unsubscribe/:token - RFC 8058 one-click
+  // POST /unsubscribe/:token/:listId - RFC 8058 one-click per-list
+  app.post("/unsubscribe/:token/:listId", (c) => {
+    const token = c.req.param("token");
+    const listId = Number(c.req.param("listId"));
+    unsubscribeFromList(db, token, listId);
+    return c.text("Unsubscribed", 200);
+  });
+
+  // GET /unsubscribe/:token - legacy, unsubscribe from all
+  app.get("/unsubscribe/:token", (c) => {
+    const token = c.req.param("token");
+    const ok = unsubscribeAll(db, token);
+
+    if (ok) {
+      return c.html(
+        <Layout>
+          <h1 class="text-2xl font-bold mb-6">Unsubscribed</h1>
+          <div class="bg-white rounded-lg border border-gray-200 p-6">
+            <p class="text-sm text-gray-700 mb-4">
+              You have been unsubscribed from all lists.
+            </p>
+            <a href={`/preferences/${token}`} class="text-blue-600 hover:text-blue-800 text-sm">
+              Changed your mind? Manage your subscriptions
+            </a>
+          </div>
+        </Layout>,
+      );
+    }
+
+    return c.html(
+      <Layout>
+        <h1 class="text-2xl font-bold mb-6">Invalid link</h1>
+        <div class="bg-white rounded-lg border border-gray-200 p-6">
+          <p class="text-sm text-gray-700">This unsubscribe link is invalid.</p>
+        </div>
+      </Layout>,
+      400,
+    );
+  });
+
+  // POST /unsubscribe/:token - RFC 8058 one-click, legacy all
   app.post("/unsubscribe/:token", (c) => {
     const token = c.req.param("token");
     unsubscribeAll(db, token);
