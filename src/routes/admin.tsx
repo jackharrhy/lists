@@ -285,42 +285,11 @@ export function adminRoutes(db: Db, config: Config) {
     return c.html(
       <AdminLayout title="Subscribers">
         <h1 class="text-2xl font-bold mt-0 mb-4">Subscribers</h1>
-
-        <h2 class="text-xl font-semibold mt-6 mb-3">Add subscriber</h2>
-        <form method="post" action="/admin/subscribers/new">
-          <div class="mb-4">
-            <label class="block text-sm font-medium text-gray-700 mb-1">
-              Email
-              <input type="email" name="email" required class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
-            </label>
-          </div>
-          <div class="mb-4">
-            <label class="block text-sm font-medium text-gray-700 mb-1">
-              Name (optional)
-              <input type="text" name="name" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
-            </label>
-          </div>
-          <div class="mb-4">
-            <label class="block text-sm font-medium text-gray-700 mb-1">
-              <input type="checkbox" name="skip_confirm" value="1" />
-              {" "}Pre-confirm (skip double opt-in)
-            </label>
-          </div>
-          {allLists.length > 0 && (
-            <div class="mb-4">
-              <p class="m-0 mb-1 font-medium">Lists</p>
-              {allLists.map((list) => (
-                <label class="block">
-                  <input type="checkbox" name="lists" value={list.slug} />
-                  {" "}{list.name}
-                </label>
-              ))}
-            </div>
-          )}
-          <button type="submit" class="inline-block px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none no-underline">Add subscriber</button>
-        </form>
-
-        <h2 class="text-xl font-semibold mt-6 mb-3">All subscribers ({allSubscribers.length})</h2>
+        <p class="mb-6">
+          <a href="/admin/subscribers/new" class="inline-block px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none no-underline">
+            Add Subscriber
+          </a>
+        </p>
         <table class="w-full bg-white rounded-lg overflow-hidden mb-6 text-sm">
           <thead>
             <tr>
@@ -349,6 +318,46 @@ export function adminRoutes(db: Db, config: Config) {
             ))}
           </tbody>
         </table>
+      </AdminLayout>,
+    );
+  });
+
+  app.get("/subscribers/new", (c) => {
+    const allLists = db.select().from(schema.lists).all();
+
+    return c.html(
+      <AdminLayout title="Add Subscriber">
+        <h1 class="text-2xl font-bold mt-0 mb-4">Add Subscriber</h1>
+        <div class="bg-white border border-gray-200 rounded-lg p-5 mb-6">
+          <form method="post" action="/admin/subscribers/new">
+            <div class="mb-4">
+              <label for="email" class="block text-sm font-medium text-gray-700 mb-1">Email</label>
+              <input type="email" id="email" name="email" required class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+            </div>
+            <div class="mb-4">
+              <label for="name" class="block text-sm font-medium text-gray-700 mb-1">Name (optional)</label>
+              <input type="text" id="name" name="name" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+            </div>
+            <div class="mb-4">
+              <label class="flex items-center gap-2 text-sm font-medium text-gray-700">
+                <input type="checkbox" name="skip_confirm" value="1" />
+                Pre-confirm (skip double opt-in)
+              </label>
+            </div>
+            {allLists.length > 0 && (
+              <div class="mb-4">
+                <p class="text-sm font-medium text-gray-700 mb-2">Lists</p>
+                {allLists.map((list) => (
+                  <label class="flex items-center gap-2 text-sm text-gray-800 mb-1">
+                    <input type="checkbox" name="lists" value={list.slug} />
+                    {list.name}
+                  </label>
+                ))}
+              </div>
+            )}
+            <button type="submit" class="inline-block px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none no-underline">Add Subscriber</button>
+          </form>
+        </div>
       </AdminLayout>,
     );
   });
@@ -638,12 +647,17 @@ export function adminRoutes(db: Db, config: Config) {
     return c.html(
       <AdminLayout title="Lists">
         <h1 class="text-2xl font-bold mt-0 mb-4">Lists</h1>
+        <p class="mb-6">
+          <a href="/admin/lists/new" class="inline-block px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none no-underline">
+            New List
+          </a>
+        </p>
         <table class="w-full bg-white rounded-lg overflow-hidden mb-6 text-sm">
           <thead>
             <tr>
               <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Slug</th>
               <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Name</th>
-              <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Description</th>
+              <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Domain</th>
               <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Subscribers</th>
             </tr>
           </thead>
@@ -652,37 +666,12 @@ export function adminRoutes(db: Db, config: Config) {
               <tr>
                 <td class="px-4 py-3 border-b border-gray-100"><a href={`/admin/lists/${list.id}`} class="text-blue-600 hover:text-blue-800">{list.slug}</a></td>
                 <td class="px-4 py-3 border-b border-gray-100">{list.name}</td>
-                <td class="px-4 py-3 border-b border-gray-100">{list.description || "—"}</td>
+                <td class="px-4 py-3 border-b border-gray-100 text-gray-500">{list.fromDomain}</td>
                 <td class="px-4 py-3 border-b border-gray-100">{listCounts.get(list.id) ?? 0}</td>
               </tr>
             ))}
           </tbody>
         </table>
-
-        <div class="bg-white border border-gray-200 rounded-lg p-5 mb-6">
-          <h2 class="text-xl font-semibold mt-0 mb-3">Create List</h2>
-          <form method="post" action="/admin/lists/new">
-            <div class="grid grid-cols-2 gap-4">
-              <div class="mb-4">
-                <label for="slug" class="block text-sm font-medium text-gray-700 mb-1">Slug</label>
-                <input type="text" id="slug" name="slug" required placeholder="weekly-digest" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
-              </div>
-              <div class="mb-4">
-                <label for="name" class="block text-sm font-medium text-gray-700 mb-1">Name</label>
-                <input type="text" id="name" name="name" required placeholder="Weekly Digest" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
-              </div>
-            </div>
-            <div class="mb-4">
-              <label for="description" class="block text-sm font-medium text-gray-700 mb-1">Description</label>
-              <input type="text" id="description" name="description" placeholder="Optional description" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
-            </div>
-            <div class="mb-4">
-              <label for="fromDomain" class="block text-sm font-medium text-gray-700 mb-1">Sending domain</label>
-              <input type="text" id="fromDomain" name="fromDomain" required placeholder="siliconharbour.dev" value={config.fromDomain} class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
-            </div>
-            <button type="submit" class="inline-block px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none no-underline">Create List</button>
-          </form>
-        </div>
       </AdminLayout>,
     );
   });
@@ -879,6 +868,37 @@ export function adminRoutes(db: Db, config: Config) {
     db.delete(schema.lists).where(eq(schema.lists.id, id)).run();
 
     return c.redirect("/admin/lists");
+  });
+
+  app.get("/lists/new", (c) => {
+    return c.html(
+      <AdminLayout title="New List">
+        <h1 class="text-2xl font-bold mt-0 mb-4">New List</h1>
+        <div class="bg-white border border-gray-200 rounded-lg p-5 mb-6">
+          <form method="post" action="/admin/lists/new">
+            <div class="grid grid-cols-2 gap-4">
+              <div class="mb-4">
+                <label for="slug" class="block text-sm font-medium text-gray-700 mb-1">Slug</label>
+                <input type="text" id="slug" name="slug" required placeholder="weekly-digest" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+              </div>
+              <div class="mb-4">
+                <label for="name" class="block text-sm font-medium text-gray-700 mb-1">Name</label>
+                <input type="text" id="name" name="name" required placeholder="Weekly Digest" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+              </div>
+            </div>
+            <div class="mb-4">
+              <label for="description" class="block text-sm font-medium text-gray-700 mb-1">Description</label>
+              <input type="text" id="description" name="description" placeholder="Optional description" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+            </div>
+            <div class="mb-4">
+              <label for="fromDomain" class="block text-sm font-medium text-gray-700 mb-1">Sending domain</label>
+              <input type="text" id="fromDomain" name="fromDomain" required placeholder="siliconharbour.dev" value={config.fromDomain} class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+            </div>
+            <button type="submit" class="inline-block px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none no-underline">Create List</button>
+          </form>
+        </div>
+      </AdminLayout>,
+    );
   });
 
   app.post("/lists/new", async (c) => {
