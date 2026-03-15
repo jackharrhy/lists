@@ -4,6 +4,17 @@ import {
   integer,
 } from "drizzle-orm/sqlite-core";
 
+export const users = sqliteTable("users", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  email: text("email").unique().notNull(),
+  name: text("name"),
+  passwordHash: text("password_hash").notNull(),
+  role: text("role", { enum: ["owner", "admin", "member"] }).notNull().default("member"),
+  createdAt: text("created_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+});
+
 export const subscribers = sqliteTable("subscribers", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   email: text("email").unique().notNull(),
@@ -26,6 +37,15 @@ export const lists = sqliteTable("lists", {
   name: text("name").notNull(),
   description: text("description").notNull().default(""),
   fromDomain: text("from_domain").notNull().default("jackharrhy.dev"),
+});
+
+export const userLists = sqliteTable("user_lists", {
+  userId: integer("user_id")
+    .notNull()
+    .references(() => users.id),
+  listId: integer("list_id")
+    .notNull()
+    .references(() => lists.id),
 });
 
 export const subscriberLists = sqliteTable("subscriber_lists", {
@@ -125,6 +145,7 @@ export const events = sqliteTable("events", {
   type: text("type").notNull(),
   detail: text("detail").notNull().default(""),
   meta: text("meta"), // JSON blob for structured data
+  userId: integer("user_id").references(() => users.id),
   subscriberId: integer("subscriber_id").references(() => subscribers.id),
   campaignId: integer("campaign_id").references(() => campaigns.id),
   inboundMessageId: integer("inbound_message_id").references(() => inboundMessages.id),
