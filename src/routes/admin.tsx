@@ -533,7 +533,7 @@ export function adminRoutes(db: Db, config: Config) {
           <button type="submit">Add subscriber</button>
         </form>
 
-        <h2>All subscribers</h2>
+        <h2>All subscribers ({allSubscribers.length})</h2>
         <table>
           <thead>
             <tr>
@@ -542,16 +542,22 @@ export function adminRoutes(db: Db, config: Config) {
               <th>Status</th>
               <th>Confirmed</th>
               <th>Created</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
             {allSubscribers.map((sub) => (
               <tr>
-                <td>{sub.email}</td>
+                <td><a href={`/admin/subscribers/${sub.id}`}>{sub.email}</a></td>
                 <td>{sub.name ?? "—"}</td>
                 <td>{sub.status}</td>
                 <td>{sub.confirmedAt ? "Yes" : "No"}</td>
                 <td>{fmtDate(sub.createdAt)}</td>
+                <td>
+                  <form method="post" action={`/admin/subscribers/${sub.id}/delete`} style="margin:0" onsubmit={`return confirm('Delete ${sub.email}?')`}>
+                    <button type="submit" style="background:none;border:none;color:#dc2626;cursor:pointer;font-size:0.8125rem;padding:0">delete</button>
+                  </form>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -578,6 +584,167 @@ export function adminRoutes(db: Db, config: Config) {
       confirmSubscriber(db, subscriber.unsubscribeToken);
     }
 
+    return c.redirect("/admin/subscribers");
+  });
+
+  app.get("/subscribers/:id", (c) => {
+    const id = Number(c.req.param("id"));
+    const sub = db.select().from(schema.subscribers).where(eq(schema.subscribers.id, id)).get();
+    if (!sub) return c.notFound();
+
+    const allLists = db.select().from(schema.lists).all();
+    const subLists = db
+      .select()
+      .from(schema.subscriberLists)
+      .where(eq(schema.subscriberLists.subscriberId, id))
+      .all();
+    const subListMap = new Map(subLists.map((sl) => [sl.listId, sl.status]));
+
+    return c.html(
+      <AdminLayout title={sub.email}>
+        <h1>{sub.email}</h1>
+
+        <form method="post" action={`/admin/subscribers/${id}/edit`}>
+          <div class="form-group">
+            <label for="email">Email</label>
+            <input type="email" id="email" name="email" required value={sub.email} />
+          </div>
+          <div class="form-group">
+            <label for="name">Name</label>
+            <input type="text" id="name" name="name" value={sub.name ?? ""} />
+          </div>
+          <div class="form-group">
+            <label for="status">Status</label>
+            <select id="status" name="status">
+              <option value="active" selected={sub.status === "active"}>active</option>
+              <option value="unsubscribed" selected={sub.status === "unsubscribed"}>unsubscribed</option>
+              <option value="blocklisted" selected={sub.status === "blocklisted"}>blocklisted</option>
+            </select>
+          </div>
+
+          {allLists.length > 0 && (
+            <div class="form-group">
+              <p style="margin:0 0 0.25rem;font-weight:500">List subscriptions</p>
+              {allLists.map((list) => {
+                const status = subListMap.get(list.id);
+                return (
+                  <label style="display:block">
+                    <input
+                      type="checkbox"
+                      name="lists"
+                      value={String(list.id)}
+                      checked={status === "confirmed" || status === "unconfirmed"}
+                    />
+                    {" "}{list.name}
+                    {status && <span style="font-size:0.75rem;color:#666"> ({status})</span>}
+                  </label>
+                );
+              })}
+            </div>
+          )}
+
+          <button type="submit">Save changes</button>
+        </form>
+
+        <dl style="margin-top:1.5rem">
+          <dt>Confirmed</dt>
+          <dd>{sub.confirmedAt ? fmtDateTime(sub.confirmedAt) : "No"}</dd>
+          <dt>Created</dt>
+          <dd>{fmtDateTime(sub.createdAt)}</dd>
+          <dt>Unsubscribe token</dt>
+          <dd style="font-size:0.75rem;font-family:monospace">{sub.unsubscribeToken}</dd>
+        </dl>
+
+        <hr style="margin:2rem 0" />
+        <form method="post" action={`/admin/subscribers/${id}/delete`} onsubmit="return confirm('Delete this subscriber and all their list subscriptions? This cannot be undone.')">
+          <button type="submit" class="btn-danger" style="padding:0.5rem 1rem;border:none;border-radius:4px;color:#fff;cursor:pointer;font-size:0.8125rem">
+            Delete Subscriber
+          </button>
+        </form>
+      </AdminLayout>,
+    );
+  });
+
+  app.post("/subscribers/:id/edit", async (c) => {
+    const id = Number(c.req.param("id"));
+    const body = await c.req.parseBody({ all: true });
+    const email = String(body["email"] ?? "").trim().toLowerCase();
+    const name = String(body["name"] ?? "").trim() || null;
+    const status = String(body["status"] ?? "active");
+
+    db.update(schema.subscribers)
+      .set({ email, name, status })
+      .where(eq(schema.subscribers.id, id))
+      .run();
+
+    // update list subscriptions
+    let selectedListIds: number[] = [];
+    if (body["lists"]) {
+      selectedListIds = (Array.isArray(body["lists"])
+        ? (body["lists"] as string[])
+        : [body["lists"] as string]
+      ).map(Number);
+    }
+
+    const allLists = db.select().from(schema.lists).all();
+    for (const list of allLists) {
+      const existing = db
+        .select()
+        .from(schema.subscriberLists)
+        .where(
+          and(
+            eq(schema.subscriberLists.subscriberId, id),
+            eq(schema.subscriberLists.listId, list.id),
+          ),
+        )
+        .get();
+
+      if (selectedListIds.includes(list.id)) {
+        if (!existing) {
+          db.insert(schema.subscriberLists)
+            .values({ subscriberId: id, listId: list.id, status: "confirmed" })
+            .run();
+        } else if (existing.status === "unsubscribed") {
+          db.update(schema.subscriberLists)
+            .set({ status: "confirmed" })
+            .where(
+              and(
+                eq(schema.subscriberLists.subscriberId, id),
+                eq(schema.subscriberLists.listId, list.id),
+              ),
+            )
+            .run();
+        }
+      } else if (existing && existing.status !== "unsubscribed") {
+        db.update(schema.subscriberLists)
+          .set({ status: "unsubscribed" })
+          .where(
+            and(
+              eq(schema.subscriberLists.subscriberId, id),
+              eq(schema.subscriberLists.listId, list.id),
+            ),
+          )
+          .run();
+      }
+    }
+
+    return c.redirect(`/admin/subscribers/${id}`);
+  });
+
+  app.post("/subscribers/:id/delete", (c) => {
+    const id = Number(c.req.param("id"));
+    // delete list subscriptions
+    db.delete(schema.subscriberLists)
+      .where(eq(schema.subscriberLists.subscriberId, id))
+      .run();
+    // delete campaign sends
+    db.delete(schema.campaignSends)
+      .where(eq(schema.campaignSends.subscriberId, id))
+      .run();
+    // delete subscriber
+    db.delete(schema.subscribers)
+      .where(eq(schema.subscribers.id, id))
+      .run();
     return c.redirect("/admin/subscribers");
   });
 
