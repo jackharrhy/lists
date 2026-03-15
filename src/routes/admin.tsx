@@ -834,6 +834,22 @@ export function adminRoutes(db: Db, config: Config) {
   app.get("/lists", (c) => {
     const allLists = db.select().from(schema.lists).all();
 
+    // get subscriber counts per list
+    const listCounts = new Map<number, number>();
+    for (const list of allLists) {
+      const count = db
+        .select({ count: sql<number>`count(*)` })
+        .from(schema.subscriberLists)
+        .where(
+          and(
+            eq(schema.subscriberLists.listId, list.id),
+            eq(schema.subscriberLists.status, "confirmed"),
+          ),
+        )
+        .get()!.count;
+      listCounts.set(list.id, count);
+    }
+
     return c.html(
       <AdminLayout title="Lists">
         <h1>Lists</h1>
@@ -843,14 +859,16 @@ export function adminRoutes(db: Db, config: Config) {
               <th>Slug</th>
               <th>Name</th>
               <th>Description</th>
+              <th>Subscribers</th>
             </tr>
           </thead>
           <tbody>
             {allLists.map((list) => (
               <tr>
-                <td>{list.slug}</td>
+                <td><a href={`/admin/lists/${list.id}`}>{list.slug}</a></td>
                 <td>{list.name}</td>
-                <td>{list.description}</td>
+                <td>{list.description || "—"}</td>
+                <td>{listCounts.get(list.id) ?? 0}</td>
               </tr>
             ))}
           </tbody>
@@ -880,6 +898,195 @@ export function adminRoutes(db: Db, config: Config) {
     );
   });
 
+  app.get("/lists/:id", (c) => {
+    const id = Number(c.req.param("id"));
+    const list = db.select().from(schema.lists).where(eq(schema.lists.id, id)).get();
+    if (!list) return c.notFound();
+
+    const confirmedSubs = db
+      .select({
+        id: schema.subscribers.id,
+        email: schema.subscribers.email,
+        name: schema.subscribers.name,
+        subscribedAt: schema.subscriberLists.subscribedAt,
+      })
+      .from(schema.subscriberLists)
+      .innerJoin(schema.subscribers, eq(schema.subscriberLists.subscriberId, schema.subscribers.id))
+      .where(
+        and(
+          eq(schema.subscriberLists.listId, id),
+          eq(schema.subscriberLists.status, "confirmed"),
+        ),
+      )
+      .all();
+
+    const unconfirmedSubs = db
+      .select({
+        id: schema.subscribers.id,
+        email: schema.subscribers.email,
+        name: schema.subscribers.name,
+        subscribedAt: schema.subscriberLists.subscribedAt,
+      })
+      .from(schema.subscriberLists)
+      .innerJoin(schema.subscribers, eq(schema.subscriberLists.subscriberId, schema.subscribers.id))
+      .where(
+        and(
+          eq(schema.subscriberLists.listId, id),
+          eq(schema.subscriberLists.status, "unconfirmed"),
+        ),
+      )
+      .all();
+
+    const listCampaigns = db
+      .select()
+      .from(schema.campaigns)
+      .where(eq(schema.campaigns.listId, id))
+      .orderBy(desc(schema.campaigns.createdAt))
+      .all();
+
+    return c.html(
+      <AdminLayout title={list.name}>
+        <h1>{list.name}</h1>
+
+        <form method="post" action={`/admin/lists/${id}/edit`}>
+          <div class="form-group">
+            <label for="slug">Slug</label>
+            <input type="text" id="slug" name="slug" required value={list.slug} />
+          </div>
+          <div class="form-group">
+            <label for="name">Name</label>
+            <input type="text" id="name" name="name" required value={list.name} />
+          </div>
+          <div class="form-group">
+            <label for="description">Description</label>
+            <input type="text" id="description" name="description" value={list.description} />
+          </div>
+          <button type="submit">Save changes</button>
+        </form>
+
+        <h2>Confirmed subscribers ({confirmedSubs.length})</h2>
+        {confirmedSubs.length > 0 ? (
+          <table>
+            <thead>
+              <tr>
+                <th>Email</th>
+                <th>Name</th>
+                <th>Subscribed</th>
+              </tr>
+            </thead>
+            <tbody>
+              {confirmedSubs.map((s) => (
+                <tr>
+                  <td><a href={`/admin/subscribers/${s.id}`}>{s.email}</a></td>
+                  <td>{s.name ?? "—"}</td>
+                  <td>{fmtDate(s.subscribedAt)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <p style="color:#999">No confirmed subscribers.</p>
+        )}
+
+        {unconfirmedSubs.length > 0 && (
+          <>
+            <h2>Pending confirmation ({unconfirmedSubs.length})</h2>
+            <table>
+              <thead>
+                <tr>
+                  <th>Email</th>
+                  <th>Name</th>
+                  <th>Subscribed</th>
+                </tr>
+              </thead>
+              <tbody>
+                {unconfirmedSubs.map((s) => (
+                  <tr>
+                    <td><a href={`/admin/subscribers/${s.id}`}>{s.email}</a></td>
+                    <td>{s.name ?? "—"}</td>
+                    <td>{fmtDate(s.subscribedAt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </>
+        )}
+
+        {listCampaigns.length > 0 && (
+          <>
+            <h2>Campaigns ({listCampaigns.length})</h2>
+            <table>
+              <thead>
+                <tr>
+                  <th>Subject</th>
+                  <th>Status</th>
+                  <th>Sent</th>
+                </tr>
+              </thead>
+              <tbody>
+                {listCampaigns.map((cam) => (
+                  <tr>
+                    <td><a href={`/admin/campaigns/${cam.id}`}>{cam.subject}</a></td>
+                    <td><CampaignBadge status={cam.status} /></td>
+                    <td>{fmtDateTime(cam.sentAt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </>
+        )}
+
+        <hr style="margin:2rem 0" />
+        <form method="post" action={`/admin/lists/${id}/delete`} onsubmit="return confirm('Delete this list? Subscribers will be unlinked but not deleted. Campaigns on this list will also be deleted.')">
+          <button type="submit" class="btn-danger" style="padding:0.5rem 1rem;border:none;border-radius:4px;color:#fff;cursor:pointer;font-size:0.8125rem">
+            Delete List
+          </button>
+        </form>
+      </AdminLayout>,
+    );
+  });
+
+  app.post("/lists/:id/edit", async (c) => {
+    const id = Number(c.req.param("id"));
+    const body = await c.req.parseBody();
+    const slug = String(body["slug"] ?? "").trim();
+    const name = String(body["name"] ?? "").trim();
+    const description = String(body["description"] ?? "").trim();
+
+    if (!slug || !name) return c.redirect(`/admin/lists/${id}`);
+
+    db.update(schema.lists)
+      .set({ slug, name, description })
+      .where(eq(schema.lists.id, id))
+      .run();
+
+    logEvent(db, { type: "admin.list_edited", detail: `${name} (${slug})` });
+
+    return c.redirect(`/admin/lists/${id}`);
+  });
+
+  app.post("/lists/:id/delete", (c) => {
+    const id = Number(c.req.param("id"));
+    const list = db.select().from(schema.lists).where(eq(schema.lists.id, id)).get();
+
+    logEvent(db, { type: "admin.list_deleted", detail: list?.name ?? `id=${id}` });
+
+    // unlink subscriber_lists
+    db.delete(schema.subscriberLists)
+      .where(eq(schema.subscriberLists.listId, id))
+      .run();
+    // delete campaigns and their sends
+    const campaigns = db.select().from(schema.campaigns).where(eq(schema.campaigns.listId, id)).all();
+    for (const cam of campaigns) {
+      db.delete(schema.campaignSends).where(eq(schema.campaignSends.campaignId, cam.id)).run();
+    }
+    db.delete(schema.campaigns).where(eq(schema.campaigns.listId, id)).run();
+    // delete list
+    db.delete(schema.lists).where(eq(schema.lists.id, id)).run();
+
+    return c.redirect("/admin/lists");
+  });
+
   app.post("/lists/new", async (c) => {
     const body = await c.req.parseBody();
     const slug = String(body["slug"] ?? "").trim();
@@ -893,6 +1100,8 @@ export function adminRoutes(db: Db, config: Config) {
     db.insert(schema.lists)
       .values({ slug, name, description })
       .run();
+
+    logEvent(db, { type: "admin.list_created", detail: `${name} (${slug})` });
 
     return c.redirect("/admin/lists");
   });
