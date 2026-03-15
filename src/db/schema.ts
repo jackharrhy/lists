@@ -69,7 +69,6 @@ export const subscriberLists = sqliteTable("subscriber_lists", {
 export const campaigns = sqliteTable("campaigns", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   listId: integer("list_id")
-    .notNull()
     .references(() => lists.id),
   subject: text("subject").notNull(),
   bodyMarkdown: text("body_markdown").notNull(),

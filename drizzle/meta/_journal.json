@@ -50,6 +50,13 @@
       "when": 1773587644671,
       "tag": "0006_add-list-from-address",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1773589374801,
+      "tag": "0007_nullable-campaign-listid",
+      "breakpoints": true
     }
   ]
 }
