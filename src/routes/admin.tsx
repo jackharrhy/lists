@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { eq, desc, sql, and, inArray } from "drizzle-orm";
+import { eq, desc, sql, and, inArray, isNotNull } from "drizzle-orm";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
@@ -10,8 +10,10 @@ import { schema } from "../db";
 import type { Config } from "../config";
 import { adminAuth, createSession, destroySession, requireRole, requireListAccess, getAccessibleListIds } from "../auth";
 import { sendCampaign } from "../services/sender";
-import { createSubscriber, confirmSubscriber } from "../services/subscriber";
+import { createSubscriber, confirmSubscriber, getConfirmedSubscribers } from "../services/subscriber";
 import { logEvent } from "../services/events";
+import { renderNewsletter } from "../../emails/render";
+import { buildUnsubscribeUrl, buildPreferencesUrl } from "../compliance";
 
 // ---------------------------------------------------------------------------
 // Layout & components
@@ -234,6 +236,59 @@ export function adminRoutes(db: Db, config: Config) {
   // ---- Protected ---------------------------------------------------------
 
   app.use("/*", adminAuth(db));
+
+  // ---- Preview endpoints (raw HTML, no AdminLayout) -----------------------
+
+  app.get("/campaigns/:id/preview", async (c) => {
+    const id = Number(c.req.param("id"));
+    const campaign = db.select().from(schema.campaigns).where(eq(schema.campaigns.id, id)).get();
+    if (!campaign) return c.notFound();
+
+    let listName = "Newsletter";
+    if (campaign.listId) {
+      const list = db.select().from(schema.lists).where(eq(schema.lists.id, campaign.listId)).get();
+      if (list) {
+        listName = list.name;
+      }
+    }
+
+    let unsubscribeUrl = "#unsubscribe";
+    let preferencesUrl = "#preferences";
+
+    const subscriberId = c.req.query("subscriberId");
+    if (subscriberId) {
+      const sub = db.select().from(schema.subscribers).where(eq(schema.subscribers.id, Number(subscriberId))).get();
+      if (sub) {
+        unsubscribeUrl = buildUnsubscribeUrl(config.baseUrl, sub.unsubscribeToken, campaign.listId ?? undefined);
+        preferencesUrl = buildPreferencesUrl(config.baseUrl, sub.unsubscribeToken);
+      }
+    }
+
+    const contentHtml = await marked(campaign.bodyMarkdown);
+    const { html } = await renderNewsletter({
+      subject: campaign.subject,
+      contentHtml,
+      listName,
+      unsubscribeUrl,
+      preferencesUrl,
+    });
+
+    return c.html(html);
+  });
+
+  app.post("/campaigns/preview", async (c) => {
+    const { bodyMarkdown, subject, listName } = await c.req.json();
+    const contentHtml = await marked(bodyMarkdown || "");
+    const { html } = await renderNewsletter({
+      subject: subject || "Preview",
+      contentHtml,
+      listName: listName || "Newsletter",
+      unsubscribeUrl: "#unsubscribe",
+      preferencesUrl: "#preferences",
+    });
+
+    return c.html(html);
+  });
 
   // Dashboard
   app.get("/", (c) => {
@@ -1171,56 +1226,99 @@ export function adminRoutes(db: Db, config: Config) {
     return c.html(
       <AdminLayout title="New Campaign" user={user}>
         <h1 class="text-2xl font-bold mt-0 mb-4">New Campaign</h1>
-        <div class="bg-white border border-gray-200 rounded-lg p-5 mb-6">
-          <form method="post" action="/admin/campaigns/new">
-            <div class="mb-4">
-              <label for="listId" class="block text-sm font-medium text-gray-700 mb-1">List</label>
-              <select id="listId" name="listId" required class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                <option value="">Select a list...</option>
-                <option value="all">All subscribers</option>
-                {allLists.map((list) => (
-                  <option value={String(list.id)} data-from-address={list.fromAddress}>
-                    {list.name} ({list.slug})
-                  </option>
-                ))}
-              </select>
+        <div class="grid grid-cols-2 gap-6">
+          <div>
+            <div class="bg-white border border-gray-200 rounded-lg p-5 mb-6">
+              <form method="post" action="/admin/campaigns/new">
+                <div class="mb-4">
+                  <label for="listId" class="block text-sm font-medium text-gray-700 mb-1">List</label>
+                  <select id="listId" name="listId" required class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                    <option value="">Select a list...</option>
+                    <option value="all">All subscribers</option>
+                    {allLists.map((list) => (
+                      <option value={String(list.id)} data-from-address={list.fromAddress}>
+                        {list.name} ({list.slug})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div class="mb-4">
+                  <label for="fromAddress" class="block text-sm font-medium text-gray-700 mb-1">From Address</label>
+                  <input
+                    type="email"
+                    id="fromAddress"
+                    name="fromAddress"
+                    required
+                    placeholder={`newsletter@${config.fromDomain}`}
+                    class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+                <script dangerouslySetInnerHTML={{ __html: `
+                  (function() {
+                    var lastDefault = '';
+                    document.getElementById('listId').addEventListener('change', function() {
+                      var opt = this.options[this.selectedIndex];
+                      var addr = (this.value === 'all') ? '' : (opt.dataset.fromAddress || '');
+                      var input = document.getElementById('fromAddress');
+                      if (!input.value || input.value === lastDefault) {
+                        input.value = addr;
+                      }
+                      lastDefault = addr;
+                    });
+                  })();
+                `}} />
+                <div class="mb-4">
+                  <label for="subject" class="block text-sm font-medium text-gray-700 mb-1">Subject</label>
+                  <input type="text" id="subject" name="subject" required placeholder="Campaign subject" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+                </div>
+                <div class="mb-4">
+                  <label for="bodyMarkdown" class="block text-sm font-medium text-gray-700 mb-1">Body (Markdown)</label>
+                  <textarea id="bodyMarkdown" name="bodyMarkdown" required placeholder="Write your email in markdown…" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 min-h-[200px] resize-y focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+                </div>
+                <button type="submit" class="inline-block px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none no-underline">Create Draft</button>
+              </form>
             </div>
-            <div class="mb-4">
-              <label for="fromAddress" class="block text-sm font-medium text-gray-700 mb-1">From Address</label>
-              <input
-                type="email"
-                id="fromAddress"
-                name="fromAddress"
-                required
-                placeholder={`newsletter@${config.fromDomain}`}
-                class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              />
+          </div>
+          <div>
+            <div class="bg-white border border-gray-200 rounded-lg p-5 mb-6">
+              <h2 class="text-lg font-semibold mt-0 mb-3">Preview</h2>
+              <iframe id="previewFrame" class="w-full border-0" style="min-height: 500px;" srcdoc="<p style='color:#999;font-family:system-ui;padding:2rem'>Start writing to see a preview</p>" />
             </div>
-            <script dangerouslySetInnerHTML={{ __html: `
-              (function() {
-                var lastDefault = '';
-                document.getElementById('listId').addEventListener('change', function() {
-                  var opt = this.options[this.selectedIndex];
-                  var addr = (this.value === 'all') ? '' : (opt.dataset.fromAddress || '');
-                  var input = document.getElementById('fromAddress');
-                  if (!input.value || input.value === lastDefault) {
-                    input.value = addr;
-                  }
-                  lastDefault = addr;
-                });
-              })();
-            `}} />
-            <div class="mb-4">
-              <label for="subject" class="block text-sm font-medium text-gray-700 mb-1">Subject</label>
-              <input type="text" id="subject" name="subject" required placeholder="Campaign subject" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
-            </div>
-            <div class="mb-4">
-              <label for="bodyMarkdown" class="block text-sm font-medium text-gray-700 mb-1">Body (Markdown)</label>
-              <textarea id="bodyMarkdown" name="bodyMarkdown" required placeholder="Write your email in markdown…" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 min-h-[200px] resize-y focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
-            </div>
-            <button type="submit" class="inline-block px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none no-underline">Create Draft</button>
-          </form>
+          </div>
         </div>
+        <script dangerouslySetInnerHTML={{ __html: `
+          (function() {
+            var timer;
+            var textarea = document.getElementById('bodyMarkdown');
+            var subject = document.getElementById('subject');
+            var frame = document.getElementById('previewFrame');
+
+            function updatePreview() {
+              var body = textarea.value;
+              if (!body.trim()) return;
+              fetch('/admin/campaigns/preview', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  bodyMarkdown: body,
+                  subject: subject.value || 'Preview',
+                  listName: 'Preview'
+                })
+              })
+              .then(function(r) { return r.text(); })
+              .then(function(html) { frame.srcdoc = html; });
+            }
+
+            textarea.addEventListener('input', function() {
+              clearTimeout(timer);
+              timer = setTimeout(updatePreview, 500);
+            });
+            subject.addEventListener('input', function() {
+              clearTimeout(timer);
+              timer = setTimeout(updatePreview, 500);
+            });
+          })();
+        `}} />
       </AdminLayout>,
     );
   });
@@ -1292,7 +1390,25 @@ export function adminRoutes(db: Db, config: Config) {
       .orderBy(desc(schema.inboundMessages.createdAt))
       .all();
 
-    const htmlContent = await marked(campaign.bodyMarkdown);
+    // Get subscribers for preview picker
+    let previewSubscribers: { id: number; email: string }[];
+    if (campaign.listId) {
+      previewSubscribers = getConfirmedSubscribers(db, campaign.listId);
+    } else {
+      previewSubscribers = db
+        .selectDistinct({
+          id: schema.subscribers.id,
+          email: schema.subscribers.email,
+        })
+        .from(schema.subscribers)
+        .where(
+          and(
+            eq(schema.subscribers.status, "active"),
+            isNotNull(schema.subscribers.confirmedAt),
+          ),
+        )
+        .all();
+    }
 
     return c.html(
       <AdminLayout title={campaign.subject} user={user}>
@@ -1343,9 +1459,6 @@ export function adminRoutes(db: Db, config: Config) {
           </div>
         )}
 
-        <h2 class="text-xl font-semibold mt-6 mb-3">Preview</h2>
-        <div class="p-4 bg-white border border-gray-200 rounded-md" dangerouslySetInnerHTML={{ __html: htmlContent }} />
-
         {sends.length > 0 && (
           <>
             <h2 class="text-xl font-semibold mt-6 mb-3">Sends ({sends.length})</h2>
@@ -1371,6 +1484,30 @@ export function adminRoutes(db: Db, config: Config) {
             </table>
           </>
         )}
+
+        <h2 class="text-xl font-semibold mt-6 mb-3">Email Preview</h2>
+        <div class="mb-4">
+          <select id="previewSubscriber" class="px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+            <option value="">Generic preview</option>
+            {previewSubscribers.map((sub) => (
+              <option value={String(sub.id)}>{sub.email}</option>
+            ))}
+          </select>
+        </div>
+        <iframe
+          id="previewFrame"
+          src={`/admin/campaigns/${id}/preview`}
+          class="w-full border border-gray-200 rounded-lg"
+          style="min-height: 600px;"
+        />
+        <script dangerouslySetInnerHTML={{ __html: `
+          document.getElementById('previewSubscriber').addEventListener('change', function() {
+            var subId = this.value;
+            var src = '/admin/campaigns/${id}/preview';
+            if (subId) src += '?subscriberId=' + subId;
+            document.getElementById('previewFrame').src = src;
+          });
+        `}} />
 
         {inboundReplies.length > 0 && (
           <>
