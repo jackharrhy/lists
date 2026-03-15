@@ -15,6 +15,13 @@
       "when": 1773532658538,
       "tag": "0001_add-campaign-error",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1773534514377,
+      "tag": "0002_add-inbound-read-at",
+      "breakpoints": true
     }
   ]
 }

@@ -881,6 +881,13 @@ export function adminRoutes(db: Db, config: Config) {
             </table>
           </>
         )}
+
+        <hr style="margin:2rem 0" />
+        <form method="post" action={`/admin/campaigns/${id}/delete`} onsubmit="return confirm('Delete this campaign and all its send records? This cannot be undone.')">
+          <button type="submit" class="btn-danger" style="padding:0.5rem 1rem;border:none;border-radius:4px;color:#fff;cursor:pointer;font-size:0.8125rem">
+            Delete Campaign
+          </button>
+        </form>
       </AdminLayout>,
     );
   });
@@ -914,6 +921,24 @@ export function adminRoutes(db: Db, config: Config) {
     return c.redirect(`/admin/campaigns/${id}`);
   });
 
+  app.post("/campaigns/:id/delete", (c) => {
+    const id = Number(c.req.param("id"));
+    // clear linked inbound messages (unlink, don't delete)
+    db.update(schema.inboundMessages)
+      .set({ campaignId: null })
+      .where(eq(schema.inboundMessages.campaignId, id))
+      .run();
+    // delete sends
+    db.delete(schema.campaignSends)
+      .where(eq(schema.campaignSends.campaignId, id))
+      .run();
+    // delete campaign
+    db.delete(schema.campaigns)
+      .where(eq(schema.campaigns.id, id))
+      .run();
+    return c.redirect("/admin/campaigns");
+  });
+
   // Inbound
   app.get("/inbound", (c) => {
     const messages = db
@@ -939,7 +964,7 @@ export function adminRoutes(db: Db, config: Config) {
           </thead>
           <tbody>
             {messages.map((msg) => (
-              <tr>
+              <tr style={msg.readAt ? "" : "font-weight:600"}>
                 <td>{msg.source}</td>
                 <td>
                   <a href={`/admin/inbound/${msg.id}`}>{msg.subject}</a>
@@ -966,6 +991,14 @@ export function adminRoutes(db: Db, config: Config) {
     const id = Number(c.req.param("id"));
     const msg = db.select().from(schema.inboundMessages).where(eq(schema.inboundMessages.id, id)).get();
     if (!msg) return c.notFound();
+
+    // auto-mark as read
+    if (!msg.readAt) {
+      db.update(schema.inboundMessages)
+        .set({ readAt: new Date().toISOString() })
+        .where(eq(schema.inboundMessages.id, id))
+        .run();
+    }
 
     const msgReplies = db
       .select()
@@ -1069,8 +1102,45 @@ export function adminRoutes(db: Db, config: Config) {
             <button type="submit">Send Reply</button>
           </form>
         </div>
+
+        <hr style="margin:2rem 0" />
+        <div style="display:flex;gap:0.5rem">
+          <form method="post" action={`/admin/inbound/${id}/toggle-read`}>
+            <button type="submit" class="btn-secondary" style="padding:0.5rem 1rem;border:1px solid #ccc;border-radius:4px;cursor:pointer;font-size:0.8125rem">
+              Mark as {msg.readAt ? "Unread" : "Read"}
+            </button>
+          </form>
+          <form method="post" action={`/admin/inbound/${id}/delete`} onsubmit="return confirm('Delete this inbound message and its replies? This cannot be undone.')">
+            <button type="submit" class="btn-danger" style="padding:0.5rem 1rem;border:none;border-radius:4px;color:#fff;cursor:pointer;font-size:0.8125rem">
+              Delete
+            </button>
+          </form>
+        </div>
       </AdminLayout>,
     );
+  });
+
+  app.post("/inbound/:id/toggle-read", (c) => {
+    const id = Number(c.req.param("id"));
+    const msg = db.select().from(schema.inboundMessages).where(eq(schema.inboundMessages.id, id)).get();
+    if (!msg) return c.notFound();
+    db.update(schema.inboundMessages)
+      .set({ readAt: msg.readAt ? null : new Date().toISOString() })
+      .where(eq(schema.inboundMessages.id, id))
+      .run();
+    return c.redirect(`/admin/inbound/${id}`);
+  });
+
+  app.post("/inbound/:id/delete", (c) => {
+    const id = Number(c.req.param("id"));
+    // delete replies first (FK)
+    db.delete(schema.replies)
+      .where(eq(schema.replies.inboundMessageId, id))
+      .run();
+    db.delete(schema.inboundMessages)
+      .where(eq(schema.inboundMessages.id, id))
+      .run();
+    return c.redirect("/admin/inbound");
   });
 
   app.get("/inbound/:id/raw", async (c) => {

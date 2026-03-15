@@ -97,6 +97,7 @@ export const inboundMessages = sqliteTable("inbound_messages", {
   dmarcVerdict: text("dmarc_verdict"),
   s3Key: text("s3_key"),
   campaignId: integer("campaign_id").references(() => campaigns.id),
+  readAt: text("read_at"),
   createdAt: text("created_at")
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
