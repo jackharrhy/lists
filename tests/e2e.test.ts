@@ -12,6 +12,7 @@ import { Hono } from "hono";
 import { createTestDb, seedList, seedSubscriber, type TestDb } from "./helpers";
 import { sendCampaign } from "../src/services/sender";
 import { publicRoutes } from "../src/routes/public";
+import { adminRoutes } from "../src/routes/admin";
 import * as schema from "../src/db/schema";
 import type { Config } from "../src/config";
 import {
@@ -19,6 +20,7 @@ import {
   confirmSubscriber,
   unsubscribeFromList,
 } from "../src/services/subscriber";
+import { createSession } from "../src/auth";
 
 const sesMock = mockClient(SESv2Client);
 const sqsMock = mockClient(SQSClient);
@@ -579,5 +581,232 @@ describe("Per-list unsubscribe flow via Hono", () => {
       )
       .get();
     expect(subListB!.status).toBe("confirmed");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 7. Campaign with null listId sends to all active confirmed subscribers
+// ---------------------------------------------------------------------------
+describe("Campaign with null listId (all-subscribers send)", () => {
+  test("sends to all unique confirmed subscribers across lists, no duplicates", async () => {
+    const db = createTestDb();
+    const listA = seedList(db, {
+      slug: "list-a",
+      name: "List A",
+      fromDomain: "example.com",
+    });
+    const listB = seedList(db, {
+      slug: "list-b",
+      name: "List B",
+      fromDomain: "example.com",
+    });
+
+    // subscriber-1: confirmed on list-a only
+    const sub1 = createSubscriber(db, "sub1@example.com", "Sub One", [
+      "list-a",
+    ]);
+    confirmSubscriber(db, sub1.unsubscribeToken);
+
+    // subscriber-2: confirmed on list-b only
+    const sub2 = createSubscriber(db, "sub2@example.com", "Sub Two", [
+      "list-b",
+    ]);
+    confirmSubscriber(db, sub2.unsubscribeToken);
+
+    // subscriber-3: confirmed on BOTH lists (should only get 1 email)
+    const sub3 = createSubscriber(db, "sub3@example.com", "Sub Three", [
+      "list-a",
+      "list-b",
+    ]);
+    confirmSubscriber(db, sub3.unsubscribeToken);
+
+    // campaign with null listId
+    const campaign = db
+      .insert(schema.campaigns)
+      .values({
+        listId: null,
+        subject: "Broadcast to Everyone",
+        bodyMarkdown: "# Hello All\n\nThis goes to everyone.",
+        fromAddress: "broadcast@example.com",
+        status: "draft",
+      })
+      .returning()
+      .get();
+
+    sesMock.on(SendEmailCommand).resolves({ MessageId: "broadcast-msg" });
+
+    await sendCampaign(db, testConfig, campaign.id);
+
+    // campaign should be "sent"
+    const updated = db
+      .select()
+      .from(schema.campaigns)
+      .where(eq(schema.campaigns.id, campaign.id))
+      .get();
+    expect(updated!.status).toBe("sent");
+
+    // SES should have been called exactly 3 times (not 4)
+    const sesCalls = sesMock.commandCalls(SendEmailCommand);
+    expect(sesCalls).toHaveLength(3);
+
+    // campaignSends should have 3 entries
+    const sends = db
+      .select()
+      .from(schema.campaignSends)
+      .where(eq(schema.campaignSends.campaignId, campaign.id))
+      .all();
+    expect(sends).toHaveLength(3);
+    expect(sends.every((s) => s.status === "sent")).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Helper: create owner user + login session for admin tests
+// ---------------------------------------------------------------------------
+function createOwnerAndSession(db: ReturnType<typeof createTestDb>) {
+  const passwordHash = Bun.password.hashSync("testpass123");
+  const user = db
+    .insert(schema.users)
+    .values({
+      email: "owner@example.com",
+      name: "Owner",
+      passwordHash,
+      role: "owner",
+    })
+    .returning()
+    .get();
+  const sessionToken = createSession(user.id);
+  return { user, sessionToken };
+}
+
+// ---------------------------------------------------------------------------
+// 8. Preview endpoint returns rendered email HTML
+// ---------------------------------------------------------------------------
+describe("GET /campaigns/:id/preview", () => {
+  test("returns rendered email HTML without AdminLayout nav", async () => {
+    const db = createTestDb();
+    const list = seedList(db, {
+      slug: "newsletter",
+      name: "Newsletter",
+      fromDomain: "example.com",
+    });
+
+    const campaign = db
+      .insert(schema.campaigns)
+      .values({
+        listId: list.id,
+        subject: "Preview Test Subject",
+        bodyMarkdown: "# Big Heading\n\nSome **bold** content here.",
+        fromAddress: "news@example.com",
+        status: "draft",
+      })
+      .returning()
+      .get();
+
+    const { sessionToken } = createOwnerAndSession(db);
+
+    const app = new Hono();
+    app.route("/admin", adminRoutes(db, testConfig));
+
+    const res = await app.request(`/admin/campaigns/${campaign.id}/preview`, {
+      headers: { Cookie: `session=${sessionToken}` },
+    });
+
+    expect(res.status).toBe(200);
+    const html = await res.text();
+
+    // Should contain the campaign subject
+    expect(html).toContain("Preview Test Subject");
+    // Should contain rendered markdown (h1 tag, not raw "# Big Heading")
+    expect(html).toContain("<h1>Big Heading</h1>");
+    // Should contain rendered bold text
+    expect(html).toContain("<strong>bold</strong>");
+    // Should NOT contain AdminLayout nav bar
+    expect(html).not.toContain("Dashboard");
+    expect(html).not.toContain('class="bg-gray-900');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 9. Preview endpoint with subscriberId includes real unsubscribe URL
+// ---------------------------------------------------------------------------
+describe("GET /campaigns/:id/preview?subscriberId=N", () => {
+  test("includes real unsubscribe URL with subscriber token", async () => {
+    const db = createTestDb();
+    const list = seedList(db, {
+      slug: "newsletter",
+      name: "Newsletter",
+      fromDomain: "example.com",
+    });
+
+    const sub = createSubscriber(db, "reader@example.com", "Reader", [
+      "newsletter",
+    ]);
+    confirmSubscriber(db, sub.unsubscribeToken);
+
+    const campaign = db
+      .insert(schema.campaigns)
+      .values({
+        listId: list.id,
+        subject: "Unsub Preview",
+        bodyMarkdown: "# Content",
+        fromAddress: "news@example.com",
+        status: "draft",
+      })
+      .returning()
+      .get();
+
+    const { sessionToken } = createOwnerAndSession(db);
+
+    const app = new Hono();
+    app.route("/admin", adminRoutes(db, testConfig));
+
+    const res = await app.request(
+      `/admin/campaigns/${campaign.id}/preview?subscriberId=${sub.id}`,
+      { headers: { Cookie: `session=${sessionToken}` } },
+    );
+
+    expect(res.status).toBe(200);
+    const html = await res.text();
+
+    // Should contain a real unsubscribe URL (not the placeholder)
+    expect(html).toContain("/unsubscribe/");
+    expect(html).not.toContain("#unsubscribe");
+    // Should contain the subscriber's actual token
+    expect(html).toContain(sub.unsubscribeToken);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 10. POST preview endpoint renders markdown
+// ---------------------------------------------------------------------------
+describe("POST /campaigns/preview", () => {
+  test("renders markdown body into HTML", async () => {
+    const db = createTestDb();
+    const { sessionToken } = createOwnerAndSession(db);
+
+    const app = new Hono();
+    app.route("/admin", adminRoutes(db, testConfig));
+
+    const res = await app.request("/admin/campaigns/preview", {
+      method: "POST",
+      headers: {
+        Cookie: `session=${sessionToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        bodyMarkdown: "# Hello\n\nWorld",
+        subject: "Test",
+        listName: "My List",
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    const html = await res.text();
+
+    // Should contain rendered h1, not raw markdown
+    expect(html).toContain("<h1>Hello</h1>");
+    // Should contain the paragraph text
+    expect(html).toContain("World");
   });
 });
