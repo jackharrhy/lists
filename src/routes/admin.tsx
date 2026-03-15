@@ -1113,6 +1113,10 @@ export function adminRoutes(db: Db, config: Config) {
         .all();
     }
 
+    // Build a lookup map for list names
+    const allLists = db.select().from(schema.lists).all();
+    const listNameMap = new Map(allLists.map((l) => [l.id, l.name]));
+
     return c.html(
       <AdminLayout title="Campaigns" user={user}>
         <h1 class="text-2xl font-bold mt-0 mb-4">Campaigns</h1>
@@ -1125,6 +1129,7 @@ export function adminRoutes(db: Db, config: Config) {
           <thead>
             <tr>
               <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Subject</th>
+              <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">List</th>
               <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">From</th>
               <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Status</th>
               <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Created</th>
@@ -1136,6 +1141,7 @@ export function adminRoutes(db: Db, config: Config) {
                 <td class="px-4 py-3 border-b border-gray-100">
                   <a href={`/admin/campaigns/${cam.id}`} class="text-blue-600 hover:text-blue-800">{cam.subject}</a>
                 </td>
+                <td class="px-4 py-3 border-b border-gray-100">{cam.listId ? (listNameMap.get(cam.listId) ?? "Unknown") : "All"}</td>
                 <td class="px-4 py-3 border-b border-gray-100">{cam.fromAddress}</td>
                 <td class="px-4 py-3 border-b border-gray-100">
                   <CampaignBadge status={cam.status} />
@@ -1171,6 +1177,7 @@ export function adminRoutes(db: Db, config: Config) {
               <label for="listId" class="block text-sm font-medium text-gray-700 mb-1">List</label>
               <select id="listId" name="listId" required class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
                 <option value="">Select a list...</option>
+                <option value="all">All subscribers</option>
                 {allLists.map((list) => (
                   <option value={String(list.id)} data-from-address={list.fromAddress}>
                     {list.name} ({list.slug})
@@ -1194,7 +1201,7 @@ export function adminRoutes(db: Db, config: Config) {
                 var lastDefault = '';
                 document.getElementById('listId').addEventListener('change', function() {
                   var opt = this.options[this.selectedIndex];
-                  var addr = opt.dataset.fromAddress || '';
+                  var addr = (this.value === 'all') ? '' : (opt.dataset.fromAddress || '');
                   var input = document.getElementById('fromAddress');
                   if (!input.value || input.value === lastDefault) {
                     input.value = addr;
@@ -1221,19 +1228,23 @@ export function adminRoutes(db: Db, config: Config) {
   app.post("/campaigns/new", async (c) => {
     const user = c.get("user") as User;
     const body = await c.req.parseBody();
-    const listId = Number(body["listId"]);
+    const rawListId = String(body["listId"] ?? "");
+    const isAll = rawListId === "all";
+    const listId = isAll ? null : Number(rawListId);
     const fromAddress = String(body["fromAddress"] ?? "").trim();
     const subject = String(body["subject"] ?? "").trim();
     const bodyMarkdown = String(body["bodyMarkdown"] ?? "");
 
-    if (!listId || !fromAddress || !subject || !bodyMarkdown) {
+    if ((!isAll && !listId) || !fromAddress || !subject || !bodyMarkdown) {
       return c.redirect("/admin/campaigns/new");
     }
 
-    // Verify user has access to this list
-    const listAccess = getAccessibleListIds(db, user);
-    if (listAccess !== "all" && !listAccess.includes(listId)) {
-      return c.text("Forbidden", 403);
+    // Verify user has access to this list (admins can send to "all")
+    if (listId !== null) {
+      const listAccess = getAccessibleListIds(db, user);
+      if (listAccess !== "all" && !listAccess.includes(listId)) {
+        return c.text("Forbidden", 403);
+      }
     }
 
     const result = db
@@ -1258,13 +1269,15 @@ export function adminRoutes(db: Db, config: Config) {
     const campaign = db.select().from(schema.campaigns).where(eq(schema.campaigns.id, id)).get();
     if (!campaign) return c.notFound();
 
-    // Check list access
+    // Check list access (null listId = "all subscribers", accessible to admins/owners)
     const listAccess = getAccessibleListIds(db, user);
-    if (listAccess !== "all" && !listAccess.includes(campaign.listId)) {
+    if (campaign.listId !== null && listAccess !== "all" && !listAccess.includes(campaign.listId)) {
       return c.text("Forbidden", 403);
     }
 
-    const list = db.select().from(schema.lists).where(eq(schema.lists.id, campaign.listId)).get();
+    const list = campaign.listId
+      ? db.select().from(schema.lists).where(eq(schema.lists.id, campaign.listId)).get()
+      : null;
 
     const sends = db
       .select()
@@ -1287,7 +1300,7 @@ export function adminRoutes(db: Db, config: Config) {
         <div class="flex gap-4 items-center mb-4">
           <CampaignBadge status={campaign.status} />
           <span class="text-sm text-gray-500">
-            List: {list?.name ?? "Unknown"} &middot; From: {campaign.fromAddress}
+            List: {list?.name ?? (campaign.listId ? "Unknown" : "All subscribers")} &middot; From: {campaign.fromAddress}
           </span>
         </div>
 

@@ -1,5 +1,5 @@
 import { SESv2Client, SendEmailCommand } from "@aws-sdk/client-sesv2";
-import { eq, and } from "drizzle-orm";
+import { eq, and, isNotNull } from "drizzle-orm";
 import { marked } from "marked";
 import type { Config } from "../config";
 import { type Db, schema } from "../db";
@@ -11,6 +11,25 @@ import {
 } from "../compliance";
 import { renderNewsletter } from "../../emails/render";
 import { logEvent } from "./events";
+
+/** Get all active, confirmed subscribers (deduplicated by email) for campaigns with no specific list. */
+function getAllActiveConfirmedSubscribers(db: Db) {
+  return db
+    .selectDistinct({
+      id: schema.subscribers.id,
+      email: schema.subscribers.email,
+      name: schema.subscribers.name,
+      unsubscribeToken: schema.subscribers.unsubscribeToken,
+    })
+    .from(schema.subscribers)
+    .where(
+      and(
+        eq(schema.subscribers.status, "active"),
+        isNotNull(schema.subscribers.confirmedAt),
+      ),
+    )
+    .all();
+}
 
 export function buildRawEmail({
   from,
@@ -75,8 +94,11 @@ export async function sendCampaign(
     throw new Error(`Campaign ${campaignId} is ${campaign.status}, must be draft or failed to send`);
   }
 
-  const list = db.select().from(schema.lists).where(eq(schema.lists.id, campaign.listId)).get();
-  if (!list) throw new Error(`List ${campaign.listId} not found`);
+  // Resolve list (may be null for "all subscribers" campaigns)
+  const list = campaign.listId
+    ? db.select().from(schema.lists).where(eq(schema.lists.id, campaign.listId)).get()
+    : null;
+  if (campaign.listId && !list) throw new Error(`List ${campaign.listId} not found`);
 
   db.update(schema.campaigns)
     .set({ status: "sending", lastError: null })
@@ -90,7 +112,9 @@ export async function sendCampaign(
   });
 
   try {
-    const subscribers = getConfirmedSubscribers(db, list.id);
+    const subscribers = list
+      ? getConfirmedSubscribers(db, list.id)
+      : getAllActiveConfirmedSubscribers(db);
     const contentHtml = await marked(campaign.bodyMarkdown);
     const ses = new SESv2Client({ region: config.awsRegion });
 
@@ -106,14 +130,24 @@ export async function sendCampaign(
         .map((r) => r.subscriberId),
     );
 
+    // Derive per-campaign values depending on whether there's a list
+    const listName = list ? list.name : "Newsletter";
+    const replyTo = list
+      ? `${list.slug}@reply.${list.fromDomain}`
+      : `noreply@reply.${config.fromDomain}`;
+    const fromWithName = list
+      ? `"${list.name}" <${campaign.fromAddress}>`
+      : campaign.fromAddress;
+    const emailFromDomain = list
+      ? config.fromDomain
+      : (campaign.fromAddress.split("@")[1] ?? config.fromDomain);
+
     for (const subscriber of subscribers) {
       if (alreadySent.has(subscriber.id)) continue;
 
-      const unsubscribeUrl = buildUnsubscribeUrl(
-        config.baseUrl,
-        subscriber.unsubscribeToken,
-        list.id,
-      );
+      const unsubscribeUrl = list
+        ? buildUnsubscribeUrl(config.baseUrl, subscriber.unsubscribeToken, list.id)
+        : buildUnsubscribeUrl(config.baseUrl, subscriber.unsubscribeToken);
       const preferencesUrl = buildPreferencesUrl(
         config.baseUrl,
         subscriber.unsubscribeToken,
@@ -123,13 +157,10 @@ export async function sendCampaign(
       const { html, text } = await renderNewsletter({
         subject: campaign.subject,
         contentHtml,
-        listName: list.name,
+        listName,
         unsubscribeUrl,
         preferencesUrl,
       });
-
-      const replyTo = `${list.slug}@reply.${list.fromDomain}`;
-      const fromWithName = `"${list.name}" <${campaign.fromAddress}>`;
 
       const rawEmail = buildRawEmail({
         from: fromWithName,
@@ -137,7 +168,7 @@ export async function sendCampaign(
         subject: campaign.subject,
         html,
         text,
-        fromDomain: config.fromDomain,
+        fromDomain: emailFromDomain,
         headers: {
           ...listUnsubHeaders,
           "Reply-To": replyTo,
