@@ -676,6 +676,57 @@ export function adminRoutes(db: Db, config: Config) {
     );
   });
 
+  app.get("/lists/new", (c) => {
+    return c.html(
+      <AdminLayout title="New List">
+        <h1 class="text-2xl font-bold mt-0 mb-4">New List</h1>
+        <div class="bg-white border border-gray-200 rounded-lg p-5 mb-6">
+          <form method="post" action="/admin/lists/new">
+            <div class="grid grid-cols-2 gap-4">
+              <div class="mb-4">
+                <label for="slug" class="block text-sm font-medium text-gray-700 mb-1">Slug</label>
+                <input type="text" id="slug" name="slug" required placeholder="weekly-digest" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+              </div>
+              <div class="mb-4">
+                <label for="name" class="block text-sm font-medium text-gray-700 mb-1">Name</label>
+                <input type="text" id="name" name="name" required placeholder="Weekly Digest" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+              </div>
+            </div>
+            <div class="mb-4">
+              <label for="description" class="block text-sm font-medium text-gray-700 mb-1">Description</label>
+              <input type="text" id="description" name="description" placeholder="Optional description" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+            </div>
+            <div class="mb-4">
+              <label for="fromDomain" class="block text-sm font-medium text-gray-700 mb-1">Sending domain</label>
+              <input type="text" id="fromDomain" name="fromDomain" required placeholder="siliconharbour.dev" value={config.fromDomain} class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+            </div>
+            <button type="submit" class="inline-block px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none no-underline">Create List</button>
+          </form>
+        </div>
+      </AdminLayout>,
+    );
+  });
+
+  app.post("/lists/new", async (c) => {
+    const body = await c.req.parseBody();
+    const slug = String(body["slug"] ?? "").trim();
+    const name = String(body["name"] ?? "").trim();
+    const description = String(body["description"] ?? "").trim();
+    const fromDomain = String(body["fromDomain"] ?? config.fromDomain).trim();
+
+    if (!slug || !name) {
+      return c.redirect("/admin/lists/new");
+    }
+
+    db.insert(schema.lists)
+      .values({ slug, name, description, fromDomain })
+      .run();
+
+    logEvent(db, { type: "admin.list_created", detail: `${name} (${slug})` });
+
+    return c.redirect("/admin/lists");
+  });
+
   app.get("/lists/:id", (c) => {
     const id = Number(c.req.param("id"));
     const list = db.select().from(schema.lists).where(eq(schema.lists.id, id)).get();
@@ -866,57 +917,6 @@ export function adminRoutes(db: Db, config: Config) {
     db.delete(schema.campaigns).where(eq(schema.campaigns.listId, id)).run();
     // delete list
     db.delete(schema.lists).where(eq(schema.lists.id, id)).run();
-
-    return c.redirect("/admin/lists");
-  });
-
-  app.get("/lists/new", (c) => {
-    return c.html(
-      <AdminLayout title="New List">
-        <h1 class="text-2xl font-bold mt-0 mb-4">New List</h1>
-        <div class="bg-white border border-gray-200 rounded-lg p-5 mb-6">
-          <form method="post" action="/admin/lists/new">
-            <div class="grid grid-cols-2 gap-4">
-              <div class="mb-4">
-                <label for="slug" class="block text-sm font-medium text-gray-700 mb-1">Slug</label>
-                <input type="text" id="slug" name="slug" required placeholder="weekly-digest" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
-              </div>
-              <div class="mb-4">
-                <label for="name" class="block text-sm font-medium text-gray-700 mb-1">Name</label>
-                <input type="text" id="name" name="name" required placeholder="Weekly Digest" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
-              </div>
-            </div>
-            <div class="mb-4">
-              <label for="description" class="block text-sm font-medium text-gray-700 mb-1">Description</label>
-              <input type="text" id="description" name="description" placeholder="Optional description" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
-            </div>
-            <div class="mb-4">
-              <label for="fromDomain" class="block text-sm font-medium text-gray-700 mb-1">Sending domain</label>
-              <input type="text" id="fromDomain" name="fromDomain" required placeholder="siliconharbour.dev" value={config.fromDomain} class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
-            </div>
-            <button type="submit" class="inline-block px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none no-underline">Create List</button>
-          </form>
-        </div>
-      </AdminLayout>,
-    );
-  });
-
-  app.post("/lists/new", async (c) => {
-    const body = await c.req.parseBody();
-    const slug = String(body["slug"] ?? "").trim();
-    const name = String(body["name"] ?? "").trim();
-    const description = String(body["description"] ?? "").trim();
-    const fromDomain = String(body["fromDomain"] ?? config.fromDomain).trim();
-
-    if (!slug || !name) {
-      return c.redirect("/admin/lists");
-    }
-
-    db.insert(schema.lists)
-      .values({ slug, name, description, fromDomain })
-      .run();
-
-    logEvent(db, { type: "admin.list_created", detail: `${name} (${slug})` });
 
     return c.redirect("/admin/lists");
   });
