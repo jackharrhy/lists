@@ -5,6 +5,7 @@ type LogEventOpts = {
   type: string;
   detail: string;
   meta?: Record<string, unknown>;
+  userId?: number;
   subscriberId?: number;
   campaignId?: number;
   inboundMessageId?: number;
@@ -16,6 +17,7 @@ export function logEvent(db: Db, opts: LogEventOpts) {
       type: opts.type,
       detail: opts.detail,
       meta: opts.meta ? JSON.stringify(opts.meta) : null,
+      userId: opts.userId ?? null,
       subscriberId: opts.subscriberId ?? null,
       campaignId: opts.campaignId ?? null,
       inboundMessageId: opts.inboundMessageId ?? null,

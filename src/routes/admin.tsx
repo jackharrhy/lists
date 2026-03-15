@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { eq, desc, sql, and } from "drizzle-orm";
+import { eq, desc, sql, and, inArray } from "drizzle-orm";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
@@ -8,7 +8,7 @@ import { marked } from "marked";
 import type { Db } from "../db";
 import { schema } from "../db";
 import type { Config } from "../config";
-import { adminAuth, createSession, destroySession } from "../auth";
+import { adminAuth, createSession, destroySession, requireRole, requireListAccess, getAccessibleListIds } from "../auth";
 import { sendCampaign } from "../services/sender";
 import { createSubscriber, confirmSubscriber } from "../services/subscriber";
 import { logEvent } from "../services/events";
@@ -17,15 +17,20 @@ import { logEvent } from "../services/events";
 // Layout & components
 // ---------------------------------------------------------------------------
 
+type User = typeof schema.users.$inferSelect;
+
 function AdminLayout({
   title,
   children,
   flash,
+  user,
 }: {
   title: string;
   children: any;
   flash?: string;
+  user?: User;
 }) {
+  const isAdmin = user?.role === "owner" || user?.role === "admin";
   return (
     <html lang="en">
       <head>
@@ -47,6 +52,10 @@ function AdminLayout({
             <a href="/admin/campaigns" class="text-gray-400 text-sm no-underline hover:text-white">Campaigns</a>
             <a href="/admin/inbound" class="text-gray-400 text-sm no-underline hover:text-white">Inbound</a>
             <a href="/admin/activity" class="text-gray-400 text-sm no-underline hover:text-white">Activity</a>
+            {isAdmin && (
+              <a href="/admin/users" class="text-gray-400 text-sm no-underline hover:text-white">Users</a>
+            )}
+            <span class="text-gray-400 text-sm">{user?.name ?? user?.email ?? ""}</span>
             <form method="post" action="/admin/logout" class="m-0">
               <button
                 type="submit"
@@ -228,31 +237,75 @@ export function adminRoutes(db: Db, config: Config) {
 
   // Dashboard
   app.get("/", (c) => {
-    const activeCount = db
-      .select({ count: sql<number>`count(*)` })
-      .from(schema.subscribers)
-      .where(eq(schema.subscribers.status, "active"))
-      .get()!.count;
+    const user = c.get("user") as User;
+    const listAccess = getAccessibleListIds(db, user);
+    const isAdmin = user.role === "owner" || user.role === "admin";
 
-    const listCount = db
-      .select({ count: sql<number>`count(*)` })
-      .from(schema.lists)
-      .get()!.count;
+    let activeCount: number;
+    let listCount: number;
+    let campaignCount: number;
+    let recentCampaigns: (typeof schema.campaigns.$inferSelect)[];
 
-    const campaignCount = db
-      .select({ count: sql<number>`count(*)` })
-      .from(schema.campaigns)
-      .get()!.count;
+    if (listAccess === "all") {
+      activeCount = db
+        .select({ count: sql<number>`count(*)` })
+        .from(schema.subscribers)
+        .where(eq(schema.subscribers.status, "active"))
+        .get()!.count;
 
-    const recentCampaigns = db
-      .select()
-      .from(schema.campaigns)
-      .orderBy(desc(schema.campaigns.createdAt))
-      .limit(5)
-      .all();
+      listCount = db
+        .select({ count: sql<number>`count(*)` })
+        .from(schema.lists)
+        .get()!.count;
+
+      campaignCount = db
+        .select({ count: sql<number>`count(*)` })
+        .from(schema.campaigns)
+        .get()!.count;
+
+      recentCampaigns = db
+        .select()
+        .from(schema.campaigns)
+        .orderBy(desc(schema.campaigns.createdAt))
+        .limit(5)
+        .all();
+    } else if (listAccess.length === 0) {
+      activeCount = 0;
+      listCount = 0;
+      campaignCount = 0;
+      recentCampaigns = [];
+    } else {
+      activeCount = db
+        .select({ count: sql<number>`count(DISTINCT ${schema.subscribers.id})` })
+        .from(schema.subscribers)
+        .innerJoin(schema.subscriberLists, eq(schema.subscriberLists.subscriberId, schema.subscribers.id))
+        .where(
+          and(
+            eq(schema.subscribers.status, "active"),
+            inArray(schema.subscriberLists.listId, listAccess),
+          ),
+        )
+        .get()!.count;
+
+      listCount = listAccess.length;
+
+      campaignCount = db
+        .select({ count: sql<number>`count(*)` })
+        .from(schema.campaigns)
+        .where(inArray(schema.campaigns.listId, listAccess))
+        .get()!.count;
+
+      recentCampaigns = db
+        .select()
+        .from(schema.campaigns)
+        .where(inArray(schema.campaigns.listId, listAccess))
+        .orderBy(desc(schema.campaigns.createdAt))
+        .limit(5)
+        .all();
+    }
 
     return c.html(
-      <AdminLayout title="Dashboard">
+      <AdminLayout title="Dashboard" user={user}>
         <h1 class="text-2xl font-bold mt-0 mb-4">Dashboard</h1>
         <div class="flex gap-4 mb-6">
           <div class="inline-flex flex-col items-center bg-white border border-gray-200 rounded-lg px-6 py-4 min-w-[120px] text-center">
@@ -302,16 +355,38 @@ export function adminRoutes(db: Db, config: Config) {
 
   // Subscribers
    app.get("/subscribers", (c) => {
-    const allSubscribers = db
-      .select()
-      .from(schema.subscribers)
-      .orderBy(desc(schema.subscribers.createdAt))
-      .all();
+    const user = c.get("user") as User;
+    const listAccess = getAccessibleListIds(db, user);
 
-    const allLists = db.select().from(schema.lists).all();
+    let allSubscribers: (typeof schema.subscribers.$inferSelect)[];
+    if (listAccess === "all") {
+      allSubscribers = db
+        .select()
+        .from(schema.subscribers)
+        .orderBy(desc(schema.subscribers.createdAt))
+        .all();
+    } else if (listAccess.length === 0) {
+      allSubscribers = [];
+    } else {
+      allSubscribers = db
+        .selectDistinct({
+          id: schema.subscribers.id,
+          email: schema.subscribers.email,
+          name: schema.subscribers.name,
+          status: schema.subscribers.status,
+          unsubscribeToken: schema.subscribers.unsubscribeToken,
+          createdAt: schema.subscribers.createdAt,
+          confirmedAt: schema.subscribers.confirmedAt,
+        })
+        .from(schema.subscribers)
+        .innerJoin(schema.subscriberLists, eq(schema.subscriberLists.subscriberId, schema.subscribers.id))
+        .where(inArray(schema.subscriberLists.listId, listAccess))
+        .orderBy(desc(schema.subscribers.createdAt))
+        .all();
+    }
 
     return c.html(
-      <AdminLayout title="Subscribers">
+      <AdminLayout title="Subscribers" user={user}>
         <h1 class="text-2xl font-bold mt-0 mb-4">Subscribers</h1>
         <p class="mb-6">
           <a href="/admin/subscribers/new" class="inline-block px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none no-underline">
@@ -351,10 +426,20 @@ export function adminRoutes(db: Db, config: Config) {
   });
 
   app.get("/subscribers/new", (c) => {
-    const allLists = db.select().from(schema.lists).all();
+    const user = c.get("user") as User;
+    const listAccess = getAccessibleListIds(db, user);
+
+    let allLists: (typeof schema.lists.$inferSelect)[];
+    if (listAccess === "all") {
+      allLists = db.select().from(schema.lists).all();
+    } else if (listAccess.length === 0) {
+      allLists = [];
+    } else {
+      allLists = db.select().from(schema.lists).where(inArray(schema.lists.id, listAccess)).all();
+    }
 
     return c.html(
-      <AdminLayout title="Add Subscriber">
+      <AdminLayout title="Add Subscriber" user={user}>
         <h1 class="text-2xl font-bold mt-0 mb-4">Add Subscriber</h1>
         <div class="bg-white border border-gray-200 rounded-lg p-5 mb-6">
           <form method="post" action="/admin/subscribers/new">
@@ -391,6 +476,7 @@ export function adminRoutes(db: Db, config: Config) {
   });
 
   app.post("/subscribers/new", async (c) => {
+    const user = c.get("user") as User;
     const body = await c.req.parseBody({ all: true });
     const email = body["email"] as string;
     const name = (body["name"] as string) || null;
@@ -412,23 +498,40 @@ export function adminRoutes(db: Db, config: Config) {
       type: "admin.subscriber_added",
       detail: email,
       subscriberId: subscriber.id,
+      userId: user.id,
     });
 
     return c.redirect("/admin/subscribers");
   });
 
   app.get("/subscribers/:id", (c) => {
+    const user = c.get("user") as User;
     const id = Number(c.req.param("id"));
     const sub = db.select().from(schema.subscribers).where(eq(schema.subscribers.id, id)).get();
     if (!sub) return c.notFound();
 
-    const allLists = db.select().from(schema.lists).all();
+    const listAccess = getAccessibleListIds(db, user);
+    let allLists: (typeof schema.lists.$inferSelect)[];
+    if (listAccess === "all") {
+      allLists = db.select().from(schema.lists).all();
+    } else if (listAccess.length === 0) {
+      allLists = [];
+    } else {
+      allLists = db.select().from(schema.lists).where(inArray(schema.lists.id, listAccess)).all();
+    }
+
     const subLists = db
       .select()
       .from(schema.subscriberLists)
       .where(eq(schema.subscriberLists.subscriberId, id))
       .all();
     const subListMap = new Map(subLists.map((sl) => [sl.listId, sl.status]));
+
+    // For members, verify this subscriber is on one of their accessible lists
+    if (listAccess !== "all") {
+      const onAccessibleList = subLists.some((sl) => (listAccess as number[]).includes(sl.listId));
+      if (!onAccessibleList) return c.text("Forbidden", 403);
+    }
 
     const subEvents = db
       .select()
@@ -452,7 +555,7 @@ export function adminRoutes(db: Db, config: Config) {
       .all();
 
     return c.html(
-      <AdminLayout title={sub.email}>
+      <AdminLayout title={sub.email} user={user}>
         <h1 class="text-2xl font-bold mt-0 mb-4">{sub.email}</h1>
 
         <form method="post" action={`/admin/subscribers/${id}/edit`}>
@@ -556,6 +659,7 @@ export function adminRoutes(db: Db, config: Config) {
   });
 
   app.post("/subscribers/:id/edit", async (c) => {
+    const user = c.get("user") as User;
     const id = Number(c.req.param("id"));
     const body = await c.req.parseBody({ all: true });
     const email = String(body["email"] ?? "").trim().toLowerCase();
@@ -622,12 +726,14 @@ export function adminRoutes(db: Db, config: Config) {
       type: "admin.subscriber_edited",
       detail: email,
       subscriberId: id,
+      userId: user.id,
     });
 
     return c.redirect(`/admin/subscribers/${id}`);
   });
 
   app.post("/subscribers/:id/delete", (c) => {
+    const user = c.get("user") as User;
     const id = Number(c.req.param("id"));
     const sub = db.select().from(schema.subscribers).where(eq(schema.subscribers.id, id)).get();
 
@@ -635,6 +741,7 @@ export function adminRoutes(db: Db, config: Config) {
       type: "admin.subscriber_deleted",
       detail: sub?.email ?? `id=${id}`,
       subscriberId: id,
+      userId: user.id,
     });
 
     // delete list subscriptions
@@ -654,7 +761,18 @@ export function adminRoutes(db: Db, config: Config) {
 
   // Lists
   app.get("/lists", (c) => {
-    const allLists = db.select().from(schema.lists).all();
+    const user = c.get("user") as User;
+    const listAccess = getAccessibleListIds(db, user);
+    const isAdmin = user.role === "owner" || user.role === "admin";
+
+    let allLists: (typeof schema.lists.$inferSelect)[];
+    if (listAccess === "all") {
+      allLists = db.select().from(schema.lists).all();
+    } else if (listAccess.length === 0) {
+      allLists = [];
+    } else {
+      allLists = db.select().from(schema.lists).where(inArray(schema.lists.id, listAccess)).all();
+    }
 
     // get subscriber counts per list
     const listCounts = new Map<number, number>();
@@ -673,13 +791,15 @@ export function adminRoutes(db: Db, config: Config) {
     }
 
     return c.html(
-      <AdminLayout title="Lists">
+      <AdminLayout title="Lists" user={user}>
         <h1 class="text-2xl font-bold mt-0 mb-4">Lists</h1>
-        <p class="mb-6">
-          <a href="/admin/lists/new" class="inline-block px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none no-underline">
-            New List
-          </a>
-        </p>
+        {isAdmin && (
+          <p class="mb-6">
+            <a href="/admin/lists/new" class="inline-block px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none no-underline">
+              New List
+            </a>
+          </p>
+        )}
         <table class="w-full bg-white rounded-lg overflow-hidden mb-6 text-sm">
           <thead>
             <tr>
@@ -704,9 +824,10 @@ export function adminRoutes(db: Db, config: Config) {
     );
   });
 
-  app.get("/lists/new", (c) => {
+  app.get("/lists/new", requireRole("owner", "admin"), (c) => {
+    const user = c.get("user") as User;
     return c.html(
-      <AdminLayout title="New List">
+      <AdminLayout title="New List" user={user}>
         <h1 class="text-2xl font-bold mt-0 mb-4">New List</h1>
         <div class="bg-white border border-gray-200 rounded-lg p-5 mb-6">
           <form method="post" action="/admin/lists/new">
@@ -735,7 +856,8 @@ export function adminRoutes(db: Db, config: Config) {
     );
   });
 
-  app.post("/lists/new", async (c) => {
+  app.post("/lists/new", requireRole("owner", "admin"), async (c) => {
+    const user = c.get("user") as User;
     const body = await c.req.parseBody();
     const slug = String(body["slug"] ?? "").trim();
     const name = String(body["name"] ?? "").trim();
@@ -750,15 +872,17 @@ export function adminRoutes(db: Db, config: Config) {
       .values({ slug, name, description, fromDomain })
       .run();
 
-    logEvent(db, { type: "admin.list_created", detail: `${name} (${slug})` });
+    logEvent(db, { type: "admin.list_created", detail: `${name} (${slug})`, userId: user.id });
 
     return c.redirect("/admin/lists");
   });
 
-  app.get("/lists/:id", (c) => {
+  app.get("/lists/:id", requireListAccess(db, (c) => Number(c.req.param("id"))), (c) => {
+    const user = c.get("user") as User;
     const id = Number(c.req.param("id"));
     const list = db.select().from(schema.lists).where(eq(schema.lists.id, id)).get();
     if (!list) return c.notFound();
+    const isAdmin = user.role === "owner" || user.role === "admin";
 
     const confirmedSubs = db
       .select({
@@ -802,7 +926,7 @@ export function adminRoutes(db: Db, config: Config) {
       .all();
 
     return c.html(
-      <AdminLayout title={list.name}>
+      <AdminLayout title={list.name} user={user}>
         <h1 class="text-2xl font-bold mt-0 mb-4">{list.name}</h1>
 
         <form method="post" action={`/admin/lists/${id}/edit`}>
@@ -897,17 +1021,22 @@ export function adminRoutes(db: Db, config: Config) {
           </>
         )}
 
-        <hr class="my-8" />
-        <form method="post" action={`/admin/lists/${id}/delete`} onsubmit="return confirm('Delete this list? Subscribers will be unlinked but not deleted. Campaigns on this list will also be deleted.')">
-          <button type="submit" class="inline-block px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-md hover:bg-red-700 cursor-pointer border-none no-underline">
-            Delete List
-          </button>
-        </form>
+        {isAdmin && (
+          <>
+            <hr class="my-8" />
+            <form method="post" action={`/admin/lists/${id}/delete`} onsubmit="return confirm('Delete this list? Subscribers will be unlinked but not deleted. Campaigns on this list will also be deleted.')">
+              <button type="submit" class="inline-block px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-md hover:bg-red-700 cursor-pointer border-none no-underline">
+                Delete List
+              </button>
+            </form>
+          </>
+        )}
       </AdminLayout>,
     );
   });
 
-  app.post("/lists/:id/edit", async (c) => {
+  app.post("/lists/:id/edit", requireListAccess(db, (c) => Number(c.req.param("id"))), async (c) => {
+    const user = c.get("user") as User;
     const id = Number(c.req.param("id"));
     const body = await c.req.parseBody();
     const slug = String(body["slug"] ?? "").trim();
@@ -922,16 +1051,17 @@ export function adminRoutes(db: Db, config: Config) {
       .where(eq(schema.lists.id, id))
       .run();
 
-    logEvent(db, { type: "admin.list_edited", detail: `${name} (${slug})` });
+    logEvent(db, { type: "admin.list_edited", detail: `${name} (${slug})`, userId: user.id });
 
     return c.redirect(`/admin/lists/${id}`);
   });
 
-  app.post("/lists/:id/delete", (c) => {
+  app.post("/lists/:id/delete", requireRole("owner", "admin"), (c) => {
+    const user = c.get("user") as User;
     const id = Number(c.req.param("id"));
     const list = db.select().from(schema.lists).where(eq(schema.lists.id, id)).get();
 
-    logEvent(db, { type: "admin.list_deleted", detail: list?.name ?? `id=${id}` });
+    logEvent(db, { type: "admin.list_deleted", detail: list?.name ?? `id=${id}`, userId: user.id });
 
     // unlink subscriber_lists
     db.delete(schema.subscriberLists)
@@ -943,6 +1073,8 @@ export function adminRoutes(db: Db, config: Config) {
       db.delete(schema.campaignSends).where(eq(schema.campaignSends.campaignId, cam.id)).run();
     }
     db.delete(schema.campaigns).where(eq(schema.campaigns.listId, id)).run();
+    // delete user_lists references
+    db.delete(schema.userLists).where(eq(schema.userLists.listId, id)).run();
     // delete list
     db.delete(schema.lists).where(eq(schema.lists.id, id)).run();
 
@@ -951,14 +1083,29 @@ export function adminRoutes(db: Db, config: Config) {
 
   // Campaigns
   app.get("/campaigns", (c) => {
-    const allCampaigns = db
-      .select()
-      .from(schema.campaigns)
-      .orderBy(desc(schema.campaigns.createdAt))
-      .all();
+    const user = c.get("user") as User;
+    const listAccess = getAccessibleListIds(db, user);
+
+    let allCampaigns: (typeof schema.campaigns.$inferSelect)[];
+    if (listAccess === "all") {
+      allCampaigns = db
+        .select()
+        .from(schema.campaigns)
+        .orderBy(desc(schema.campaigns.createdAt))
+        .all();
+    } else if (listAccess.length === 0) {
+      allCampaigns = [];
+    } else {
+      allCampaigns = db
+        .select()
+        .from(schema.campaigns)
+        .where(inArray(schema.campaigns.listId, listAccess))
+        .orderBy(desc(schema.campaigns.createdAt))
+        .all();
+    }
 
     return c.html(
-      <AdminLayout title="Campaigns">
+      <AdminLayout title="Campaigns" user={user}>
         <h1 class="text-2xl font-bold mt-0 mb-4">Campaigns</h1>
         <p>
           <a href="/admin/campaigns/new" class="inline-block px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none no-underline">
@@ -994,10 +1141,20 @@ export function adminRoutes(db: Db, config: Config) {
   });
 
   app.get("/campaigns/new", (c) => {
-    const allLists = db.select().from(schema.lists).all();
+    const user = c.get("user") as User;
+    const listAccess = getAccessibleListIds(db, user);
+
+    let allLists: (typeof schema.lists.$inferSelect)[];
+    if (listAccess === "all") {
+      allLists = db.select().from(schema.lists).all();
+    } else if (listAccess.length === 0) {
+      allLists = [];
+    } else {
+      allLists = db.select().from(schema.lists).where(inArray(schema.lists.id, listAccess)).all();
+    }
 
     return c.html(
-      <AdminLayout title="New Campaign">
+      <AdminLayout title="New Campaign" user={user}>
         <h1 class="text-2xl font-bold mt-0 mb-4">New Campaign</h1>
         <div class="bg-white border border-gray-200 rounded-lg p-5 mb-6">
           <form method="post" action="/admin/campaigns/new">
@@ -1039,6 +1196,7 @@ export function adminRoutes(db: Db, config: Config) {
   });
 
   app.post("/campaigns/new", async (c) => {
+    const user = c.get("user") as User;
     const body = await c.req.parseBody();
     const listId = Number(body["listId"]);
     const fromAddress = String(body["fromAddress"] ?? "").trim();
@@ -1047,6 +1205,12 @@ export function adminRoutes(db: Db, config: Config) {
 
     if (!listId || !fromAddress || !subject || !bodyMarkdown) {
       return c.redirect("/admin/campaigns/new");
+    }
+
+    // Verify user has access to this list
+    const listAccess = getAccessibleListIds(db, user);
+    if (listAccess !== "all" && !listAccess.includes(listId)) {
+      return c.text("Forbidden", 403);
     }
 
     const result = db
@@ -1059,15 +1223,23 @@ export function adminRoutes(db: Db, config: Config) {
       type: "admin.campaign_created",
       detail: subject,
       campaignId: result.id,
+      userId: user.id,
     });
 
     return c.redirect(`/admin/campaigns/${result.id}`);
   });
 
   app.get("/campaigns/:id", async (c) => {
+    const user = c.get("user") as User;
     const id = Number(c.req.param("id"));
     const campaign = db.select().from(schema.campaigns).where(eq(schema.campaigns.id, id)).get();
     if (!campaign) return c.notFound();
+
+    // Check list access
+    const listAccess = getAccessibleListIds(db, user);
+    if (listAccess !== "all" && !listAccess.includes(campaign.listId)) {
+      return c.text("Forbidden", 403);
+    }
 
     const list = db.select().from(schema.lists).where(eq(schema.lists.id, campaign.listId)).get();
 
@@ -1087,7 +1259,7 @@ export function adminRoutes(db: Db, config: Config) {
     const htmlContent = await marked(campaign.bodyMarkdown);
 
     return c.html(
-      <AdminLayout title={campaign.subject}>
+      <AdminLayout title={campaign.subject} user={user}>
         <h1 class="text-2xl font-bold mt-0 mb-4">{campaign.subject}</h1>
         <div class="flex gap-4 items-center mb-4">
           <CampaignBadge status={campaign.status} />
@@ -1230,6 +1402,7 @@ export function adminRoutes(db: Db, config: Config) {
   });
 
   app.post("/campaigns/:id/delete", (c) => {
+    const user = c.get("user") as User;
     const id = Number(c.req.param("id"));
     const campaign = db.select().from(schema.campaigns).where(eq(schema.campaigns.id, id)).get();
 
@@ -1237,6 +1410,7 @@ export function adminRoutes(db: Db, config: Config) {
       type: "admin.campaign_deleted",
       detail: campaign?.subject ?? `id=${id}`,
       campaignId: id,
+      userId: user.id,
     });
 
     // clear linked inbound messages (unlink, don't delete)
@@ -1257,15 +1431,49 @@ export function adminRoutes(db: Db, config: Config) {
 
   // Inbound
   app.get("/inbound", (c) => {
-    const messages = db
-      .select()
-      .from(schema.inboundMessages)
-      .orderBy(desc(schema.inboundMessages.createdAt))
-      .limit(100)
-      .all();
+    const user = c.get("user") as User;
+    const listAccess = getAccessibleListIds(db, user);
+
+    let messages: (typeof schema.inboundMessages.$inferSelect)[];
+    if (listAccess === "all") {
+      messages = db
+        .select()
+        .from(schema.inboundMessages)
+        .orderBy(desc(schema.inboundMessages.createdAt))
+        .limit(100)
+        .all();
+    } else if (listAccess.length === 0) {
+      messages = [];
+    } else {
+      messages = db
+        .select({
+          id: schema.inboundMessages.id,
+          messageId: schema.inboundMessages.messageId,
+          timestamp: schema.inboundMessages.timestamp,
+          source: schema.inboundMessages.source,
+          fromAddrs: schema.inboundMessages.fromAddrs,
+          toAddrs: schema.inboundMessages.toAddrs,
+          subject: schema.inboundMessages.subject,
+          spamVerdict: schema.inboundMessages.spamVerdict,
+          virusVerdict: schema.inboundMessages.virusVerdict,
+          spfVerdict: schema.inboundMessages.spfVerdict,
+          dkimVerdict: schema.inboundMessages.dkimVerdict,
+          dmarcVerdict: schema.inboundMessages.dmarcVerdict,
+          s3Key: schema.inboundMessages.s3Key,
+          campaignId: schema.inboundMessages.campaignId,
+          readAt: schema.inboundMessages.readAt,
+          createdAt: schema.inboundMessages.createdAt,
+        })
+        .from(schema.inboundMessages)
+        .innerJoin(schema.campaigns, eq(schema.inboundMessages.campaignId, schema.campaigns.id))
+        .where(inArray(schema.campaigns.listId, listAccess))
+        .orderBy(desc(schema.inboundMessages.createdAt))
+        .limit(100)
+        .all();
+    }
 
     return c.html(
-      <AdminLayout title="Inbound">
+      <AdminLayout title="Inbound" user={user}>
         <h1 class="text-2xl font-bold mt-0 mb-4">Inbound Messages</h1>
         <table class="w-full bg-white rounded-lg overflow-hidden mb-6 text-sm">
           <thead>
@@ -1304,6 +1512,7 @@ export function adminRoutes(db: Db, config: Config) {
   });
 
   app.get("/inbound/:id", (c) => {
+    const user = c.get("user") as User;
     const id = Number(c.req.param("id"));
     const msg = db.select().from(schema.inboundMessages).where(eq(schema.inboundMessages.id, id)).get();
     if (!msg) return c.notFound();
@@ -1324,7 +1533,7 @@ export function adminRoutes(db: Db, config: Config) {
       .all();
 
     return c.html(
-      <AdminLayout title={`Inbound: ${msg.subject}`}>
+      <AdminLayout title={`Inbound: ${msg.subject}`} user={user}>
         <h1 class="text-2xl font-bold mt-0 mb-4">{msg.subject}</h1>
         <div class="bg-white border border-gray-200 rounded-lg p-5 mb-6">
           <dl>
@@ -1451,6 +1660,7 @@ export function adminRoutes(db: Db, config: Config) {
   });
 
   app.post("/inbound/:id/delete", (c) => {
+    const user = c.get("user") as User;
     const id = Number(c.req.param("id"));
     const msg = db.select().from(schema.inboundMessages).where(eq(schema.inboundMessages.id, id)).get();
 
@@ -1458,6 +1668,7 @@ export function adminRoutes(db: Db, config: Config) {
       type: "admin.inbound_deleted",
       detail: msg?.subject ?? `id=${id}`,
       inboundMessageId: id,
+      userId: user.id,
     });
 
     // delete replies first (FK)
@@ -1485,6 +1696,7 @@ export function adminRoutes(db: Db, config: Config) {
   });
 
   app.post("/inbound/:id/reply", async (c) => {
+    const user = c.get("user") as User;
     const id = Number(c.req.param("id"));
     const msg = db.select().from(schema.inboundMessages).where(eq(schema.inboundMessages.id, id)).get();
     if (!msg) return c.notFound();
@@ -1546,6 +1758,7 @@ export function adminRoutes(db: Db, config: Config) {
       type: "admin.reply_sent",
       detail: toAddr,
       inboundMessageId: id,
+      userId: user.id,
     });
 
     return c.redirect(`/admin/inbound/${id}`);
@@ -1553,12 +1766,103 @@ export function adminRoutes(db: Db, config: Config) {
 
   // Activity feed
   app.get("/activity", (c) => {
-    const recentEvents = db
-      .select()
-      .from(schema.events)
-      .orderBy(desc(schema.events.createdAt))
-      .limit(200)
-      .all();
+    const user = c.get("user") as User;
+    const listAccess = getAccessibleListIds(db, user);
+
+    // Join events with users to show who did what
+    let recentEvents: {
+      id: number;
+      type: string;
+      detail: string;
+      meta: string | null;
+      userId: number | null;
+      subscriberId: number | null;
+      campaignId: number | null;
+      inboundMessageId: number | null;
+      createdAt: string;
+      userName: string | null;
+    }[];
+
+    if (listAccess === "all") {
+      recentEvents = db
+        .select({
+          id: schema.events.id,
+          type: schema.events.type,
+          detail: schema.events.detail,
+          meta: schema.events.meta,
+          userId: schema.events.userId,
+          subscriberId: schema.events.subscriberId,
+          campaignId: schema.events.campaignId,
+          inboundMessageId: schema.events.inboundMessageId,
+          createdAt: schema.events.createdAt,
+          userName: schema.users.name,
+        })
+        .from(schema.events)
+        .leftJoin(schema.users, eq(schema.events.userId, schema.users.id))
+        .orderBy(desc(schema.events.createdAt))
+        .limit(200)
+        .all();
+    } else if (listAccess.length === 0) {
+      recentEvents = [];
+    } else {
+      // For members, show events related to their accessible lists
+      // This includes events with campaignId on their lists, subscriberId on their lists, etc.
+      // Simplest approach: events linked to campaigns on accessible lists, plus subscriber events
+      const campaignEvents = db
+        .select({
+          id: schema.events.id,
+          type: schema.events.type,
+          detail: schema.events.detail,
+          meta: schema.events.meta,
+          userId: schema.events.userId,
+          subscriberId: schema.events.subscriberId,
+          campaignId: schema.events.campaignId,
+          inboundMessageId: schema.events.inboundMessageId,
+          createdAt: schema.events.createdAt,
+          userName: schema.users.name,
+        })
+        .from(schema.events)
+        .leftJoin(schema.users, eq(schema.events.userId, schema.users.id))
+        .innerJoin(schema.campaigns, eq(schema.events.campaignId, schema.campaigns.id))
+        .where(inArray(schema.campaigns.listId, listAccess))
+        .orderBy(desc(schema.events.createdAt))
+        .limit(200)
+        .all();
+
+      const subscriberEvents = db
+        .select({
+          id: schema.events.id,
+          type: schema.events.type,
+          detail: schema.events.detail,
+          meta: schema.events.meta,
+          userId: schema.events.userId,
+          subscriberId: schema.events.subscriberId,
+          campaignId: schema.events.campaignId,
+          inboundMessageId: schema.events.inboundMessageId,
+          createdAt: schema.events.createdAt,
+          userName: schema.users.name,
+        })
+        .from(schema.events)
+        .leftJoin(schema.users, eq(schema.events.userId, schema.users.id))
+        .innerJoin(schema.subscribers, eq(schema.events.subscriberId, schema.subscribers.id))
+        .innerJoin(schema.subscriberLists, eq(schema.subscribers.id, schema.subscriberLists.subscriberId))
+        .where(inArray(schema.subscriberLists.listId, listAccess))
+        .orderBy(desc(schema.events.createdAt))
+        .limit(200)
+        .all();
+
+      // Merge and dedupe by event id, sort by createdAt desc
+      const seen = new Set<number>();
+      const merged = [];
+      for (const e of [...campaignEvents, ...subscriberEvents]) {
+        if (!seen.has(e.id)) {
+          seen.add(e.id);
+          merged.push(e);
+        }
+      }
+      merged.sort((a, b) => (b.createdAt > a.createdAt ? 1 : -1));
+      recentEvents = merged.slice(0, 200);
+    }
 
     function eventIcon(type: string): string {
       if (type.startsWith("subscriber.")) return "sub";
@@ -1584,19 +1888,28 @@ export function adminRoutes(db: Db, config: Config) {
       return null;
     }
 
+    function formatEventType(type: string): string {
+      return type.replace(/^(admin|subscriber|campaign|inbound)\./, "").replace(/_/g, " ");
+    }
+
     return c.html(
-      <AdminLayout title="Activity">
+      <AdminLayout title="Activity" user={user}>
         <h1 class="text-2xl font-bold mt-0 mb-4">Activity</h1>
         <div class="flex flex-col gap-1">
           {recentEvents.map((e) => {
             const link = eventLink(e);
+            const who = e.userName ?? "System";
+            const action = formatEventType(e.type);
             return (
               <div class="flex items-baseline gap-3 py-2 border-b border-gray-100">
                 <span class={`text-[0.6875rem] font-semibold uppercase tracking-wide min-w-[2.5rem] ${eventColor(e.type)}`}>
                   {eventIcon(e.type)}
                 </span>
-                <span class="text-sm font-medium min-w-[12rem]">
-                  {e.type}
+                <span class="text-sm font-medium min-w-[8rem]">
+                  {who}
+                </span>
+                <span class="text-sm text-gray-700 min-w-[10rem]">
+                  {action}
                 </span>
                 <span class="text-sm text-gray-600 flex-1">
                   {link ? <a href={link} class="text-blue-600 hover:text-blue-800">{e.detail}</a> : e.detail}
@@ -1609,6 +1922,268 @@ export function adminRoutes(db: Db, config: Config) {
           })}
           {recentEvents.length === 0 && <p class="text-gray-400">No events yet.</p>}
         </div>
+      </AdminLayout>,
+    );
+  });
+
+  // Users management (owner/admin only)
+  app.get("/users/new", requireRole("owner", "admin"), (c) => {
+    const user = c.get("user") as User;
+    const allLists = db.select().from(schema.lists).all();
+
+    return c.html(
+      <AdminLayout title="Invite User" user={user}>
+        <h1 class="text-2xl font-bold mt-0 mb-4">Invite User</h1>
+        <div class="bg-white border border-gray-200 rounded-lg p-5 mb-6">
+          <form method="post" action="/admin/users/new">
+            <div class="mb-4">
+              <label for="email" class="block text-sm font-medium text-gray-700 mb-1">Email</label>
+              <input type="email" id="email" name="email" required class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+            </div>
+            <div class="mb-4">
+              <label for="name" class="block text-sm font-medium text-gray-700 mb-1">Name</label>
+              <input type="text" id="name" name="name" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+            </div>
+            <div class="mb-4">
+              <label for="password" class="block text-sm font-medium text-gray-700 mb-1">Password</label>
+              <input type="password" id="password" name="password" required class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+            </div>
+            <div class="mb-4">
+              <label for="role" class="block text-sm font-medium text-gray-700 mb-1">Role</label>
+              <select id="role" name="role" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" onchange="document.getElementById('listSection').style.display = this.value === 'member' ? 'block' : 'none'">
+                <option value="admin">Admin</option>
+                <option value="member" selected>Member</option>
+              </select>
+            </div>
+            <div id="listSection" class="mb-4">
+              <p class="text-sm font-medium text-gray-700 mb-2">List access (for members)</p>
+              {allLists.map((list) => (
+                <label class="flex items-center gap-2 text-sm text-gray-800 mb-1">
+                  <input type="checkbox" name="lists" value={String(list.id)} />
+                  {list.name}
+                </label>
+              ))}
+            </div>
+            <button type="submit" class="inline-block px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none no-underline">Create User</button>
+          </form>
+        </div>
+      </AdminLayout>,
+    );
+  });
+
+  app.post("/users/new", requireRole("owner", "admin"), async (c) => {
+    const user = c.get("user") as User;
+    const body = await c.req.parseBody({ all: true });
+    const email = String(body["email"] ?? "").trim().toLowerCase();
+    const name = String(body["name"] ?? "").trim() || null;
+    const password = String(body["password"] ?? "");
+    const role = String(body["role"] ?? "member");
+
+    if (!email || !password) {
+      return c.redirect("/admin/users/new");
+    }
+
+    const passwordHash = await Bun.password.hash(password);
+
+    const newUser = db
+      .insert(schema.users)
+      .values({ email, name, passwordHash, role })
+      .returning({ id: schema.users.id })
+      .get();
+
+    // Insert user_lists for members
+    if (role === "member" && body["lists"]) {
+      const listIds = (Array.isArray(body["lists"])
+        ? (body["lists"] as string[])
+        : [body["lists"] as string]
+      ).map(Number);
+      for (const listId of listIds) {
+        db.insert(schema.userLists).values({ userId: newUser.id, listId }).run();
+      }
+    }
+
+    logEvent(db, {
+      type: "admin.user_created",
+      detail: email,
+      userId: user.id,
+    });
+
+    return c.redirect("/admin/users");
+  });
+
+  app.get("/users/:id", requireRole("owner", "admin"), (c) => {
+    const currentUser = c.get("user") as User;
+    const id = Number(c.req.param("id"));
+    const targetUser = db.select().from(schema.users).where(eq(schema.users.id, id)).get();
+    if (!targetUser) return c.notFound();
+
+    const allLists = db.select().from(schema.lists).all();
+    const assignedLists = db
+      .select()
+      .from(schema.userLists)
+      .where(eq(schema.userLists.userId, id))
+      .all();
+    const assignedListIds = new Set(assignedLists.map((ul) => ul.listId));
+
+    return c.html(
+      <AdminLayout title={targetUser.email} user={currentUser}>
+        <h1 class="text-2xl font-bold mt-0 mb-4">{targetUser.name ?? targetUser.email}</h1>
+        <div class="bg-white border border-gray-200 rounded-lg p-5 mb-6">
+          <form method="post" action={`/admin/users/${id}/edit`}>
+            <div class="mb-4">
+              <label for="name" class="block text-sm font-medium text-gray-700 mb-1">Name</label>
+              <input type="text" id="name" name="name" value={targetUser.name ?? ""} class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+            </div>
+            <div class="mb-4">
+              <label for="role" class="block text-sm font-medium text-gray-700 mb-1">Role</label>
+              <select id="role" name="role" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" onchange="document.getElementById('editListSection').style.display = this.value === 'member' ? 'block' : 'none'">
+                <option value="owner" selected={targetUser.role === "owner"}>Owner</option>
+                <option value="admin" selected={targetUser.role === "admin"}>Admin</option>
+                <option value="member" selected={targetUser.role === "member"}>Member</option>
+              </select>
+            </div>
+            <div id="editListSection" class="mb-4" style={targetUser.role === "member" ? "" : "display:none"}>
+              <p class="text-sm font-medium text-gray-700 mb-2">List access (for members)</p>
+              {allLists.map((list) => (
+                <label class="flex items-center gap-2 text-sm text-gray-800 mb-1">
+                  <input type="checkbox" name="lists" value={String(list.id)} checked={assignedListIds.has(list.id)} />
+                  {list.name}
+                </label>
+              ))}
+            </div>
+            <div class="mb-4">
+              <label for="password" class="block text-sm font-medium text-gray-700 mb-1">New password (leave blank to keep current)</label>
+              <input type="password" id="password" name="password" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+            </div>
+            <button type="submit" class="inline-block px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none no-underline">Save changes</button>
+          </form>
+        </div>
+
+        <dl class="mt-4">
+          <dt class="font-semibold text-xs uppercase text-gray-500">Email</dt>
+          <dd class="mt-1 ml-0">{targetUser.email}</dd>
+          <dt class="font-semibold text-xs uppercase text-gray-500 mt-3">Created</dt>
+          <dd class="mt-1 ml-0">{fmtDateTime(targetUser.createdAt)}</dd>
+        </dl>
+
+        {currentUser.id !== id && (
+          <>
+            <hr class="my-8" />
+            <form method="post" action={`/admin/users/${id}/delete`} onsubmit="return confirm('Delete this user? This cannot be undone.')">
+              <button type="submit" class="inline-block px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-md hover:bg-red-700 cursor-pointer border-none no-underline">
+                Delete User
+              </button>
+            </form>
+          </>
+        )}
+      </AdminLayout>,
+    );
+  });
+
+  app.post("/users/:id/edit", requireRole("owner", "admin"), async (c) => {
+    const currentUser = c.get("user") as User;
+    const id = Number(c.req.param("id"));
+    const body = await c.req.parseBody({ all: true });
+    const name = String(body["name"] ?? "").trim() || null;
+    const role = String(body["role"] ?? "member");
+    const password = String(body["password"] ?? "").trim();
+
+    const updates: Record<string, any> = { name, role };
+    if (password) {
+      updates.passwordHash = await Bun.password.hash(password);
+    }
+
+    db.update(schema.users)
+      .set(updates)
+      .where(eq(schema.users.id, id))
+      .run();
+
+    // Sync user_lists: delete all, re-insert selected
+    db.delete(schema.userLists).where(eq(schema.userLists.userId, id)).run();
+    if (role === "member" && body["lists"]) {
+      const listIds = (Array.isArray(body["lists"])
+        ? (body["lists"] as string[])
+        : [body["lists"] as string]
+      ).map(Number);
+      for (const listId of listIds) {
+        db.insert(schema.userLists).values({ userId: id, listId }).run();
+      }
+    }
+
+    logEvent(db, {
+      type: "admin.user_edited",
+      detail: `user #${id}`,
+      userId: currentUser.id,
+    });
+
+    return c.redirect(`/admin/users/${id}`);
+  });
+
+  app.post("/users/:id/delete", requireRole("owner", "admin"), (c) => {
+    const currentUser = c.get("user") as User;
+    const id = Number(c.req.param("id"));
+
+    // Can't delete yourself
+    if (currentUser.id === id) {
+      return c.text("Cannot delete yourself", 400);
+    }
+
+    const targetUser = db.select().from(schema.users).where(eq(schema.users.id, id)).get();
+
+    logEvent(db, {
+      type: "admin.user_deleted",
+      detail: targetUser?.email ?? `id=${id}`,
+      userId: currentUser.id,
+    });
+
+    // Delete user_lists
+    db.delete(schema.userLists).where(eq(schema.userLists.userId, id)).run();
+    // Set events.userId to null
+    db.update(schema.events).set({ userId: null }).where(eq(schema.events.userId, id)).run();
+    // Delete user
+    db.delete(schema.users).where(eq(schema.users.id, id)).run();
+
+    return c.redirect("/admin/users");
+  });
+
+  app.get("/users", requireRole("owner", "admin"), (c) => {
+    const user = c.get("user") as User;
+    const allUsers = db
+      .select()
+      .from(schema.users)
+      .orderBy(desc(schema.users.createdAt))
+      .all();
+
+    return c.html(
+      <AdminLayout title="Users" user={user}>
+        <h1 class="text-2xl font-bold mt-0 mb-4">Users</h1>
+        <p class="mb-6">
+          <a href="/admin/users/new" class="inline-block px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none no-underline">
+            Invite User
+          </a>
+        </p>
+        <table class="w-full bg-white rounded-lg overflow-hidden mb-6 text-sm">
+          <thead>
+            <tr>
+              <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Email</th>
+              <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Name</th>
+              <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Role</th>
+              <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Created</th>
+            </tr>
+          </thead>
+          <tbody>
+            {allUsers.map((u) => (
+              <tr>
+                <td class="px-4 py-3 border-b border-gray-100">
+                  <a href={`/admin/users/${u.id}`} class="text-blue-600 hover:text-blue-800">{u.email}</a>
+                </td>
+                <td class="px-4 py-3 border-b border-gray-100">{u.name ?? "—"}</td>
+                <td class="px-4 py-3 border-b border-gray-100">{u.role}</td>
+                <td class="px-4 py-3 border-b border-gray-100">{fmtDate(u.createdAt)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </AdminLayout>,
     );
   });
