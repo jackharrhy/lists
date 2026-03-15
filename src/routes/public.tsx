@@ -18,49 +18,11 @@ function Layout({ children }: { children: any }) {
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>lists</title>
-        <style>{`
-          *, *::before, *::after { box-sizing: border-box; }
-          body {
-            font-family: system-ui, -apple-system, sans-serif;
-            max-width: 480px;
-            margin: 40px auto;
-            padding: 0 16px;
-            color: #1a1a1a;
-            line-height: 1.5;
-          }
-          h1 { font-size: 1.4rem; margin: 0 0 16px; }
-          label { display: block; margin: 8px 0; }
-          input[type="text"],
-          input[type="email"] {
-            width: 100%;
-            padding: 8px 10px;
-            border: 1px solid #ccc;
-            border-radius: 4px;
-            font-size: 14px;
-            margin-top: 4px;
-          }
-          input[type="checkbox"] {
-            margin-right: 6px;
-            vertical-align: middle;
-          }
-          button {
-            margin-top: 16px;
-            padding: 10px 20px;
-            background: #1a1a1a;
-            color: #fff;
-            border: none;
-            border-radius: 4px;
-            font-size: 14px;
-            cursor: pointer;
-          }
-          button:hover { background: #333; }
-          .field { margin-bottom: 12px; }
-          .checkboxes { margin: 12px 0; }
-          .checkboxes label { display: flex; align-items: center; }
-          p { margin: 8px 0; }
-        `}</style>
+        <link rel="stylesheet" href="/static/styles.css" />
       </head>
-      <body>{children}</body>
+      <body class="font-sans text-gray-900 bg-gray-50 m-0 p-0">
+        <div class="max-w-lg mx-auto px-6 py-12">{children}</div>
+      </body>
     </html>
   );
 }
@@ -74,31 +36,47 @@ export function publicRoutes(db: Db, config: Config) {
 
     return c.html(
       <Layout>
-        <h1>Subscribe</h1>
-        <form method="post" action="/subscribe">
-          <div class="field">
-            <label>
+        <h1 class="text-2xl font-bold mb-6">Subscribe</h1>
+        <form method="post" action="/subscribe" class="space-y-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">
               Email
-              <input type="email" name="email" required />
+              <input
+                type="email"
+                name="email"
+                required
+                class="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              />
             </label>
           </div>
-          <div class="field">
-            <label>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">
               Name (optional)
-              <input type="text" name="name" />
+              <input
+                type="text"
+                name="name"
+                class="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              />
             </label>
           </div>
-          <div class="checkboxes">
-            <p>Lists:</p>
+          <div class="space-y-2">
+            <p class="text-sm font-medium text-gray-700">Lists:</p>
             {allLists.map((list) => (
-              <label>
-                <input type="checkbox" name="lists" value={list.slug} />
-                {list.name}
-                {list.description ? ` — ${list.description}` : ""}
+              <label class="flex items-center gap-2 text-sm text-gray-800">
+                <input type="checkbox" name="lists" value={list.slug} class="rounded" />
+                <span>
+                  {list.name}
+                  {list.description ? ` — ${list.description}` : ""}
+                </span>
               </label>
             ))}
           </div>
-          <button type="submit">Subscribe</button>
+          <button
+            type="submit"
+            class="w-full px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none"
+          >
+            Subscribe
+          </button>
         </form>
       </Layout>,
     );
@@ -121,9 +99,13 @@ export function publicRoutes(db: Db, config: Config) {
     if (!email || listSlugs.length === 0) {
       return c.html(
         <Layout>
-          <h1>Subscribe</h1>
-          <p>Please provide an email and select at least one list.</p>
-          <a href="/subscribe">Back</a>
+          <h1 class="text-2xl font-bold mb-6">Subscribe</h1>
+          <p class="text-sm text-gray-700 mb-4">
+            Please provide an email and select at least one list.
+          </p>
+          <a href="/subscribe" class="text-blue-600 hover:text-blue-800">
+            Back
+          </a>
         </Layout>,
         400,
       );
@@ -158,11 +140,13 @@ export function publicRoutes(db: Db, config: Config) {
 
     return c.html(
       <Layout>
-        <h1>Check your email</h1>
-        <p>
-          We sent a confirmation link to <strong>{email}</strong>. Click the link
-          to confirm your subscription.
-        </p>
+        <h1 class="text-2xl font-bold mb-6">Check your email</h1>
+        <div class="bg-white rounded-lg border border-gray-200 p-6">
+          <p class="text-sm text-gray-700">
+            We sent a confirmation link to <strong>{email}</strong>. Click the
+            link to confirm your subscription.
+          </p>
+        </div>
       </Layout>,
     );
   });
@@ -175,16 +159,24 @@ export function publicRoutes(db: Db, config: Config) {
     if (ok) {
       return c.html(
         <Layout>
-          <h1>Confirmed</h1>
-          <p>Your subscription has been confirmed.</p>
+          <h1 class="text-2xl font-bold mb-6">Confirmed</h1>
+          <div class="bg-white rounded-lg border border-gray-200 p-6">
+            <p class="text-sm text-gray-700">
+              Your subscription has been confirmed.
+            </p>
+          </div>
         </Layout>,
       );
     }
 
     return c.html(
       <Layout>
-        <h1>Invalid link</h1>
-        <p>This confirmation link is invalid or has expired.</p>
+        <h1 class="text-2xl font-bold mb-6">Invalid link</h1>
+        <div class="bg-white rounded-lg border border-gray-200 p-6">
+          <p class="text-sm text-gray-700">
+            This confirmation link is invalid or has expired.
+          </p>
+        </div>
       </Layout>,
       400,
     );
@@ -198,16 +190,24 @@ export function publicRoutes(db: Db, config: Config) {
     if (ok) {
       return c.html(
         <Layout>
-          <h1>Unsubscribed</h1>
-          <p>You have been unsubscribed from all lists.</p>
+          <h1 class="text-2xl font-bold mb-6">Unsubscribed</h1>
+          <div class="bg-white rounded-lg border border-gray-200 p-6">
+            <p class="text-sm text-gray-700">
+              You have been unsubscribed from all lists.
+            </p>
+          </div>
         </Layout>,
       );
     }
 
     return c.html(
       <Layout>
-        <h1>Invalid link</h1>
-        <p>This unsubscribe link is invalid.</p>
+        <h1 class="text-2xl font-bold mb-6">Invalid link</h1>
+        <div class="bg-white rounded-lg border border-gray-200 p-6">
+          <p class="text-sm text-gray-700">
+            This unsubscribe link is invalid.
+          </p>
+        </div>
       </Layout>,
       400,
     );
@@ -228,8 +228,12 @@ export function publicRoutes(db: Db, config: Config) {
     if (!prefs) {
       return c.html(
         <Layout>
-          <h1>Invalid link</h1>
-          <p>This preferences link is invalid.</p>
+          <h1 class="text-2xl font-bold mb-6">Invalid link</h1>
+          <div class="bg-white rounded-lg border border-gray-200 p-6">
+            <p class="text-sm text-gray-700">
+              This preferences link is invalid.
+            </p>
+          </div>
         </Layout>,
         400,
       );
@@ -237,26 +241,34 @@ export function publicRoutes(db: Db, config: Config) {
 
     return c.html(
       <Layout>
-        <h1>Preferences</h1>
-        <p>
+        <h1 class="text-2xl font-bold mb-6">Preferences</h1>
+        <p class="text-sm text-gray-700 mb-4">
           Manage subscriptions for <strong>{prefs.subscriber.email}</strong>
         </p>
-        <form method="post" action={`/preferences/${token}`}>
-          <div class="checkboxes">
+        <form method="post" action={`/preferences/${token}`} class="space-y-4">
+          <div class="space-y-2">
             {prefs.lists.map((list) => (
-              <label>
+              <label class="flex items-center gap-2 text-sm text-gray-800">
                 <input
                   type="checkbox"
                   name="listIds"
                   value={String(list.id)}
                   checked={list.subscriptionStatus === "confirmed"}
+                  class="rounded"
                 />
-                {list.name}
-                {list.description ? ` — ${list.description}` : ""}
+                <span>
+                  {list.name}
+                  {list.description ? ` — ${list.description}` : ""}
+                </span>
               </label>
             ))}
           </div>
-          <button type="submit">Save preferences</button>
+          <button
+            type="submit"
+            class="w-full px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none"
+          >
+            Save preferences
+          </button>
         </form>
       </Layout>,
     );

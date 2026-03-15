@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { trimTrailingSlash } from "hono/trailing-slash";
+import { serveStatic } from "hono/bun";
 import { loadConfig } from "./config";
 import { createDb } from "./db";
 import { publicRoutes } from "./routes/public";
@@ -13,6 +14,7 @@ const db = createDb(config.dbPath);
 const app = new Hono();
 
 app.use(trimTrailingSlash());
+app.use("/static/*", serveStatic({ root: "./public", rewriteRequestPath: (p) => p.replace("/static", "") }));
 
 app.get("/", (c) => c.redirect("/subscribe"));
 app.route("/", publicRoutes(db, config));

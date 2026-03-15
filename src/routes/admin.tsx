@@ -32,210 +32,33 @@ function AdminLayout({
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>{title} - Lists Admin</title>
-        <style>{`
-          *, *::before, *::after { box-sizing: border-box; }
-          body {
-            font-family: system-ui, -apple-system, sans-serif;
-            line-height: 1.5;
-            color: #1a1a1a;
-            background: #f5f5f5;
-            margin: 0;
-            padding: 0;
-          }
-          .container { max-width: 960px; margin: 0 auto; padding: 1rem; }
-          nav {
-            background: #1a1a1a;
-            padding: 0.75rem 0;
-            margin-bottom: 1.5rem;
-          }
-          nav .container {
-            display: flex;
-            align-items: center;
-            gap: 1.5rem;
-          }
-          nav a {
-            color: #ccc;
-            text-decoration: none;
-            font-size: 0.875rem;
-          }
-          nav a:hover { color: #fff; }
-          nav .brand {
-            color: #fff;
-            font-weight: 700;
-            font-size: 1rem;
-            margin-right: auto;
-          }
-          h1 { margin-top: 0; font-size: 1.5rem; }
-          h2 { font-size: 1.25rem; }
-          table {
-            width: 100%;
-            border-collapse: collapse;
-            background: #fff;
-            border-radius: 4px;
-            overflow: hidden;
-            margin-bottom: 1.5rem;
-          }
-          th, td {
-            padding: 0.5rem 0.75rem;
-            text-align: left;
-            border-bottom: 1px solid #e5e5e5;
-            font-size: 0.875rem;
-          }
-          th {
-            background: #fafafa;
-            font-weight: 600;
-            font-size: 0.75rem;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            color: #666;
-          }
-          tr:last-child td { border-bottom: none; }
-          form { margin: 0; }
-          label {
-            display: block;
-            font-size: 0.875rem;
-            font-weight: 500;
-            margin-bottom: 0.25rem;
-          }
-          input[type="text"],
-          input[type="password"],
-          input[type="email"],
-          select,
-          textarea {
-            width: 100%;
-            padding: 0.5rem;
-            border: 1px solid #ccc;
-            border-radius: 4px;
-            font-size: 0.875rem;
-            font-family: inherit;
-            margin-bottom: 0.75rem;
-          }
-          textarea { min-height: 200px; resize: vertical; }
-          .form-group { margin-bottom: 0.75rem; }
-          .form-row {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 1rem;
-          }
-          button, .btn {
-            display: inline-block;
-            padding: 0.5rem 1rem;
-            border: none;
-            border-radius: 4px;
-            font-size: 0.875rem;
-            font-family: inherit;
-            cursor: pointer;
-            text-decoration: none;
-            background: #2563eb;
-            color: #fff;
-          }
-          button:hover, .btn:hover { background: #1d4ed8; }
-          .btn-danger { background: #dc2626; }
-          .btn-danger:hover { background: #b91c1c; }
-          .btn-secondary { background: #6b7280; }
-          .btn-secondary:hover { background: #4b5563; }
-          .verdict-pass {
-            color: #16a34a;
-            font-weight: 600;
-            font-size: 0.75rem;
-          }
-          .verdict-fail {
-            color: #dc2626;
-            font-weight: 600;
-            font-size: 0.75rem;
-          }
-          .stat-badge {
-            display: inline-block;
-            background: #fff;
-            border: 1px solid #e5e5e5;
-            border-radius: 6px;
-            padding: 1rem 1.5rem;
-            text-align: center;
-            min-width: 120px;
-          }
-          .stat-badge .number {
-            display: block;
-            font-size: 1.75rem;
-            font-weight: 700;
-            color: #2563eb;
-          }
-          .stat-badge .label {
-            display: block;
-            font-size: 0.75rem;
-            color: #666;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-          }
-          .stats-row {
-            display: flex;
-            gap: 1rem;
-            margin-bottom: 1.5rem;
-          }
-          .flash {
-            background: #dcfce7;
-            border: 1px solid #86efac;
-            color: #166534;
-            padding: 0.75rem 1rem;
-            border-radius: 4px;
-            margin-bottom: 1rem;
-            font-size: 0.875rem;
-          }
-          .flash-error {
-            background: #fef2f2;
-            border: 1px solid #fca5a5;
-            color: #991b1b;
-          }
-          .card {
-            background: #fff;
-            border: 1px solid #e5e5e5;
-            border-radius: 6px;
-            padding: 1.25rem;
-            margin-bottom: 1.5rem;
-          }
-          .preview { padding: 1rem; background: #fff; border: 1px solid #e5e5e5; border-radius: 4px; }
-          .badge {
-            display: inline-block;
-            padding: 0.125rem 0.5rem;
-            border-radius: 9999px;
-            font-size: 0.75rem;
-            font-weight: 500;
-          }
-          .badge-draft { background: #fef3c7; color: #92400e; }
-          .badge-sending { background: #dbeafe; color: #1e40af; }
-          .badge-sent { background: #dcfce7; color: #166534; }
-          .badge-failed { background: #fee2e2; color: #991b1b; }
-          .error-box { background: #fef2f2; border: 1px solid #fecaca; border-radius: 6px; padding: 1rem; margin-bottom: 1.5rem; font-family: monospace; font-size: 0.8125rem; white-space: pre-wrap; word-break: break-all; color: #991b1b; }
-          a { color: #2563eb; }
-          dl { margin: 0; }
-          dt { font-weight: 600; font-size: 0.75rem; text-transform: uppercase; color: #666; margin-top: 0.75rem; }
-          dt:first-child { margin-top: 0; }
-          dd { margin: 0.25rem 0 0 0; }
-        `}</style>
+        <link rel="stylesheet" href="/static/styles.css" />
+        <style>{`tr:last-child td { border-bottom: none; }`}</style>
       </head>
-      <body>
-        <nav>
-          <div class="container">
-            <a href="/admin/" class="brand">
+      <body class="font-sans text-gray-900 bg-gray-50 m-0 p-0 leading-relaxed">
+        <nav class="bg-gray-900 py-3 mb-6">
+          <div class="max-w-5xl mx-auto px-6 flex items-center gap-6">
+            <a href="/admin/" class="text-white font-bold text-base mr-auto no-underline">
               Lists
             </a>
-            <a href="/admin/">Dashboard</a>
-            <a href="/admin/subscribers">Subscribers</a>
-            <a href="/admin/lists">Lists</a>
-            <a href="/admin/campaigns">Campaigns</a>
-            <a href="/admin/inbound">Inbound</a>
-            <a href="/admin/activity">Activity</a>
-            <form method="post" action="/admin/logout" style="margin:0">
+            <a href="/admin/" class="text-gray-400 text-sm no-underline hover:text-white">Dashboard</a>
+            <a href="/admin/subscribers" class="text-gray-400 text-sm no-underline hover:text-white">Subscribers</a>
+            <a href="/admin/lists" class="text-gray-400 text-sm no-underline hover:text-white">Lists</a>
+            <a href="/admin/campaigns" class="text-gray-400 text-sm no-underline hover:text-white">Campaigns</a>
+            <a href="/admin/inbound" class="text-gray-400 text-sm no-underline hover:text-white">Inbound</a>
+            <a href="/admin/activity" class="text-gray-400 text-sm no-underline hover:text-white">Activity</a>
+            <form method="post" action="/admin/logout" class="m-0">
               <button
                 type="submit"
-                style="background:none;color:#ccc;border:none;cursor:pointer;font-size:0.875rem;padding:0"
+                class="bg-transparent text-gray-400 border-none cursor-pointer text-sm p-0 hover:text-white"
               >
                 Logout
               </button>
             </form>
           </div>
         </nav>
-        <div class="container">
-          {flash && <div class="flash">{flash}</div>}
+        <div class="max-w-5xl mx-auto px-6 py-4">
+          {flash && <div class="bg-green-100 border border-green-300 text-green-800 px-4 py-3 rounded-md mb-4 text-sm">{flash}</div>}
           {children}
         </div>
       </body>
@@ -244,24 +67,25 @@ function AdminLayout({
 }
 
 function Verdict({ value }: { value: string | null }) {
-  if (!value) return <span class="verdict-fail">—</span>;
+  if (!value) return <span class="text-red-600 font-semibold text-xs">—</span>;
   const pass = value.toUpperCase() === "PASS";
   return (
-    <span class={pass ? "verdict-pass" : "verdict-fail"}>
+    <span class={pass ? "text-green-600 font-semibold text-xs" : "text-red-600 font-semibold text-xs"}>
       {value.toUpperCase()}
     </span>
   );
 }
 
 function CampaignBadge({ status }: { status: string }) {
+  const base = "inline-block px-2.5 py-0.5 rounded-full text-xs font-medium";
   const cls =
     status === "draft"
-      ? "badge badge-draft"
+      ? `${base} bg-amber-100 text-amber-800`
       : status === "sending"
-        ? "badge badge-sending"
+        ? `${base} bg-blue-100 text-blue-800`
         : status === "failed"
-          ? "badge badge-failed"
-          : "badge badge-sent";
+          ? `${base} bg-red-100 text-red-800`
+          : `${base} bg-green-100 text-green-800`;
   return <span class={cls}>{status}</span>;
 }
 
@@ -292,33 +116,11 @@ export function adminRoutes(db: Db, config: Config) {
           <meta charset="utf-8" />
           <meta name="viewport" content="width=device-width, initial-scale=1" />
           <title>Login - Lists Admin</title>
-          <style>{`
-            body {
-              font-family: system-ui, -apple-system, sans-serif;
-              display: flex; align-items: center; justify-content: center;
-              min-height: 100vh; margin: 0; background: #f5f5f5;
-            }
-            .login-box {
-              background: #fff; padding: 2rem; border-radius: 8px;
-              border: 1px solid #e5e5e5; width: 320px;
-            }
-            h1 { margin: 0 0 1rem; font-size: 1.25rem; text-align: center; }
-            input {
-              width: 100%; padding: 0.5rem; border: 1px solid #ccc;
-              border-radius: 4px; font-size: 0.875rem; margin-bottom: 1rem;
-              box-sizing: border-box;
-            }
-            button {
-              width: 100%; padding: 0.5rem; background: #2563eb; color: #fff;
-              border: none; border-radius: 4px; font-size: 0.875rem;
-              cursor: pointer;
-            }
-            button:hover { background: #1d4ed8; }
-          `}</style>
+          <link rel="stylesheet" href="/static/styles.css" />
         </head>
-        <body>
-          <div class="login-box">
-            <h1>Lists Admin</h1>
+        <body class="font-sans flex items-center justify-center min-h-screen m-0 bg-gray-50">
+          <div class="bg-white p-8 rounded-lg border border-gray-200 w-80">
+            <h1 class="m-0 mb-4 text-xl text-center font-bold">Lists Admin</h1>
             <form method="post" action="/admin/login">
               <input
                 type="password"
@@ -326,8 +128,11 @@ export function adminRoutes(db: Db, config: Config) {
                 placeholder="Password"
                 required
                 autofocus
+                class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-4 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 box-border"
               />
-              <button type="submit">Log in</button>
+              <button type="submit" class="w-full px-3 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none">
+                Log in
+              </button>
             </form>
           </div>
         </body>
@@ -344,35 +149,12 @@ export function adminRoutes(db: Db, config: Config) {
           <head>
             <meta charset="utf-8" />
             <title>Login - Lists Admin</title>
-            <style>{`
-              body {
-                font-family: system-ui, -apple-system, sans-serif;
-                display: flex; align-items: center; justify-content: center;
-                min-height: 100vh; margin: 0; background: #f5f5f5;
-              }
-              .login-box {
-                background: #fff; padding: 2rem; border-radius: 8px;
-                border: 1px solid #e5e5e5; width: 320px;
-              }
-              h1 { margin: 0 0 1rem; font-size: 1.25rem; text-align: center; }
-              input {
-                width: 100%; padding: 0.5rem; border: 1px solid #ccc;
-                border-radius: 4px; font-size: 0.875rem; margin-bottom: 1rem;
-                box-sizing: border-box;
-              }
-              button {
-                width: 100%; padding: 0.5rem; background: #2563eb; color: #fff;
-                border: none; border-radius: 4px; font-size: 0.875rem;
-                cursor: pointer;
-              }
-              button:hover { background: #1d4ed8; }
-              .error { color: #dc2626; font-size: 0.875rem; margin-bottom: 0.75rem; text-align: center; }
-            `}</style>
+            <link rel="stylesheet" href="/static/styles.css" />
           </head>
-          <body>
-            <div class="login-box">
-              <h1>Lists Admin</h1>
-              <p class="error">Invalid password.</p>
+          <body class="font-sans flex items-center justify-center min-h-screen m-0 bg-gray-50">
+            <div class="bg-white p-8 rounded-lg border border-gray-200 w-80">
+              <h1 class="m-0 mb-4 text-xl text-center font-bold">Lists Admin</h1>
+              <p class="text-red-600 text-sm mb-3 text-center">Invalid password.</p>
               <form method="post" action="/admin/login">
                 <input
                   type="password"
@@ -380,8 +162,11 @@ export function adminRoutes(db: Db, config: Config) {
                   placeholder="Password"
                   required
                   autofocus
+                  class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-4 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 box-border"
                 />
-                <button type="submit">Log in</button>
+                <button type="submit" class="w-full px-3 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none">
+                  Log in
+                </button>
               </form>
             </div>
           </body>
@@ -440,44 +225,44 @@ export function adminRoutes(db: Db, config: Config) {
 
     return c.html(
       <AdminLayout title="Dashboard">
-        <h1>Dashboard</h1>
-        <div class="stats-row">
-          <div class="stat-badge">
-            <span class="number">{activeCount}</span>
-            <span class="label">Subscribers</span>
+        <h1 class="text-2xl font-bold mt-0 mb-4">Dashboard</h1>
+        <div class="flex gap-4 mb-6">
+          <div class="inline-flex flex-col items-center bg-white border border-gray-200 rounded-lg px-6 py-4 min-w-[120px] text-center">
+            <span class="text-3xl font-bold text-blue-600">{activeCount}</span>
+            <span class="text-xs text-gray-500 uppercase tracking-wide">Subscribers</span>
           </div>
-          <div class="stat-badge">
-            <span class="number">{listCount}</span>
-            <span class="label">Lists</span>
+          <div class="inline-flex flex-col items-center bg-white border border-gray-200 rounded-lg px-6 py-4 min-w-[120px] text-center">
+            <span class="text-3xl font-bold text-blue-600">{listCount}</span>
+            <span class="text-xs text-gray-500 uppercase tracking-wide">Lists</span>
           </div>
-          <div class="stat-badge">
-            <span class="number">{campaignCount}</span>
-            <span class="label">Campaigns</span>
+          <div class="inline-flex flex-col items-center bg-white border border-gray-200 rounded-lg px-6 py-4 min-w-[120px] text-center">
+            <span class="text-3xl font-bold text-blue-600">{campaignCount}</span>
+            <span class="text-xs text-gray-500 uppercase tracking-wide">Campaigns</span>
           </div>
         </div>
 
-        <h2>Recent Campaigns</h2>
+        <h2 class="text-xl font-semibold mt-6 mb-3">Recent Campaigns</h2>
         {recentCampaigns.length === 0 ? (
           <p>No campaigns yet.</p>
         ) : (
-          <table>
+          <table class="w-full bg-white rounded-lg overflow-hidden mb-6 text-sm">
             <thead>
               <tr>
-                <th>Subject</th>
-                <th>Status</th>
-                <th>Created</th>
+                <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Subject</th>
+                <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Status</th>
+                <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Created</th>
               </tr>
             </thead>
             <tbody>
               {recentCampaigns.map((cam) => (
                 <tr>
-                  <td>
-                    <a href={`/admin/campaigns/${cam.id}`}>{cam.subject}</a>
+                  <td class="px-4 py-3 border-b border-gray-100">
+                    <a href={`/admin/campaigns/${cam.id}`} class="text-blue-600 hover:text-blue-800">{cam.subject}</a>
                   </td>
-                  <td>
+                  <td class="px-4 py-3 border-b border-gray-100">
                     <CampaignBadge status={cam.status} />
                   </td>
-                  <td>{fmtDate(cam.createdAt)}</td>
+                  <td class="px-4 py-3 border-b border-gray-100">{fmtDate(cam.createdAt)}</td>
                 </tr>
               ))}
             </tbody>
@@ -499,65 +284,65 @@ export function adminRoutes(db: Db, config: Config) {
 
     return c.html(
       <AdminLayout title="Subscribers">
-        <h1>Subscribers</h1>
+        <h1 class="text-2xl font-bold mt-0 mb-4">Subscribers</h1>
 
-        <h2>Add subscriber</h2>
+        <h2 class="text-xl font-semibold mt-6 mb-3">Add subscriber</h2>
         <form method="post" action="/admin/subscribers/new">
-          <div class="field">
-            <label>
+          <div class="mb-4">
+            <label class="block text-sm font-medium text-gray-700 mb-1">
               Email
-              <input type="email" name="email" required />
+              <input type="email" name="email" required class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
             </label>
           </div>
-          <div class="field">
-            <label>
+          <div class="mb-4">
+            <label class="block text-sm font-medium text-gray-700 mb-1">
               Name (optional)
-              <input type="text" name="name" />
+              <input type="text" name="name" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
             </label>
           </div>
-          <div class="field">
-            <label>
+          <div class="mb-4">
+            <label class="block text-sm font-medium text-gray-700 mb-1">
               <input type="checkbox" name="skip_confirm" value="1" />
               {" "}Pre-confirm (skip double opt-in)
             </label>
           </div>
           {allLists.length > 0 && (
-            <div class="field">
-              <p style="margin: 0 0 0.25rem; font-weight: 500;">Lists</p>
+            <div class="mb-4">
+              <p class="m-0 mb-1 font-medium">Lists</p>
               {allLists.map((list) => (
-                <label style="display: block;">
+                <label class="block">
                   <input type="checkbox" name="lists" value={list.slug} />
                   {" "}{list.name}
                 </label>
               ))}
             </div>
           )}
-          <button type="submit">Add subscriber</button>
+          <button type="submit" class="inline-block px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none no-underline">Add subscriber</button>
         </form>
 
-        <h2>All subscribers ({allSubscribers.length})</h2>
-        <table>
+        <h2 class="text-xl font-semibold mt-6 mb-3">All subscribers ({allSubscribers.length})</h2>
+        <table class="w-full bg-white rounded-lg overflow-hidden mb-6 text-sm">
           <thead>
             <tr>
-              <th>Email</th>
-              <th>Name</th>
-              <th>Status</th>
-              <th>Confirmed</th>
-              <th>Created</th>
-              <th></th>
+              <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Email</th>
+              <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Name</th>
+              <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Status</th>
+              <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Confirmed</th>
+              <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Created</th>
+              <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200"></th>
             </tr>
           </thead>
           <tbody>
             {allSubscribers.map((sub) => (
               <tr>
-                <td><a href={`/admin/subscribers/${sub.id}`}>{sub.email}</a></td>
-                <td>{sub.name ?? "—"}</td>
-                <td>{sub.status}</td>
-                <td>{sub.confirmedAt ? "Yes" : "No"}</td>
-                <td>{fmtDate(sub.createdAt)}</td>
-                <td>
-                  <form method="post" action={`/admin/subscribers/${sub.id}/delete`} style="margin:0" onsubmit={`return confirm('Delete ${sub.email}?')`}>
-                    <button type="submit" style="background:none;border:none;color:#dc2626;cursor:pointer;font-size:0.8125rem;padding:0">delete</button>
+                <td class="px-4 py-3 border-b border-gray-100"><a href={`/admin/subscribers/${sub.id}`} class="text-blue-600 hover:text-blue-800">{sub.email}</a></td>
+                <td class="px-4 py-3 border-b border-gray-100">{sub.name ?? "—"}</td>
+                <td class="px-4 py-3 border-b border-gray-100">{sub.status}</td>
+                <td class="px-4 py-3 border-b border-gray-100">{sub.confirmedAt ? "Yes" : "No"}</td>
+                <td class="px-4 py-3 border-b border-gray-100">{fmtDate(sub.createdAt)}</td>
+                <td class="px-4 py-3 border-b border-gray-100">
+                  <form method="post" action={`/admin/subscribers/${sub.id}/delete`} class="m-0" onsubmit={`return confirm('Delete ${sub.email}?')`}>
+                    <button type="submit" class="bg-transparent border-none text-red-600 cursor-pointer text-sm p-0">delete</button>
                   </form>
                 </td>
               </tr>
@@ -631,20 +416,20 @@ export function adminRoutes(db: Db, config: Config) {
 
     return c.html(
       <AdminLayout title={sub.email}>
-        <h1>{sub.email}</h1>
+        <h1 class="text-2xl font-bold mt-0 mb-4">{sub.email}</h1>
 
         <form method="post" action={`/admin/subscribers/${id}/edit`}>
-          <div class="form-group">
-            <label for="email">Email</label>
-            <input type="email" id="email" name="email" required value={sub.email} />
+          <div class="mb-4">
+            <label for="email" class="block text-sm font-medium text-gray-700 mb-1">Email</label>
+            <input type="email" id="email" name="email" required value={sub.email} class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
           </div>
-          <div class="form-group">
-            <label for="name">Name</label>
-            <input type="text" id="name" name="name" value={sub.name ?? ""} />
+          <div class="mb-4">
+            <label for="name" class="block text-sm font-medium text-gray-700 mb-1">Name</label>
+            <input type="text" id="name" name="name" value={sub.name ?? ""} class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
           </div>
-          <div class="form-group">
-            <label for="status">Status</label>
-            <select id="status" name="status">
+          <div class="mb-4">
+            <label for="status" class="block text-sm font-medium text-gray-700 mb-1">Status</label>
+            <select id="status" name="status" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
               <option value="active" selected={sub.status === "active"}>active</option>
               <option value="unsubscribed" selected={sub.status === "unsubscribed"}>unsubscribed</option>
               <option value="blocklisted" selected={sub.status === "blocklisted"}>blocklisted</option>
@@ -652,12 +437,12 @@ export function adminRoutes(db: Db, config: Config) {
           </div>
 
           {allLists.length > 0 && (
-            <div class="form-group">
-              <p style="margin:0 0 0.25rem;font-weight:500">List subscriptions</p>
+            <div class="mb-4">
+              <p class="m-0 mb-1 font-medium">List subscriptions</p>
               {allLists.map((list) => {
                 const status = subListMap.get(list.id);
                 return (
-                  <label style="display:block">
+                  <label class="block">
                     <input
                       type="checkbox"
                       name="lists"
@@ -665,42 +450,42 @@ export function adminRoutes(db: Db, config: Config) {
                       checked={status === "confirmed" || status === "unconfirmed"}
                     />
                     {" "}{list.name}
-                    {status && <span style="font-size:0.75rem;color:#666"> ({status})</span>}
+                    {status && <span class="text-xs text-gray-500"> ({status})</span>}
                   </label>
                 );
               })}
             </div>
           )}
 
-          <button type="submit">Save changes</button>
+          <button type="submit" class="inline-block px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none no-underline">Save changes</button>
         </form>
 
-        <dl style="margin-top:1.5rem">
-          <dt>Confirmed</dt>
-          <dd>{sub.confirmedAt ? fmtDateTime(sub.confirmedAt) : "No"}</dd>
-          <dt>Created</dt>
-          <dd>{fmtDateTime(sub.createdAt)}</dd>
-          <dt>Unsubscribe token</dt>
-          <dd style="font-size:0.75rem;font-family:monospace">{sub.unsubscribeToken}</dd>
+        <dl class="mt-6">
+          <dt class="font-semibold text-xs uppercase text-gray-500 first:mt-0">Confirmed</dt>
+          <dd class="mt-1 ml-0">{sub.confirmedAt ? fmtDateTime(sub.confirmedAt) : "No"}</dd>
+          <dt class="font-semibold text-xs uppercase text-gray-500 mt-3">Created</dt>
+          <dd class="mt-1 ml-0">{fmtDateTime(sub.createdAt)}</dd>
+          <dt class="font-semibold text-xs uppercase text-gray-500 mt-3">Unsubscribe token</dt>
+          <dd class="mt-1 ml-0 text-xs font-mono">{sub.unsubscribeToken}</dd>
         </dl>
 
         {subSends.length > 0 && (
           <>
-            <h2>Campaigns received ({subSends.length})</h2>
-            <table>
+            <h2 class="text-xl font-semibold mt-6 mb-3">Campaigns received ({subSends.length})</h2>
+            <table class="w-full bg-white rounded-lg overflow-hidden mb-6 text-sm">
               <thead>
                 <tr>
-                  <th>Campaign</th>
-                  <th>Status</th>
-                  <th>Sent</th>
+                  <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Campaign</th>
+                  <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Status</th>
+                  <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Sent</th>
                 </tr>
               </thead>
               <tbody>
                 {subSends.map((s) => (
                   <tr>
-                    <td><a href={`/admin/campaigns/${s.campaignId}`}>{s.subject ?? `Campaign ${s.campaignId}`}</a></td>
-                    <td>{s.status}</td>
-                    <td>{fmtDateTime(s.sentAt)}</td>
+                    <td class="px-4 py-3 border-b border-gray-100"><a href={`/admin/campaigns/${s.campaignId}`} class="text-blue-600 hover:text-blue-800">{s.subject ?? `Campaign ${s.campaignId}`}</a></td>
+                    <td class="px-4 py-3 border-b border-gray-100">{s.status}</td>
+                    <td class="px-4 py-3 border-b border-gray-100">{fmtDateTime(s.sentAt)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -710,22 +495,22 @@ export function adminRoutes(db: Db, config: Config) {
 
         {subEvents.length > 0 && (
           <>
-            <h2>Activity</h2>
-            <div style="display:flex;flex-direction:column;gap:0.125rem">
+            <h2 class="text-xl font-semibold mt-6 mb-3">Activity</h2>
+            <div class="flex flex-col gap-0.5">
               {subEvents.map((e) => (
-                <div style="display:flex;gap:0.75rem;padding:0.375rem 0;border-bottom:1px solid #f5f5f5;font-size:0.8125rem">
-                  <span style="font-weight:500;min-width:12rem">{e.type}</span>
-                  <span style="color:#555;flex:1">{e.detail}</span>
-                  <span style="color:#999;white-space:nowrap">{fmtDateTime(e.createdAt)}</span>
+                <div class="flex gap-3 py-1.5 border-b border-gray-100 text-sm">
+                  <span class="font-medium min-w-[12rem]">{e.type}</span>
+                  <span class="text-gray-600 flex-1">{e.detail}</span>
+                  <span class="text-gray-400 whitespace-nowrap">{fmtDateTime(e.createdAt)}</span>
                 </div>
               ))}
             </div>
           </>
         )}
 
-        <hr style="margin:2rem 0" />
+        <hr class="my-8" />
         <form method="post" action={`/admin/subscribers/${id}/delete`} onsubmit="return confirm('Delete this subscriber and all their list subscriptions? This cannot be undone.')">
-          <button type="submit" class="btn-danger" style="padding:0.5rem 1rem;border:none;border-radius:4px;color:#fff;cursor:pointer;font-size:0.8125rem">
+          <button type="submit" class="inline-block px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-md hover:bg-red-700 cursor-pointer border-none no-underline">
             Delete Subscriber
           </button>
         </form>
@@ -852,46 +637,46 @@ export function adminRoutes(db: Db, config: Config) {
 
     return c.html(
       <AdminLayout title="Lists">
-        <h1>Lists</h1>
-        <table>
+        <h1 class="text-2xl font-bold mt-0 mb-4">Lists</h1>
+        <table class="w-full bg-white rounded-lg overflow-hidden mb-6 text-sm">
           <thead>
             <tr>
-              <th>Slug</th>
-              <th>Name</th>
-              <th>Description</th>
-              <th>Subscribers</th>
+              <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Slug</th>
+              <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Name</th>
+              <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Description</th>
+              <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Subscribers</th>
             </tr>
           </thead>
           <tbody>
             {allLists.map((list) => (
               <tr>
-                <td><a href={`/admin/lists/${list.id}`}>{list.slug}</a></td>
-                <td>{list.name}</td>
-                <td>{list.description || "—"}</td>
-                <td>{listCounts.get(list.id) ?? 0}</td>
+                <td class="px-4 py-3 border-b border-gray-100"><a href={`/admin/lists/${list.id}`} class="text-blue-600 hover:text-blue-800">{list.slug}</a></td>
+                <td class="px-4 py-3 border-b border-gray-100">{list.name}</td>
+                <td class="px-4 py-3 border-b border-gray-100">{list.description || "—"}</td>
+                <td class="px-4 py-3 border-b border-gray-100">{listCounts.get(list.id) ?? 0}</td>
               </tr>
             ))}
           </tbody>
         </table>
 
-        <div class="card">
-          <h2 style="margin-top:0">Create List</h2>
+        <div class="bg-white border border-gray-200 rounded-lg p-5 mb-6">
+          <h2 class="text-xl font-semibold mt-0 mb-3">Create List</h2>
           <form method="post" action="/admin/lists/new">
-            <div class="form-row">
-              <div class="form-group">
-                <label for="slug">Slug</label>
-                <input type="text" id="slug" name="slug" required placeholder="weekly-digest" />
+            <div class="grid grid-cols-2 gap-4">
+              <div class="mb-4">
+                <label for="slug" class="block text-sm font-medium text-gray-700 mb-1">Slug</label>
+                <input type="text" id="slug" name="slug" required placeholder="weekly-digest" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
               </div>
-              <div class="form-group">
-                <label for="name">Name</label>
-                <input type="text" id="name" name="name" required placeholder="Weekly Digest" />
+              <div class="mb-4">
+                <label for="name" class="block text-sm font-medium text-gray-700 mb-1">Name</label>
+                <input type="text" id="name" name="name" required placeholder="Weekly Digest" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
               </div>
             </div>
-            <div class="form-group">
-              <label for="description">Description</label>
-              <input type="text" id="description" name="description" placeholder="Optional description" />
+            <div class="mb-4">
+              <label for="description" class="block text-sm font-medium text-gray-700 mb-1">Description</label>
+              <input type="text" id="description" name="description" placeholder="Optional description" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
             </div>
-            <button type="submit">Create List</button>
+            <button type="submit" class="inline-block px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none no-underline">Create List</button>
           </form>
         </div>
       </AdminLayout>,
@@ -946,65 +731,65 @@ export function adminRoutes(db: Db, config: Config) {
 
     return c.html(
       <AdminLayout title={list.name}>
-        <h1>{list.name}</h1>
+        <h1 class="text-2xl font-bold mt-0 mb-4">{list.name}</h1>
 
         <form method="post" action={`/admin/lists/${id}/edit`}>
-          <div class="form-group">
-            <label for="slug">Slug</label>
-            <input type="text" id="slug" name="slug" required value={list.slug} />
+          <div class="mb-4">
+            <label for="slug" class="block text-sm font-medium text-gray-700 mb-1">Slug</label>
+            <input type="text" id="slug" name="slug" required value={list.slug} class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
           </div>
-          <div class="form-group">
-            <label for="name">Name</label>
-            <input type="text" id="name" name="name" required value={list.name} />
+          <div class="mb-4">
+            <label for="name" class="block text-sm font-medium text-gray-700 mb-1">Name</label>
+            <input type="text" id="name" name="name" required value={list.name} class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
           </div>
-          <div class="form-group">
-            <label for="description">Description</label>
-            <input type="text" id="description" name="description" value={list.description} />
+          <div class="mb-4">
+            <label for="description" class="block text-sm font-medium text-gray-700 mb-1">Description</label>
+            <input type="text" id="description" name="description" value={list.description} class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
           </div>
-          <button type="submit">Save changes</button>
+          <button type="submit" class="inline-block px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none no-underline">Save changes</button>
         </form>
 
-        <h2>Confirmed subscribers ({confirmedSubs.length})</h2>
+        <h2 class="text-xl font-semibold mt-6 mb-3">Confirmed subscribers ({confirmedSubs.length})</h2>
         {confirmedSubs.length > 0 ? (
-          <table>
+          <table class="w-full bg-white rounded-lg overflow-hidden mb-6 text-sm">
             <thead>
               <tr>
-                <th>Email</th>
-                <th>Name</th>
-                <th>Subscribed</th>
+                <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Email</th>
+                <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Name</th>
+                <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Subscribed</th>
               </tr>
             </thead>
             <tbody>
               {confirmedSubs.map((s) => (
                 <tr>
-                  <td><a href={`/admin/subscribers/${s.id}`}>{s.email}</a></td>
-                  <td>{s.name ?? "—"}</td>
-                  <td>{fmtDate(s.subscribedAt)}</td>
+                  <td class="px-4 py-3 border-b border-gray-100"><a href={`/admin/subscribers/${s.id}`} class="text-blue-600 hover:text-blue-800">{s.email}</a></td>
+                  <td class="px-4 py-3 border-b border-gray-100">{s.name ?? "—"}</td>
+                  <td class="px-4 py-3 border-b border-gray-100">{fmtDate(s.subscribedAt)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         ) : (
-          <p style="color:#999">No confirmed subscribers.</p>
+          <p class="text-gray-400">No confirmed subscribers.</p>
         )}
 
         {unconfirmedSubs.length > 0 && (
           <>
-            <h2>Pending confirmation ({unconfirmedSubs.length})</h2>
-            <table>
+            <h2 class="text-xl font-semibold mt-6 mb-3">Pending confirmation ({unconfirmedSubs.length})</h2>
+            <table class="w-full bg-white rounded-lg overflow-hidden mb-6 text-sm">
               <thead>
                 <tr>
-                  <th>Email</th>
-                  <th>Name</th>
-                  <th>Subscribed</th>
+                  <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Email</th>
+                  <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Name</th>
+                  <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Subscribed</th>
                 </tr>
               </thead>
               <tbody>
                 {unconfirmedSubs.map((s) => (
                   <tr>
-                    <td><a href={`/admin/subscribers/${s.id}`}>{s.email}</a></td>
-                    <td>{s.name ?? "—"}</td>
-                    <td>{fmtDate(s.subscribedAt)}</td>
+                    <td class="px-4 py-3 border-b border-gray-100"><a href={`/admin/subscribers/${s.id}`} class="text-blue-600 hover:text-blue-800">{s.email}</a></td>
+                    <td class="px-4 py-3 border-b border-gray-100">{s.name ?? "—"}</td>
+                    <td class="px-4 py-3 border-b border-gray-100">{fmtDate(s.subscribedAt)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -1014,21 +799,21 @@ export function adminRoutes(db: Db, config: Config) {
 
         {listCampaigns.length > 0 && (
           <>
-            <h2>Campaigns ({listCampaigns.length})</h2>
-            <table>
+            <h2 class="text-xl font-semibold mt-6 mb-3">Campaigns ({listCampaigns.length})</h2>
+            <table class="w-full bg-white rounded-lg overflow-hidden mb-6 text-sm">
               <thead>
                 <tr>
-                  <th>Subject</th>
-                  <th>Status</th>
-                  <th>Sent</th>
+                  <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Subject</th>
+                  <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Status</th>
+                  <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Sent</th>
                 </tr>
               </thead>
               <tbody>
                 {listCampaigns.map((cam) => (
                   <tr>
-                    <td><a href={`/admin/campaigns/${cam.id}`}>{cam.subject}</a></td>
-                    <td><CampaignBadge status={cam.status} /></td>
-                    <td>{fmtDateTime(cam.sentAt)}</td>
+                    <td class="px-4 py-3 border-b border-gray-100"><a href={`/admin/campaigns/${cam.id}`} class="text-blue-600 hover:text-blue-800">{cam.subject}</a></td>
+                    <td class="px-4 py-3 border-b border-gray-100"><CampaignBadge status={cam.status} /></td>
+                    <td class="px-4 py-3 border-b border-gray-100">{fmtDateTime(cam.sentAt)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -1036,9 +821,9 @@ export function adminRoutes(db: Db, config: Config) {
           </>
         )}
 
-        <hr style="margin:2rem 0" />
+        <hr class="my-8" />
         <form method="post" action={`/admin/lists/${id}/delete`} onsubmit="return confirm('Delete this list? Subscribers will be unlinked but not deleted. Campaigns on this list will also be deleted.')">
-          <button type="submit" class="btn-danger" style="padding:0.5rem 1rem;border:none;border-radius:4px;color:#fff;cursor:pointer;font-size:0.8125rem">
+          <button type="submit" class="inline-block px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-md hover:bg-red-700 cursor-pointer border-none no-underline">
             Delete List
           </button>
         </form>
@@ -1116,32 +901,32 @@ export function adminRoutes(db: Db, config: Config) {
 
     return c.html(
       <AdminLayout title="Campaigns">
-        <h1>Campaigns</h1>
+        <h1 class="text-2xl font-bold mt-0 mb-4">Campaigns</h1>
         <p>
-          <a href="/admin/campaigns/new" class="btn">
+          <a href="/admin/campaigns/new" class="inline-block px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none no-underline">
             New Campaign
           </a>
         </p>
-        <table>
+        <table class="w-full bg-white rounded-lg overflow-hidden mb-6 text-sm">
           <thead>
             <tr>
-              <th>Subject</th>
-              <th>From</th>
-              <th>Status</th>
-              <th>Created</th>
+              <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Subject</th>
+              <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">From</th>
+              <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Status</th>
+              <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Created</th>
             </tr>
           </thead>
           <tbody>
             {allCampaigns.map((cam) => (
               <tr>
-                <td>
-                  <a href={`/admin/campaigns/${cam.id}`}>{cam.subject}</a>
+                <td class="px-4 py-3 border-b border-gray-100">
+                  <a href={`/admin/campaigns/${cam.id}`} class="text-blue-600 hover:text-blue-800">{cam.subject}</a>
                 </td>
-                <td>{cam.fromAddress}</td>
-                <td>
+                <td class="px-4 py-3 border-b border-gray-100">{cam.fromAddress}</td>
+                <td class="px-4 py-3 border-b border-gray-100">
                   <CampaignBadge status={cam.status} />
                 </td>
-                <td>{fmtDate(cam.createdAt)}</td>
+                <td class="px-4 py-3 border-b border-gray-100">{fmtDate(cam.createdAt)}</td>
               </tr>
             ))}
           </tbody>
@@ -1155,12 +940,12 @@ export function adminRoutes(db: Db, config: Config) {
 
     return c.html(
       <AdminLayout title="New Campaign">
-        <h1>New Campaign</h1>
-        <div class="card">
+        <h1 class="text-2xl font-bold mt-0 mb-4">New Campaign</h1>
+        <div class="bg-white border border-gray-200 rounded-lg p-5 mb-6">
           <form method="post" action="/admin/campaigns/new">
-            <div class="form-group">
-              <label for="listId">List</label>
-              <select id="listId" name="listId" required>
+            <div class="mb-4">
+              <label for="listId" class="block text-sm font-medium text-gray-700 mb-1">List</label>
+              <select id="listId" name="listId" required class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
                 <option value="">Select a list…</option>
                 {allLists.map((list) => (
                   <option value={String(list.id)}>
@@ -1169,25 +954,26 @@ export function adminRoutes(db: Db, config: Config) {
                 ))}
               </select>
             </div>
-            <div class="form-group">
-              <label for="fromAddress">From Address</label>
+            <div class="mb-4">
+              <label for="fromAddress" class="block text-sm font-medium text-gray-700 mb-1">From Address</label>
               <input
                 type="email"
                 id="fromAddress"
                 name="fromAddress"
                 required
                 placeholder={`newsletter@${config.fromDomain}`}
+                class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
-            <div class="form-group">
-              <label for="subject">Subject</label>
-              <input type="text" id="subject" name="subject" required placeholder="Campaign subject" />
+            <div class="mb-4">
+              <label for="subject" class="block text-sm font-medium text-gray-700 mb-1">Subject</label>
+              <input type="text" id="subject" name="subject" required placeholder="Campaign subject" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
             </div>
-            <div class="form-group">
-              <label for="bodyMarkdown">Body (Markdown)</label>
-              <textarea id="bodyMarkdown" name="bodyMarkdown" required placeholder="Write your email in markdown…" />
+            <div class="mb-4">
+              <label for="bodyMarkdown" class="block text-sm font-medium text-gray-700 mb-1">Body (Markdown)</label>
+              <textarea id="bodyMarkdown" name="bodyMarkdown" required placeholder="Write your email in markdown…" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 min-h-[200px] resize-y focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
             </div>
-            <button type="submit">Create Draft</button>
+            <button type="submit" class="inline-block px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none no-underline">Create Draft</button>
           </form>
         </div>
       </AdminLayout>,
@@ -1244,37 +1030,37 @@ export function adminRoutes(db: Db, config: Config) {
 
     return c.html(
       <AdminLayout title={campaign.subject}>
-        <h1>{campaign.subject}</h1>
-        <div style="display:flex;gap:1rem;align-items:center;margin-bottom:1rem">
+        <h1 class="text-2xl font-bold mt-0 mb-4">{campaign.subject}</h1>
+        <div class="flex gap-4 items-center mb-4">
           <CampaignBadge status={campaign.status} />
-          <span style="font-size:0.875rem;color:#666">
+          <span class="text-sm text-gray-500">
             List: {list?.name ?? "Unknown"} &middot; From: {campaign.fromAddress}
           </span>
         </div>
 
         {campaign.lastError && (
-          <div class="error-box">
+          <div class="bg-red-50 border border-red-200 rounded-lg p-4 mb-6 font-mono text-sm whitespace-pre-wrap break-all text-red-800">
             <strong>Error:</strong>{"\n"}{campaign.lastError}
           </div>
         )}
 
         {campaign.status === "draft" && (
-          <form method="post" action={`/admin/campaigns/${id}/send`} style="margin-bottom:1.5rem">
-            <button type="submit" class="btn-danger" style="padding:0.5rem 1rem;border:none;border-radius:4px;color:#fff;cursor:pointer;font-size:0.875rem">
+          <form method="post" action={`/admin/campaigns/${id}/send`} class="mb-6">
+            <button type="submit" class="inline-block px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-md hover:bg-red-700 cursor-pointer border-none no-underline">
               Send Campaign
             </button>
           </form>
         )}
 
         {campaign.status === "failed" && (
-          <div style="display:flex;gap:0.5rem;margin-bottom:1.5rem">
+          <div class="flex gap-2 mb-6">
             <form method="post" action={`/admin/campaigns/${id}/retry`}>
-              <button type="submit" style="padding:0.5rem 1rem;background:#2563eb;border:none;border-radius:4px;color:#fff;cursor:pointer;font-size:0.875rem">
+              <button type="submit" class="inline-block px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none no-underline">
                 Retry (skip already sent)
               </button>
             </form>
             <form method="post" action={`/admin/campaigns/${id}/reset`}>
-              <button type="submit" class="btn-secondary" style="padding:0.5rem 1rem;border:1px solid #ccc;border-radius:4px;cursor:pointer;font-size:0.875rem">
+              <button type="submit" class="inline-block px-4 py-2 bg-gray-500 text-white text-sm font-medium rounded-md hover:bg-gray-600 cursor-pointer border-none no-underline">
                 Reset to Draft
               </button>
             </form>
@@ -1282,37 +1068,37 @@ export function adminRoutes(db: Db, config: Config) {
         )}
 
         {campaign.status === "sending" && (
-          <div style="display:flex;gap:0.5rem;margin-bottom:1.5rem">
+          <div class="flex gap-2 mb-6">
             <form method="post" action={`/admin/campaigns/${id}/reset`}>
-              <button type="submit" class="btn-secondary" style="padding:0.5rem 1rem;border:1px solid #ccc;border-radius:4px;cursor:pointer;font-size:0.875rem">
+              <button type="submit" class="inline-block px-4 py-2 bg-gray-500 text-white text-sm font-medium rounded-md hover:bg-gray-600 cursor-pointer border-none no-underline">
                 Force Reset to Draft (stuck?)
               </button>
             </form>
           </div>
         )}
 
-        <h2>Preview</h2>
-        <div class="preview" dangerouslySetInnerHTML={{ __html: htmlContent }} />
+        <h2 class="text-xl font-semibold mt-6 mb-3">Preview</h2>
+        <div class="p-4 bg-white border border-gray-200 rounded-md" dangerouslySetInnerHTML={{ __html: htmlContent }} />
 
         {sends.length > 0 && (
           <>
-            <h2>Sends ({sends.length})</h2>
-            <table>
+            <h2 class="text-xl font-semibold mt-6 mb-3">Sends ({sends.length})</h2>
+            <table class="w-full bg-white rounded-lg overflow-hidden mb-6 text-sm">
               <thead>
                 <tr>
-                  <th>Subscriber ID</th>
-                  <th>Status</th>
-                  <th>Sent At</th>
-                  <th>SES Message ID</th>
+                  <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Subscriber ID</th>
+                  <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Status</th>
+                  <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Sent At</th>
+                  <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">SES Message ID</th>
                 </tr>
               </thead>
               <tbody>
                 {sends.map((send) => (
                   <tr>
-                    <td>{send.subscriberId}</td>
-                    <td>{send.status}</td>
-                    <td>{fmtDateTime(send.sentAt)}</td>
-                    <td style="font-size:0.75rem">{send.sesMessageId ?? "—"}</td>
+                    <td class="px-4 py-3 border-b border-gray-100">{send.subscriberId}</td>
+                    <td class="px-4 py-3 border-b border-gray-100">{send.status}</td>
+                    <td class="px-4 py-3 border-b border-gray-100">{fmtDateTime(send.sentAt)}</td>
+                    <td class="px-4 py-3 border-b border-gray-100 text-xs">{send.sesMessageId ?? "—"}</td>
                   </tr>
                 ))}
               </tbody>
@@ -1322,23 +1108,23 @@ export function adminRoutes(db: Db, config: Config) {
 
         {inboundReplies.length > 0 && (
           <>
-            <h2>Replies ({inboundReplies.length})</h2>
-            <table>
+            <h2 class="text-xl font-semibold mt-6 mb-3">Replies ({inboundReplies.length})</h2>
+            <table class="w-full bg-white rounded-lg overflow-hidden mb-6 text-sm">
               <thead>
                 <tr>
-                  <th>From</th>
-                  <th>Subject</th>
-                  <th>Received</th>
-                  <th></th>
+                  <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">From</th>
+                  <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Subject</th>
+                  <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Received</th>
+                  <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200"></th>
                 </tr>
               </thead>
               <tbody>
                 {inboundReplies.map((r) => (
                   <tr>
-                    <td>{r.source}</td>
-                    <td>{r.subject}</td>
-                    <td>{fmtDateTime(r.createdAt)}</td>
-                    <td><a href={`/admin/inbound/${r.id}`}>View</a></td>
+                    <td class="px-4 py-3 border-b border-gray-100">{r.source}</td>
+                    <td class="px-4 py-3 border-b border-gray-100">{r.subject}</td>
+                    <td class="px-4 py-3 border-b border-gray-100">{fmtDateTime(r.createdAt)}</td>
+                    <td class="px-4 py-3 border-b border-gray-100"><a href={`/admin/inbound/${r.id}`} class="text-blue-600 hover:text-blue-800">View</a></td>
                   </tr>
                 ))}
               </tbody>
@@ -1346,9 +1132,9 @@ export function adminRoutes(db: Db, config: Config) {
           </>
         )}
 
-        <hr style="margin:2rem 0" />
+        <hr class="my-8" />
         <form method="post" action={`/admin/campaigns/${id}/delete`} onsubmit="return confirm('Delete this campaign and all its send records? This cannot be undone.')">
-          <button type="submit" class="btn-danger" style="padding:0.5rem 1rem;border:none;border-radius:4px;color:#fff;cursor:pointer;font-size:0.8125rem">
+          <button type="submit" class="inline-block px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-md hover:bg-red-700 cursor-pointer border-none no-underline">
             Delete Campaign
           </button>
         </form>
@@ -1422,33 +1208,33 @@ export function adminRoutes(db: Db, config: Config) {
 
     return c.html(
       <AdminLayout title="Inbound">
-        <h1>Inbound Messages</h1>
-        <table>
+        <h1 class="text-2xl font-bold mt-0 mb-4">Inbound Messages</h1>
+        <table class="w-full bg-white rounded-lg overflow-hidden mb-6 text-sm">
           <thead>
             <tr>
-              <th>From</th>
-              <th>Subject</th>
-              <th>Date</th>
-              <th>SPF</th>
-              <th>DKIM</th>
-              <th>DMARC</th>
+              <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">From</th>
+              <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Subject</th>
+              <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Date</th>
+              <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">SPF</th>
+              <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">DKIM</th>
+              <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">DMARC</th>
             </tr>
           </thead>
           <tbody>
             {messages.map((msg) => (
-              <tr style={msg.readAt ? "" : "font-weight:600"}>
-                <td>{msg.source}</td>
-                <td>
-                  <a href={`/admin/inbound/${msg.id}`}>{msg.subject}</a>
+              <tr class={msg.readAt ? "" : "font-semibold"}>
+                <td class="px-4 py-3 border-b border-gray-100">{msg.source}</td>
+                <td class="px-4 py-3 border-b border-gray-100">
+                  <a href={`/admin/inbound/${msg.id}`} class="text-blue-600 hover:text-blue-800">{msg.subject}</a>
                 </td>
-                <td>{fmtDateTime(msg.timestamp)}</td>
-                <td>
+                <td class="px-4 py-3 border-b border-gray-100">{fmtDateTime(msg.timestamp)}</td>
+                <td class="px-4 py-3 border-b border-gray-100">
                   <Verdict value={msg.spfVerdict} />
                 </td>
-                <td>
+                <td class="px-4 py-3 border-b border-gray-100">
                   <Verdict value={msg.dkimVerdict} />
                 </td>
-                <td>
+                <td class="px-4 py-3 border-b border-gray-100">
                   <Verdict value={msg.dmarcVerdict} />
                 </td>
               </tr>
@@ -1481,51 +1267,51 @@ export function adminRoutes(db: Db, config: Config) {
 
     return c.html(
       <AdminLayout title={`Inbound: ${msg.subject}`}>
-        <h1>{msg.subject}</h1>
-        <div class="card">
+        <h1 class="text-2xl font-bold mt-0 mb-4">{msg.subject}</h1>
+        <div class="bg-white border border-gray-200 rounded-lg p-5 mb-6">
           <dl>
-            <dt>From</dt>
-            <dd>{msg.fromAddrs}</dd>
-            <dt>To</dt>
-            <dd>{msg.toAddrs}</dd>
-            <dt>Subject</dt>
-            <dd>{msg.subject}</dd>
-            <dt>Date</dt>
-            <dd>{fmtDateTime(msg.timestamp)}</dd>
-            <dt>Verdicts</dt>
-            <dd>
+            <dt class="font-semibold text-xs uppercase text-gray-500 first:mt-0">From</dt>
+            <dd class="mt-1 ml-0">{msg.fromAddrs}</dd>
+            <dt class="font-semibold text-xs uppercase text-gray-500 mt-3">To</dt>
+            <dd class="mt-1 ml-0">{msg.toAddrs}</dd>
+            <dt class="font-semibold text-xs uppercase text-gray-500 mt-3">Subject</dt>
+            <dd class="mt-1 ml-0">{msg.subject}</dd>
+            <dt class="font-semibold text-xs uppercase text-gray-500 mt-3">Date</dt>
+            <dd class="mt-1 ml-0">{fmtDateTime(msg.timestamp)}</dd>
+            <dt class="font-semibold text-xs uppercase text-gray-500 mt-3">Verdicts</dt>
+            <dd class="mt-1 ml-0">
               SPF: <Verdict value={msg.spfVerdict} /> &nbsp;
               DKIM: <Verdict value={msg.dkimVerdict} /> &nbsp;
               DMARC: <Verdict value={msg.dmarcVerdict} />
             </dd>
           </dl>
           {msg.s3Key && (
-            <p style="margin-top:1rem">
-              <a href={`/admin/inbound/${id}/raw`} class="btn btn-secondary">
+            <p class="mt-4">
+              <a href={`/admin/inbound/${id}/raw`} class="inline-block px-4 py-2 bg-gray-500 text-white text-sm font-medium rounded-md hover:bg-gray-600 cursor-pointer border-none no-underline">
                 Download Raw .eml
               </a>
             </p>
           )}
         </div>
 
-        <h2>Replies</h2>
+        <h2 class="text-xl font-semibold mt-6 mb-3">Replies</h2>
         {msgReplies.length > 0 ? (
-          <table>
+          <table class="w-full bg-white rounded-lg overflow-hidden mb-6 text-sm">
             <thead>
               <tr>
-                <th>From</th>
-                <th>To</th>
-                <th>Subject</th>
-                <th>Sent At</th>
+                <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">From</th>
+                <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">To</th>
+                <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Subject</th>
+                <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Sent At</th>
               </tr>
             </thead>
             <tbody>
               {msgReplies.map((r) => (
                 <tr>
-                  <td>{r.fromAddr}</td>
-                  <td>{r.toAddr}</td>
-                  <td>{r.subject}</td>
-                  <td>{fmtDateTime(r.sentAt)}</td>
+                  <td class="px-4 py-3 border-b border-gray-100">{r.fromAddr}</td>
+                  <td class="px-4 py-3 border-b border-gray-100">{r.toAddr}</td>
+                  <td class="px-4 py-3 border-b border-gray-100">{r.subject}</td>
+                  <td class="px-4 py-3 border-b border-gray-100">{fmtDateTime(r.sentAt)}</td>
                 </tr>
               ))}
             </tbody>
@@ -1534,56 +1320,59 @@ export function adminRoutes(db: Db, config: Config) {
           <p>No replies yet.</p>
         )}
 
-        <div class="card">
-          <h2 style="margin-top:0">Send Reply</h2>
+        <div class="bg-white border border-gray-200 rounded-lg p-5 mb-6">
+          <h2 class="text-xl font-semibold mt-0 mb-3">Send Reply</h2>
           <form method="post" action={`/admin/inbound/${id}/reply`}>
-            <div class="form-group">
-              <label for="fromAddr">From</label>
+            <div class="mb-4">
+              <label for="fromAddr" class="block text-sm font-medium text-gray-700 mb-1">From</label>
               <input
                 type="email"
                 id="fromAddr"
                 name="fromAddr"
                 required
                 value={msg.toAddrs.includes(",") ? msg.toAddrs.split(",")[0]!.trim() : msg.toAddrs}
+                class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
-            <div class="form-group">
-              <label for="toAddr">To</label>
+            <div class="mb-4">
+              <label for="toAddr" class="block text-sm font-medium text-gray-700 mb-1">To</label>
               <input
                 type="email"
                 id="toAddr"
                 name="toAddr"
                 required
                 value={msg.source}
+                class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
-            <div class="form-group">
-              <label for="replySubject">Subject</label>
+            <div class="mb-4">
+              <label for="replySubject" class="block text-sm font-medium text-gray-700 mb-1">Subject</label>
               <input
                 type="text"
                 id="replySubject"
                 name="subject"
                 required
                 value={msg.subject.startsWith("Re:") ? msg.subject : `Re: ${msg.subject}`}
+                class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
-            <div class="form-group">
-              <label for="replyBody">Body (plain text)</label>
-              <textarea id="replyBody" name="body" required placeholder="Your reply…" />
+            <div class="mb-4">
+              <label for="replyBody" class="block text-sm font-medium text-gray-700 mb-1">Body (plain text)</label>
+              <textarea id="replyBody" name="body" required placeholder="Your reply…" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 min-h-[200px] resize-y focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
             </div>
-            <button type="submit">Send Reply</button>
+            <button type="submit" class="inline-block px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none no-underline">Send Reply</button>
           </form>
         </div>
 
-        <hr style="margin:2rem 0" />
-        <div style="display:flex;gap:0.5rem">
+        <hr class="my-8" />
+        <div class="flex gap-2">
           <form method="post" action={`/admin/inbound/${id}/toggle-read`}>
-            <button type="submit" class="btn-secondary" style="padding:0.5rem 1rem;border:1px solid #ccc;border-radius:4px;cursor:pointer;font-size:0.8125rem">
+            <button type="submit" class="inline-block px-4 py-2 bg-gray-500 text-white text-sm font-medium rounded-md hover:bg-gray-600 cursor-pointer border-none no-underline">
               Mark as {msg.readAt ? "Unread" : "Read"}
             </button>
           </form>
           <form method="post" action={`/admin/inbound/${id}/delete`} onsubmit="return confirm('Delete this inbound message and its replies? This cannot be undone.')">
-            <button type="submit" class="btn-danger" style="padding:0.5rem 1rem;border:none;border-radius:4px;color:#fff;cursor:pointer;font-size:0.8125rem">
+            <button type="submit" class="inline-block px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-md hover:bg-red-700 cursor-pointer border-none no-underline">
               Delete
             </button>
           </form>
@@ -1722,12 +1511,12 @@ export function adminRoutes(db: Db, config: Config) {
     }
 
     function eventColor(type: string): string {
-      if (type.includes("created") || type.includes("added") || type.includes("confirmed")) return "#166534";
-      if (type.includes("deleted") || type.includes("failed")) return "#991b1b";
-      if (type.includes("unsubscribed")) return "#92400e";
-      if (type.includes("sending") || type.includes("sent") || type.includes("reply_sent")) return "#1e40af";
-      if (type.includes("received")) return "#6d28d9";
-      return "#374151";
+      if (type.includes("created") || type.includes("added") || type.includes("confirmed")) return "text-green-800";
+      if (type.includes("deleted") || type.includes("failed")) return "text-red-800";
+      if (type.includes("unsubscribed")) return "text-amber-800";
+      if (type.includes("sending") || type.includes("sent") || type.includes("reply_sent")) return "text-blue-800";
+      if (type.includes("received")) return "text-purple-800";
+      return "text-gray-700";
     }
 
     function eventLink(e: typeof recentEvents[number]): string | null {
@@ -1739,28 +1528,28 @@ export function adminRoutes(db: Db, config: Config) {
 
     return c.html(
       <AdminLayout title="Activity">
-        <h1>Activity</h1>
-        <div style="display:flex;flex-direction:column;gap:0.25rem">
+        <h1 class="text-2xl font-bold mt-0 mb-4">Activity</h1>
+        <div class="flex flex-col gap-1">
           {recentEvents.map((e) => {
             const link = eventLink(e);
             return (
-              <div style="display:flex;align-items:baseline;gap:0.75rem;padding:0.5rem 0;border-bottom:1px solid #f0f0f0">
-                <span style={`font-size:0.6875rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:${eventColor(e.type)};min-width:2.5rem`}>
+              <div class="flex items-baseline gap-3 py-2 border-b border-gray-100">
+                <span class={`text-[0.6875rem] font-semibold uppercase tracking-wide min-w-[2.5rem] ${eventColor(e.type)}`}>
                   {eventIcon(e.type)}
                 </span>
-                <span style="font-size:0.8125rem;font-weight:500;min-width:12rem">
+                <span class="text-sm font-medium min-w-[12rem]">
                   {e.type}
                 </span>
-                <span style="font-size:0.8125rem;color:#555;flex:1">
-                  {link ? <a href={link}>{e.detail}</a> : e.detail}
+                <span class="text-sm text-gray-600 flex-1">
+                  {link ? <a href={link} class="text-blue-600 hover:text-blue-800">{e.detail}</a> : e.detail}
                 </span>
-                <span style="font-size:0.75rem;color:#999;white-space:nowrap">
+                <span class="text-xs text-gray-400 whitespace-nowrap">
                   {fmtDateTime(e.createdAt)}
                 </span>
               </div>
             );
           })}
-          {recentEvents.length === 0 && <p style="color:#999">No events yet.</p>}
+          {recentEvents.length === 0 && <p class="text-gray-400">No events yet.</p>}
         </div>
       </AdminLayout>,
     );
