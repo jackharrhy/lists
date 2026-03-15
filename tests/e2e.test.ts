@@ -17,6 +17,7 @@ import type { Config } from "../src/config";
 import {
   createSubscriber,
   confirmSubscriber,
+  unsubscribeFromList,
 } from "../src/services/subscriber";
 
 const sesMock = mockClient(SESv2Client);
@@ -452,5 +453,131 @@ describe("Subscribe and confirm flow via Hono", () => {
       .all();
     expect(confirmedLists).toHaveLength(1);
     expect(confirmedLists[0].status).toBe("confirmed");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 6. Per-list unsubscribe flow
+// ---------------------------------------------------------------------------
+describe("Per-list unsubscribe flow via Hono", () => {
+  test("GET /unsubscribe/:token/:listId unsubscribes from one list only", async () => {
+    const db = createTestDb();
+    const listA = seedList(db, {
+      slug: "list-a",
+      name: "List A",
+      fromDomain: "example.com",
+    });
+    const listB = seedList(db, {
+      slug: "list-b",
+      name: "List B",
+      fromDomain: "example.com",
+    });
+
+    const subscriber = createSubscriber(db, "reader@example.com", "Reader", [
+      "list-a",
+      "list-b",
+    ]);
+    confirmSubscriber(db, subscriber.unsubscribeToken);
+
+    const app = new Hono();
+    app.route("/", publicRoutes(db, testConfig));
+
+    const res = await app.request(
+      `/unsubscribe/${subscriber.unsubscribeToken}/${listA.id}`,
+      { method: "GET" },
+    );
+
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain("List A");
+    expect(html).toContain("Manage all your subscriptions");
+
+    // list-a should be unsubscribed
+    const subListA = db
+      .select()
+      .from(schema.subscriberLists)
+      .where(
+        and(
+          eq(schema.subscriberLists.subscriberId, subscriber.id),
+          eq(schema.subscriberLists.listId, listA.id),
+        ),
+      )
+      .get();
+    expect(subListA!.status).toBe("unsubscribed");
+
+    // list-b should still be confirmed
+    const subListB = db
+      .select()
+      .from(schema.subscriberLists)
+      .where(
+        and(
+          eq(schema.subscriberLists.subscriberId, subscriber.id),
+          eq(schema.subscriberLists.listId, listB.id),
+        ),
+      )
+      .get();
+    expect(subListB!.status).toBe("confirmed");
+  });
+
+  test("POST /unsubscribe/:token/:listId RFC 8058 one-click per-list", async () => {
+    const db = createTestDb();
+    const listA = seedList(db, {
+      slug: "list-a",
+      name: "List A",
+      fromDomain: "example.com",
+    });
+    const listB = seedList(db, {
+      slug: "list-b",
+      name: "List B",
+      fromDomain: "example.com",
+    });
+
+    const subscriber = createSubscriber(db, "reader@example.com", "Reader", [
+      "list-a",
+      "list-b",
+    ]);
+    confirmSubscriber(db, subscriber.unsubscribeToken);
+
+    const app = new Hono();
+    app.route("/", publicRoutes(db, testConfig));
+
+    const res = await app.request(
+      `/unsubscribe/${subscriber.unsubscribeToken}/${listA.id}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: "List-Unsubscribe=One-Click",
+      },
+    );
+
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).toBe("Unsubscribed");
+
+    // list-a should be unsubscribed
+    const subListA = db
+      .select()
+      .from(schema.subscriberLists)
+      .where(
+        and(
+          eq(schema.subscriberLists.subscriberId, subscriber.id),
+          eq(schema.subscriberLists.listId, listA.id),
+        ),
+      )
+      .get();
+    expect(subListA!.status).toBe("unsubscribed");
+
+    // list-b should still be confirmed
+    const subListB = db
+      .select()
+      .from(schema.subscriberLists)
+      .where(
+        and(
+          eq(schema.subscriberLists.subscriberId, subscriber.id),
+          eq(schema.subscriberLists.listId, listB.id),
+        ),
+      )
+      .get();
+    expect(subListB!.status).toBe("confirmed");
   });
 });

@@ -4,6 +4,7 @@ import {
   createSubscriber,
   confirmSubscriber,
   unsubscribeAll,
+  unsubscribeFromList,
   getSubscriberPreferences,
   updatePreferences,
   getConfirmedSubscribers,
@@ -333,6 +334,130 @@ describe("updatePreferences", () => {
       )
       .get();
     expect(resubbed!.status).toBe("confirmed");
+  });
+});
+
+describe("unsubscribeFromList", () => {
+  test("unsubscribes from a specific list only", () => {
+    const db = createTestDb();
+    const listA = seedList(db, { slug: "list-a", name: "List A" });
+    const listB = seedList(db, { slug: "list-b", name: "List B" });
+
+    const subscriber = createSubscriber(db, "bob@example.com", "Bob", [
+      "list-a",
+      "list-b",
+    ]);
+    confirmSubscriber(db, subscriber.unsubscribeToken);
+
+    const result = unsubscribeFromList(db, subscriber.unsubscribeToken, listA.id);
+    expect(result).toBe(true);
+
+    const subListA = db
+      .select()
+      .from(schema.subscriberLists)
+      .where(
+        and(
+          eq(schema.subscriberLists.subscriberId, subscriber.id),
+          eq(schema.subscriberLists.listId, listA.id),
+        ),
+      )
+      .get();
+    expect(subListA!.status).toBe("unsubscribed");
+
+    const subListB = db
+      .select()
+      .from(schema.subscriberLists)
+      .where(
+        and(
+          eq(schema.subscriberLists.subscriberId, subscriber.id),
+          eq(schema.subscriberLists.listId, listB.id),
+        ),
+      )
+      .get();
+    expect(subListB!.status).toBe("confirmed");
+
+    const updated = db
+      .select()
+      .from(schema.subscribers)
+      .where(eq(schema.subscribers.id, subscriber.id))
+      .get();
+    expect(updated!.status).toBe("active");
+  });
+
+  test("marks subscriber as unsubscribed when no active subs remain", () => {
+    const db = createTestDb();
+    seedList(db, { slug: "list-a", name: "List A" });
+    const listA = db
+      .select()
+      .from(schema.lists)
+      .where(eq(schema.lists.slug, "list-a"))
+      .get()!;
+
+    const subscriber = createSubscriber(db, "bob@example.com", "Bob", [
+      "list-a",
+    ]);
+    confirmSubscriber(db, subscriber.unsubscribeToken);
+
+    unsubscribeFromList(db, subscriber.unsubscribeToken, listA.id);
+
+    const updated = db
+      .select()
+      .from(schema.subscribers)
+      .where(eq(schema.subscribers.id, subscriber.id))
+      .get();
+    expect(updated!.status).toBe("unsubscribed");
+  });
+
+  test("returns false for invalid token", () => {
+    const db = createTestDb();
+    seedList(db, { slug: "list-a", name: "List A" });
+    const listA = db
+      .select()
+      .from(schema.lists)
+      .where(eq(schema.lists.slug, "list-a"))
+      .get()!;
+
+    const result = unsubscribeFromList(db, "fake-token-xyz", listA.id);
+    expect(result).toBe(false);
+  });
+
+  test("returns false for non-existent list", () => {
+    const db = createTestDb();
+    seedList(db, { slug: "list-a", name: "List A" });
+
+    const subscriber = createSubscriber(db, "bob@example.com", "Bob", [
+      "list-a",
+    ]);
+
+    const result = unsubscribeFromList(db, subscriber.unsubscribeToken, 99999);
+    expect(result).toBe(false);
+  });
+});
+
+describe("confirmSubscriber dedup", () => {
+  test("does not log duplicate event on second confirm", () => {
+    const db = createTestDb();
+    seedList(db, { slug: "news", name: "News" });
+
+    const subscriber = createSubscriber(db, "bob@example.com", "Bob", [
+      "news",
+    ]);
+
+    confirmSubscriber(db, subscriber.unsubscribeToken);
+    confirmSubscriber(db, subscriber.unsubscribeToken);
+
+    const events = db
+      .select()
+      .from(schema.events)
+      .where(
+        and(
+          eq(schema.events.type, "subscriber.confirmed"),
+          eq(schema.events.subscriberId, subscriber.id),
+        ),
+      )
+      .all();
+
+    expect(events).toHaveLength(1);
   });
 });
 
