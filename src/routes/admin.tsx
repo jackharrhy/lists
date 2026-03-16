@@ -655,29 +655,81 @@ export function adminRoutes(db: Db, config: Config) {
             </select>
           </div>
 
-          {allLists.length > 0 && (
-            <div class="mb-4">
-              <p class="m-0 mb-1 font-medium">List subscriptions</p>
-              {allLists.map((list) => {
-                const status = subListMap.get(list.id);
-                return (
-                  <label class="block">
-                    <input
-                      type="checkbox"
-                      name="lists"
-                      value={String(list.id)}
-                      checked={status === "confirmed" || status === "unconfirmed"}
-                    />
-                    {" "}{list.name}
-                    {status && <span class="text-xs text-gray-500"> ({status})</span>}
-                  </label>
-                );
-              })}
-            </div>
-          )}
-
           <button type="submit" class="inline-block px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none no-underline">Save changes</button>
         </form>
+
+        <h2 class="text-xl font-semibold mt-6 mb-3">List subscriptions</h2>
+
+        {(() => {
+          const subscribedLists = allLists.filter((l) => subListMap.has(l.id));
+          const unsubscribedLists = allLists.filter((l) => !subListMap.has(l.id));
+
+          return (
+            <>
+              {subscribedLists.length > 0 ? (
+                <div class="space-y-3 mb-6">
+                  {subscribedLists.map((list) => {
+                    const listStatus = subListMap.get(list.id)!;
+                    return (
+                      <div class="flex items-center justify-between bg-white border border-gray-200 rounded-lg px-4 py-3">
+                        <div>
+                          <span class="font-medium text-sm">{list.name}</span>
+                          <span class="text-xs text-gray-400 ml-2">{list.fromDomain}</span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                          <form method="post" action={`/admin/subscribers/${sub.id}/list/${list.id}/status`} class="flex items-center gap-2 m-0">
+                            <select name="listStatus" class="px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-2 focus:ring-blue-500">
+                              <option value="unconfirmed" selected={listStatus === "unconfirmed"}>unconfirmed</option>
+                              <option value="confirmed" selected={listStatus === "confirmed"}>confirmed</option>
+                              <option value="unsubscribed" selected={listStatus === "unsubscribed"}>unsubscribed</option>
+                            </select>
+                            <button type="submit" class="px-2 py-1 bg-gray-100 text-gray-700 text-xs rounded hover:bg-gray-200 cursor-pointer border border-gray-300">Set</button>
+                          </form>
+                          {listStatus === "unconfirmed" && (
+                            <form method="post" action={`/admin/subscribers/${sub.id}/send-confirm`} class="m-0">
+                              <button type="submit" class="px-2 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 cursor-pointer border-none">Send confirmation</button>
+                            </form>
+                          )}
+                          <form method="post" action={`/admin/subscribers/${sub.id}/list/${list.id}/remove`} class="m-0" onsubmit={`return confirm('Remove from ${list.name}?')`}>
+                            <button type="submit" class="px-2 py-1 bg-red-50 text-red-600 text-xs rounded hover:bg-red-100 cursor-pointer border border-red-200">Remove</button>
+                          </form>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p class="text-gray-400 text-sm mb-4">Not subscribed to any lists.</p>
+              )}
+
+              {unsubscribedLists.length > 0 && (
+                <div class="mb-6">
+                  <p class="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">Add to list</p>
+                  <div class="space-y-2">
+                    {unsubscribedLists.map((list) => (
+                      <div class="flex items-center justify-between bg-gray-50 rounded-lg px-4 py-2">
+                        <div>
+                          <span class="text-sm text-gray-600">{list.name}</span>
+                          <span class="text-xs text-gray-400 ml-2">{list.fromDomain}</span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                          <form method="post" action={`/admin/subscribers/${sub.id}/list/${list.id}/add`} class="m-0">
+                            <input type="hidden" name="listStatus" value="unconfirmed" />
+                            <button type="submit" class="px-2 py-1 bg-white text-gray-700 text-xs rounded hover:bg-gray-100 cursor-pointer border border-gray-300">Add (unconfirmed)</button>
+                          </form>
+                          <form method="post" action={`/admin/subscribers/${sub.id}/list/${list.id}/add`} class="m-0">
+                            <input type="hidden" name="listStatus" value="confirmed" />
+                            <button type="submit" class="px-2 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 cursor-pointer border-none">Add (confirmed)</button>
+                          </form>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          );
+        })()}
 
         <h2 class="text-xl font-semibold mt-6 mb-3">Tags</h2>
         <div class="mb-4">
@@ -786,57 +838,6 @@ export function adminRoutes(db: Db, config: Config) {
       .where(eq(schema.subscribers.id, id))
       .run();
 
-    // update list subscriptions
-    let selectedListIds: number[] = [];
-    if (body["lists"]) {
-      selectedListIds = (Array.isArray(body["lists"])
-        ? (body["lists"] as string[])
-        : [body["lists"] as string]
-      ).map(Number);
-    }
-
-    const allLists = db.select().from(schema.lists).all();
-    for (const list of allLists) {
-      const existing = db
-        .select()
-        .from(schema.subscriberLists)
-        .where(
-          and(
-            eq(schema.subscriberLists.subscriberId, id),
-            eq(schema.subscriberLists.listId, list.id),
-          ),
-        )
-        .get();
-
-      if (selectedListIds.includes(list.id)) {
-        if (!existing) {
-          db.insert(schema.subscriberLists)
-            .values({ subscriberId: id, listId: list.id, status: "confirmed" })
-            .run();
-        } else if (existing.status === "unsubscribed") {
-          db.update(schema.subscriberLists)
-            .set({ status: "confirmed" })
-            .where(
-              and(
-                eq(schema.subscriberLists.subscriberId, id),
-                eq(schema.subscriberLists.listId, list.id),
-              ),
-            )
-            .run();
-        }
-      } else if (existing && existing.status !== "unsubscribed") {
-        db.update(schema.subscriberLists)
-          .set({ status: "unsubscribed" })
-          .where(
-            and(
-              eq(schema.subscriberLists.subscriberId, id),
-              eq(schema.subscriberLists.listId, list.id),
-            ),
-          )
-          .run();
-      }
-    }
-
     logEvent(db, {
       type: "admin.subscriber_edited",
       detail: email,
@@ -926,6 +927,49 @@ export function adminRoutes(db: Db, config: Config) {
     });
 
     return c.redirect(`/admin/subscribers/${id}`);
+  });
+
+  app.post("/subscribers/:id/list/:listId/add", async (c) => {
+    const subId = Number(c.req.param("id"));
+    const listId = Number(c.req.param("listId"));
+    const body = await c.req.parseBody();
+    const listStatus = String(body["listStatus"] ?? "unconfirmed");
+    db.insert(schema.subscriberLists)
+      .values({ subscriberId: subId, listId, status: listStatus })
+      .onConflictDoNothing()
+      .run();
+    return c.redirect(`/admin/subscribers/${subId}`);
+  });
+
+  app.post("/subscribers/:id/list/:listId/status", async (c) => {
+    const subId = Number(c.req.param("id"));
+    const listId = Number(c.req.param("listId"));
+    const body = await c.req.parseBody();
+    const listStatus = String(body["listStatus"] ?? "unconfirmed");
+    db.update(schema.subscriberLists)
+      .set({ status: listStatus })
+      .where(
+        and(
+          eq(schema.subscriberLists.subscriberId, subId),
+          eq(schema.subscriberLists.listId, listId),
+        ),
+      )
+      .run();
+    return c.redirect(`/admin/subscribers/${subId}`);
+  });
+
+  app.post("/subscribers/:id/list/:listId/remove", (c) => {
+    const subId = Number(c.req.param("id"));
+    const listId = Number(c.req.param("listId"));
+    db.delete(schema.subscriberLists)
+      .where(
+        and(
+          eq(schema.subscriberLists.subscriberId, subId),
+          eq(schema.subscriberLists.listId, listId),
+        ),
+      )
+      .run();
+    return c.redirect(`/admin/subscribers/${subId}`);
   });
 
   app.post("/subscribers/:id/tags/add", async (c) => {
