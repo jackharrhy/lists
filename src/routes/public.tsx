@@ -77,10 +77,20 @@ export function publicRoutes(db: Db, config: Config) {
               </div>
               <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">
-                  Name (optional)
+                  First name (optional)
                   <input
                     type="text"
-                    name="name"
+                    name="firstName"
+                    class="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </label>
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">
+                  Last name (optional)
+                  <input
+                    type="text"
+                    name="lastName"
                     class="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   />
                 </label>
@@ -142,7 +152,8 @@ export function publicRoutes(db: Db, config: Config) {
   app.post("/subscribe", async (c) => {
     const body = await c.req.parseBody({ all: true });
     const email = String(body["email"] ?? "").trim();
-    const name = body["name"] ? String(body["name"]).trim() : null;
+    const firstName = body["firstName"] ? String(body["firstName"]).trim() : null;
+    const lastName = body["lastName"] ? String(body["lastName"]).trim() : null;
 
     let listSlugs: string[] = [];
     const raw = body["lists"];
@@ -167,7 +178,7 @@ export function publicRoutes(db: Db, config: Config) {
       );
     }
 
-    const subscriber = createSubscriber(db, email, name, listSlugs);
+    const subscriber = createSubscriber(db, email, firstName, lastName, listSlugs);
 
     // Look up selected lists and group by domain
     const allLists = db.select().from(schema.lists).all();

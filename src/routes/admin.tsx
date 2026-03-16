@@ -9,9 +9,13 @@ import type { Db } from "../db";
 import { schema } from "../db";
 import type { Config } from "../config";
 import { adminAuth, createSession, destroySession, requireRole, requireListAccess, getAccessibleListIds } from "../auth";
-import { sendCampaign } from "../services/sender";
+import { sendCampaign, substituteVariables } from "../services/sender";
 import { renderConfirmation } from "../../emails/render";
 import { createSubscriber, confirmSubscriber, confirmSubscriberDomain, getConfirmedSubscribers } from "../services/subscriber";
+
+function displayName(sub: { firstName?: string | null; lastName?: string | null }): string {
+  return [sub.firstName, sub.lastName].filter(Boolean).join(" ") || "\u2014";
+}
 import { logEvent } from "../services/events";
 import { renderNewsletter } from "../../emails/render";
 import { buildUnsubscribeUrl, buildPreferencesUrl, buildConfirmUrl } from "../compliance";
@@ -267,6 +271,11 @@ export function adminRoutes(db: Db, config: Config) {
 
     let unsubscribeUrl = "#unsubscribe";
     let preferencesUrl = "#preferences";
+    let subData: { firstName?: string | null; lastName?: string | null; email: string } = {
+      firstName: "Jane",
+      lastName: "Doe",
+      email: "subscriber@example.com",
+    };
 
     const subscriberId = c.req.query("subscriberId");
     if (subscriberId) {
@@ -274,10 +283,16 @@ export function adminRoutes(db: Db, config: Config) {
       if (sub) {
         unsubscribeUrl = buildUnsubscribeUrl(config.baseUrl, sub.unsubscribeToken, campaign.listId ?? undefined);
         preferencesUrl = buildPreferencesUrl(config.baseUrl, sub.unsubscribeToken);
+        subData = { firstName: sub.firstName, lastName: sub.lastName, email: sub.email };
       }
     }
 
-    const contentHtml = await marked(campaign.bodyMarkdown);
+    const substitutedMarkdown = substituteVariables(
+      campaign.bodyMarkdown,
+      subData,
+      { unsubscribeUrl, preferencesUrl },
+    );
+    const contentHtml = await marked(substitutedMarkdown);
     const { html } = await renderNewsletter({
       subject: campaign.subject,
       contentHtml,
@@ -291,7 +306,12 @@ export function adminRoutes(db: Db, config: Config) {
 
   app.post("/campaigns/preview", async (c) => {
     const { bodyMarkdown, subject, listName } = await c.req.json();
-    const contentHtml = await marked(bodyMarkdown || "");
+    const substitutedMarkdown = substituteVariables(
+      bodyMarkdown || "",
+      { firstName: "Jane", lastName: "Doe", email: "subscriber@example.com" },
+      { unsubscribeUrl: "#unsubscribe", preferencesUrl: "#preferences" },
+    );
+    const contentHtml = await marked(substitutedMarkdown);
     const { html } = await renderNewsletter({
       subject: subject || "Preview",
       contentHtml,
@@ -440,7 +460,8 @@ export function adminRoutes(db: Db, config: Config) {
         .selectDistinct({
           id: schema.subscribers.id,
           email: schema.subscribers.email,
-          name: schema.subscribers.name,
+          firstName: schema.subscribers.firstName,
+          lastName: schema.subscribers.lastName,
           status: schema.subscribers.status,
           unsubscribeToken: schema.subscribers.unsubscribeToken,
           createdAt: schema.subscribers.createdAt,
@@ -474,7 +495,7 @@ export function adminRoutes(db: Db, config: Config) {
             {allSubscribers.map((sub) => (
               <tr>
                 <td class="px-4 py-3 border-b border-gray-100"><a href={`/admin/subscribers/${sub.id}`} class="text-blue-600 hover:text-blue-800">{sub.email}</a></td>
-                <td class="px-4 py-3 border-b border-gray-100">{sub.name ?? "—"}</td>
+                <td class="px-4 py-3 border-b border-gray-100">{displayName(sub)}</td>
                 <td class="px-4 py-3 border-b border-gray-100">{sub.status}</td>
                 <td class="px-4 py-3 border-b border-gray-100">{fmtDate(sub.createdAt)}</td>
                 <td class="px-4 py-3 border-b border-gray-100">
@@ -513,8 +534,12 @@ export function adminRoutes(db: Db, config: Config) {
               <input type="email" id="email" name="email" required class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
             </div>
             <div class="mb-4">
-              <label for="name" class="block text-sm font-medium text-gray-700 mb-1">Name (optional)</label>
-              <input type="text" id="name" name="name" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+              <label for="firstName" class="block text-sm font-medium text-gray-700 mb-1">First name (optional)</label>
+              <input type="text" id="firstName" name="firstName" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+            </div>
+            <div class="mb-4">
+              <label for="lastName" class="block text-sm font-medium text-gray-700 mb-1">Last name (optional)</label>
+              <input type="text" id="lastName" name="lastName" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
             </div>
             <div class="mb-4">
               <label class="flex items-center gap-2 text-sm font-medium text-gray-700">
@@ -544,7 +569,8 @@ export function adminRoutes(db: Db, config: Config) {
     const user = c.get("user") as User;
     const body = await c.req.parseBody({ all: true });
     const email = body["email"] as string;
-    const name = (body["name"] as string) || null;
+    const firstName = (body["firstName"] as string) || null;
+    const lastName = (body["lastName"] as string) || null;
     const skipConfirm = body["skip_confirm"] === "1";
     let listSlugs: string[] = [];
     if (body["lists"]) {
@@ -553,7 +579,7 @@ export function adminRoutes(db: Db, config: Config) {
         : [body["lists"] as string];
     }
 
-    const subscriber = createSubscriber(db, email, name, listSlugs);
+    const subscriber = createSubscriber(db, email, firstName, lastName, listSlugs);
 
     if (skipConfirm) {
       confirmSubscriber(db, subscriber.unsubscribeToken);
@@ -640,8 +666,12 @@ export function adminRoutes(db: Db, config: Config) {
             <input type="email" id="email" name="email" required value={sub.email} class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
           </div>
           <div class="mb-4">
-            <label for="name" class="block text-sm font-medium text-gray-700 mb-1">Name</label>
-            <input type="text" id="name" name="name" value={sub.name ?? ""} class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+            <label for="firstName" class="block text-sm font-medium text-gray-700 mb-1">First name</label>
+            <input type="text" id="firstName" name="firstName" value={sub.firstName ?? ""} class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+          </div>
+          <div class="mb-4">
+            <label for="lastName" class="block text-sm font-medium text-gray-700 mb-1">Last name</label>
+            <input type="text" id="lastName" name="lastName" value={sub.lastName ?? ""} class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
           </div>
           <div class="mb-4">
             <label for="status" class="block text-sm font-medium text-gray-700 mb-1">Status</label>
@@ -839,11 +869,12 @@ export function adminRoutes(db: Db, config: Config) {
     const id = Number(c.req.param("id"));
     const body = await c.req.parseBody({ all: true });
     const email = String(body["email"] ?? "").trim().toLowerCase();
-    const name = String(body["name"] ?? "").trim() || null;
+    const firstName = String(body["firstName"] ?? "").trim() || null;
+    const lastName = String(body["lastName"] ?? "").trim() || null;
     const status = String(body["status"] ?? "active");
 
     db.update(schema.subscribers)
-      .set({ email, name, status })
+      .set({ email, firstName, lastName, status })
       .where(eq(schema.subscribers.id, id))
       .run();
 
@@ -1155,7 +1186,8 @@ export function adminRoutes(db: Db, config: Config) {
       .select({
         id: schema.subscribers.id,
         email: schema.subscribers.email,
-        name: schema.subscribers.name,
+        firstName: schema.subscribers.firstName,
+        lastName: schema.subscribers.lastName,
         subscribedAt: schema.subscriberLists.subscribedAt,
       })
       .from(schema.subscriberLists)
@@ -1172,7 +1204,8 @@ export function adminRoutes(db: Db, config: Config) {
       .select({
         id: schema.subscribers.id,
         email: schema.subscribers.email,
-        name: schema.subscribers.name,
+        firstName: schema.subscribers.firstName,
+        lastName: schema.subscribers.lastName,
         subscribedAt: schema.subscriberLists.subscribedAt,
       })
       .from(schema.subscriberLists)
@@ -1234,7 +1267,7 @@ export function adminRoutes(db: Db, config: Config) {
               {confirmedSubs.map((s) => (
                 <tr>
                   <td class="px-4 py-3 border-b border-gray-100"><a href={`/admin/subscribers/${s.id}`} class="text-blue-600 hover:text-blue-800">{s.email}</a></td>
-                  <td class="px-4 py-3 border-b border-gray-100">{s.name ?? "—"}</td>
+                  <td class="px-4 py-3 border-b border-gray-100">{displayName(s)}</td>
                   <td class="px-4 py-3 border-b border-gray-100">{fmtDate(s.subscribedAt)}</td>
                 </tr>
               ))}
@@ -1259,7 +1292,7 @@ export function adminRoutes(db: Db, config: Config) {
                 {unconfirmedSubs.map((s) => (
                   <tr>
                     <td class="px-4 py-3 border-b border-gray-100"><a href={`/admin/subscribers/${s.id}`} class="text-blue-600 hover:text-blue-800">{s.email}</a></td>
-                    <td class="px-4 py-3 border-b border-gray-100">{s.name ?? "—"}</td>
+                    <td class="px-4 py-3 border-b border-gray-100">{displayName(s)}</td>
                     <td class="px-4 py-3 border-b border-gray-100">{fmtDate(s.subscribedAt)}</td>
                   </tr>
                 ))}
@@ -1501,6 +1534,7 @@ export function adminRoutes(db: Db, config: Config) {
                 <div class="mb-4">
                   <label for="bodyMarkdown" class="block text-sm font-medium text-gray-700 mb-1">Body (Markdown)</label>
                   <textarea id="bodyMarkdown" name="bodyMarkdown" required placeholder="Write your email in markdown…" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 min-h-[200px] resize-y focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+                  <p class="text-xs text-gray-400 mt-1">{"Available variables: {{firstName}}, {{lastName}}, {{email}}, {{unsubscribeUrl}}, {{preferencesUrl}}"}</p>
                 </div>
                 <button type="submit" class="inline-block px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none no-underline">Create Draft</button>
               </form>
@@ -1513,7 +1547,7 @@ export function adminRoutes(db: Db, config: Config) {
             </div>
           </div>
         </div>
-        <script dangerouslySetInnerHTML={{ __html: `var subscribers = ${JSON.stringify(allSubscribers.map(s => ({ id: s.id, email: s.email, name: s.name })))};` }} />
+        <script dangerouslySetInnerHTML={{ __html: `var subscribers = ${JSON.stringify(allSubscribers.map(s => ({ id: s.id, email: s.email, firstName: s.firstName, lastName: s.lastName })))};` }} />
         <script dangerouslySetInnerHTML={{ __html: `
           (function() {
             // Mode switching
@@ -1568,13 +1602,15 @@ export function adminRoutes(db: Db, config: Config) {
                 var q = this.value.toLowerCase();
                 if (!q) { results.classList.add('hidden'); return; }
                 var matches = subscribers.filter(function(s) {
-                  return !selected.has(s.id) && (s.email.toLowerCase().includes(q) || (s.name || '').toLowerCase().includes(q));
+                  var name = [s.firstName || '', s.lastName || ''].join(' ').trim();
+                  return !selected.has(s.id) && (s.email.toLowerCase().includes(q) || name.toLowerCase().includes(q));
                 }).slice(0, 10);
                 results.innerHTML = '';
                 matches.forEach(function(s) {
                   var div = document.createElement('div');
                   div.className = 'px-3 py-2 cursor-pointer hover:bg-gray-50 text-sm';
-                  div.textContent = s.email + (s.name ? ' (' + s.name + ')' : '');
+                  var name = [s.firstName || '', s.lastName || ''].join(' ').trim();
+                  div.textContent = s.email + (name ? ' (' + name + ')' : '');
                   div.onclick = function() { selected.add(s.id); search.value = ''; results.classList.add('hidden'); render(); };
                   results.appendChild(div);
                 });
@@ -1798,6 +1834,14 @@ export function adminRoutes(db: Db, config: Config) {
           </div>
         )}
 
+        {(campaign.status === "draft" || campaign.status === "failed") && (
+          <div class="flex gap-2 mb-6">
+            <a href={`/admin/campaigns/${id}/edit`} class="inline-block px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none no-underline">
+              Edit Campaign
+            </a>
+          </div>
+        )}
+
         {campaign.status === "draft" && (
           <form method="post" action={`/admin/campaigns/${id}/send`} class="mb-6">
             <button type="submit" class="inline-block px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-md hover:bg-red-700 cursor-pointer border-none no-underline">
@@ -1915,6 +1959,266 @@ export function adminRoutes(db: Db, config: Config) {
         </form>
       </AdminLayout>,
     );
+  });
+
+  app.get("/campaigns/:id/edit", (c) => {
+    const user = c.get("user") as User;
+    const id = Number(c.req.param("id"));
+    const campaign = db.select().from(schema.campaigns).where(eq(schema.campaigns.id, id)).get();
+    if (!campaign) return c.notFound();
+    if (campaign.status !== "draft" && campaign.status !== "failed") {
+      return c.redirect(`/admin/campaigns/${id}`);
+    }
+
+    const listAccess = getAccessibleListIds(db, user);
+    let allLists: (typeof schema.lists.$inferSelect)[];
+    if (listAccess === "all") {
+      allLists = db.select().from(schema.lists).all();
+    } else if (listAccess.length === 0) {
+      allLists = [];
+    } else {
+      allLists = db.select().from(schema.lists).where(inArray(schema.lists.id, listAccess)).all();
+    }
+
+    const allTags = db.select().from(schema.tags).all();
+    const allSubscribers = db.select().from(schema.subscribers).where(eq(schema.subscribers.status, "active")).all();
+
+    // Determine current audience mode and values
+    let currentAudienceMode = "list";
+    let currentListId = campaign.listId;
+    let currentTagId: number | null = null;
+    let currentSubscriberIds: number[] = [];
+    if (campaign.listId) {
+      currentAudienceMode = "list";
+    } else if (campaign.audience) {
+      const aud = JSON.parse(campaign.audience) as { type: string; tagId?: number; subscriberIds?: number[] };
+      if (aud.type === "all") currentAudienceMode = "all";
+      else if (aud.type === "tag") { currentAudienceMode = "tag"; currentTagId = aud.tagId ?? null; }
+      else if (aud.type === "subscribers") { currentAudienceMode = "specific"; currentSubscriberIds = aud.subscriberIds ?? []; }
+    }
+
+    return c.html(
+      <AdminLayout title={`Edit: ${campaign.subject}`} user={user}>
+        <h1 class="text-2xl font-bold mt-0 mb-4">Edit Campaign</h1>
+        <div class="grid grid-cols-2 gap-6">
+          <div>
+            <div class="bg-white border border-gray-200 rounded-lg p-5 mb-6">
+              <form method="post" action={`/admin/campaigns/${id}/edit`}>
+                <div class="mb-4">
+                  <label for="audienceMode" class="block text-sm font-medium text-gray-700 mb-1">Audience</label>
+                  <select id="audienceMode" name="audienceMode" required class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                    <option value="list" selected={currentAudienceMode === "list"}>A list</option>
+                    <option value="all" selected={currentAudienceMode === "all"}>All subscribers</option>
+                    <option value="tag" selected={currentAudienceMode === "tag"}>A tag</option>
+                    <option value="specific" selected={currentAudienceMode === "specific"}>Specific people</option>
+                  </select>
+                </div>
+
+                <div data-audience="list" class={`mb-4${currentAudienceMode !== "list" ? " hidden" : ""}`}>
+                  <label for="listId" class="block text-sm font-medium text-gray-700 mb-1">List</label>
+                  <select id="listId" name="listId" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                    <option value="">Select a list...</option>
+                    {allLists.map((list) => (
+                      <option value={String(list.id)} data-from-address={list.fromAddress} selected={currentListId === list.id}>
+                        {list.name} ({list.slug})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div data-audience="tag" class={`mb-4${currentAudienceMode !== "tag" ? " hidden" : ""}`}>
+                  <label for="tagId" class="block text-sm font-medium text-gray-700 mb-1">Tag</label>
+                  <select id="tagId" name="tagId" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                    <option value="">Select a tag...</option>
+                    {allTags.map((tag) => (
+                      <option value={String(tag.id)} selected={currentTagId === tag.id}>{tag.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div data-audience="specific" class={`mb-4${currentAudienceMode !== "specific" ? " hidden" : ""}`}>
+                  <label class="block text-sm font-medium text-gray-700 mb-1">Subscribers</label>
+                  <input type="text" id="subscriberSearch" placeholder="Search by email or name..." class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm mb-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+                  <div id="searchResults" class="border border-gray-200 rounded-md max-h-40 overflow-y-auto hidden"></div>
+                  <div id="selectedSubscribers" class="flex flex-wrap gap-2 mt-2"></div>
+                  <input type="hidden" name="subscriberIds" id="subscriberIds" value={currentSubscriberIds.join(",")} />
+                </div>
+
+                <div class="mb-4">
+                  <label for="fromAddress" class="block text-sm font-medium text-gray-700 mb-1">From Address</label>
+                  <input
+                    type="email"
+                    id="fromAddress"
+                    name="fromAddress"
+                    required
+                    value={campaign.fromAddress}
+                    placeholder={`newsletter@${config.fromDomain}`}
+                    class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+                <div class="mb-4">
+                  <label for="subject" class="block text-sm font-medium text-gray-700 mb-1">Subject</label>
+                  <input type="text" id="subject" name="subject" required value={campaign.subject} placeholder="Campaign subject" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+                </div>
+                <div class="mb-4">
+                  <label for="bodyMarkdown" class="block text-sm font-medium text-gray-700 mb-1">Body (Markdown)</label>
+                  <textarea id="bodyMarkdown" name="bodyMarkdown" required placeholder="Write your email in markdown…" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 min-h-[200px] resize-y focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">{campaign.bodyMarkdown}</textarea>
+                  <p class="text-xs text-gray-400 mt-1">{"Available variables: {{firstName}}, {{lastName}}, {{email}}, {{unsubscribeUrl}}, {{preferencesUrl}}"}</p>
+                </div>
+                <button type="submit" class="inline-block px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none no-underline">Save Changes</button>
+              </form>
+            </div>
+          </div>
+          <div>
+            <div class="bg-white border border-gray-200 rounded-lg p-5 mb-6">
+              <h2 class="text-lg font-semibold mt-0 mb-3">Preview</h2>
+              <iframe id="previewFrame" class="w-full border-0" style="min-height: 500px;" src={`/admin/campaigns/${id}/preview`} />
+            </div>
+          </div>
+        </div>
+        <script dangerouslySetInnerHTML={{ __html: `var subscribers = ${JSON.stringify(allSubscribers.map(s => ({ id: s.id, email: s.email, firstName: s.firstName, lastName: s.lastName })))};` }} />
+        <script dangerouslySetInnerHTML={{ __html: `
+          (function() {
+            // Mode switching
+            var mode = document.getElementById('audienceMode');
+            mode.addEventListener('change', function() {
+              document.querySelectorAll('[data-audience]').forEach(function(el) { el.classList.add('hidden'); });
+              var target = document.querySelector('[data-audience="' + this.value + '"]');
+              if (target) target.classList.remove('hidden');
+            });
+
+            // Subscriber picker
+            var selected = new Set(${JSON.stringify(currentSubscriberIds)});
+            var search = document.getElementById('subscriberSearch');
+            var results = document.getElementById('searchResults');
+            var chips = document.getElementById('selectedSubscribers');
+            var hidden = document.getElementById('subscriberIds');
+
+            function render() {
+              chips.innerHTML = '';
+              selected.forEach(function(id) {
+                var sub = subscribers.find(function(s) { return s.id === id; });
+                if (!sub) return;
+                var chip = document.createElement('span');
+                chip.className = 'inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800';
+                chip.textContent = sub.email;
+                var btn = document.createElement('button');
+                btn.type = 'button';
+                btn.textContent = '\\u00d7';
+                btn.className = 'ml-1 text-blue-600 hover:text-blue-800 cursor-pointer';
+                btn.onclick = function() { selected.delete(id); render(); };
+                chip.appendChild(btn);
+                chips.appendChild(chip);
+              });
+              hidden.value = Array.from(selected).join(',');
+            }
+            render();
+
+            if (search) {
+              search.addEventListener('input', function() {
+                var q = this.value.toLowerCase();
+                if (!q) { results.classList.add('hidden'); return; }
+                var matches = subscribers.filter(function(s) {
+                  var name = [s.firstName || '', s.lastName || ''].join(' ').trim();
+                  return !selected.has(s.id) && (s.email.toLowerCase().includes(q) || name.toLowerCase().includes(q));
+                }).slice(0, 10);
+                results.innerHTML = '';
+                matches.forEach(function(s) {
+                  var div = document.createElement('div');
+                  div.className = 'px-3 py-2 cursor-pointer hover:bg-gray-50 text-sm';
+                  var name = [s.firstName || '', s.lastName || ''].join(' ').trim();
+                  div.textContent = s.email + (name ? ' (' + name + ')' : '');
+                  div.onclick = function() { selected.add(s.id); search.value = ''; results.classList.add('hidden'); render(); };
+                  results.appendChild(div);
+                });
+                results.classList.toggle('hidden', matches.length === 0);
+              });
+            }
+
+            // Preview
+            var timer;
+            var textarea = document.getElementById('bodyMarkdown');
+            var subject = document.getElementById('subject');
+            var frame = document.getElementById('previewFrame');
+
+            function updatePreview() {
+              var body = textarea.value;
+              if (!body.trim()) return;
+              fetch('/admin/campaigns/preview', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  bodyMarkdown: body,
+                  subject: subject.value || 'Preview',
+                  listName: 'Preview'
+                })
+              })
+              .then(function(r) { return r.text(); })
+              .then(function(html) { frame.srcdoc = html; });
+            }
+
+            textarea.addEventListener('input', function() {
+              clearTimeout(timer);
+              timer = setTimeout(updatePreview, 500);
+            });
+            subject.addEventListener('input', function() {
+              clearTimeout(timer);
+              timer = setTimeout(updatePreview, 500);
+            });
+          })();
+        `}} />
+      </AdminLayout>,
+    );
+  });
+
+  app.post("/campaigns/:id/edit", async (c) => {
+    const user = c.get("user") as User;
+    const id = Number(c.req.param("id"));
+    const campaign = db.select().from(schema.campaigns).where(eq(schema.campaigns.id, id)).get();
+    if (!campaign) return c.notFound();
+    if (campaign.status !== "draft" && campaign.status !== "failed") {
+      return c.redirect(`/admin/campaigns/${id}`);
+    }
+
+    const body = await c.req.parseBody();
+    const fromAddress = String(body["fromAddress"] ?? "").trim();
+    const subject = String(body["subject"] ?? "").trim();
+    const bodyMarkdown = String(body["bodyMarkdown"] ?? "");
+
+    const audienceMode = String(body["audienceMode"] ?? "list");
+    let listId: number | null = null;
+    let audience: string | null = null;
+
+    if (audienceMode === "list") {
+      const rawListId = body["listId"];
+      if (rawListId) listId = Number(rawListId);
+    } else if (audienceMode === "all") {
+      audience = JSON.stringify({ type: "all" });
+    } else if (audienceMode === "tag") {
+      const tagId = Number(body["tagId"]);
+      if (tagId) audience = JSON.stringify({ type: "tag", tagId });
+    } else if (audienceMode === "specific") {
+      const ids = String(body["subscriberIds"] ?? "").split(",").map(Number).filter(Boolean);
+      if (ids.length > 0) audience = JSON.stringify({ type: "subscribers", subscriberIds: ids });
+    }
+
+    if (!fromAddress || !subject || !bodyMarkdown) {
+      return c.redirect(`/admin/campaigns/${id}/edit`);
+    }
+
+    db.update(schema.campaigns)
+      .set({ listId, audience, fromAddress, subject, bodyMarkdown })
+      .where(eq(schema.campaigns.id, id))
+      .run();
+
+    logEvent(db, {
+      type: "admin.campaign_edited",
+      detail: subject,
+      campaignId: id,
+      userId: user.id,
+    });
+
+    return c.redirect(`/admin/campaigns/${id}`);
   });
 
   app.post("/campaigns/:id/send", async (c) => {
@@ -2566,7 +2870,8 @@ export function adminRoutes(db: Db, config: Config) {
       .select({
         id: schema.subscribers.id,
         email: schema.subscribers.email,
-        name: schema.subscribers.name,
+        firstName: schema.subscribers.firstName,
+        lastName: schema.subscribers.lastName,
         status: schema.subscribers.status,
       })
       .from(schema.subscriberTags)
@@ -2597,7 +2902,7 @@ export function adminRoutes(db: Db, config: Config) {
               {taggedSubscribers.map((s) => (
                 <tr>
                   <td class="px-4 py-3 border-b border-gray-100"><a href={`/admin/subscribers/${s.id}`} class="text-blue-600 hover:text-blue-800">{s.email}</a></td>
-                  <td class="px-4 py-3 border-b border-gray-100">{s.name ?? "—"}</td>
+                  <td class="px-4 py-3 border-b border-gray-100">{displayName(s)}</td>
                   <td class="px-4 py-3 border-b border-gray-100">{s.status}</td>
                 </tr>
               ))}
@@ -2720,7 +3025,9 @@ export function adminRoutes(db: Db, config: Config) {
     const autoMappings = headers.map((h) => {
       const lower = h.toLowerCase();
       if (lower.includes("email") || lower.includes("mail")) return "email";
-      if (lower.includes("name")) return "name";
+      if (lower.includes("first") && lower.includes("name")) return "firstName";
+      if (lower.includes("last") && lower.includes("name")) return "lastName";
+      if (lower.includes("name")) return "firstName";
       return "ignore";
     });
 
@@ -2751,7 +3058,8 @@ export function adminRoutes(db: Db, config: Config) {
                       >
                         <option value="ignore" selected={autoMappings[i] === "ignore"}>Ignore</option>
                         <option value="email" selected={autoMappings[i] === "email"}>Email</option>
-                        <option value="name" selected={autoMappings[i] === "name"}>Name</option>
+                        <option value="firstName" selected={autoMappings[i] === "firstName"}>First Name</option>
+                        <option value="lastName" selected={autoMappings[i] === "lastName"}>Last Name</option>
                       </select>
                     </th>
                   ))}
@@ -2830,11 +3138,13 @@ export function adminRoutes(db: Db, config: Config) {
 
     // Determine column mappings
     let emailCol = -1;
-    let nameCol = -1;
+    let firstNameCol = -1;
+    let lastNameCol = -1;
     for (let i = 0; i < headers.length; i++) {
       const mapping = body[`col_${i}`] as string;
       if (mapping === "email") emailCol = i;
-      if (mapping === "name") nameCol = i;
+      if (mapping === "firstName") firstNameCol = i;
+      if (mapping === "lastName") lastNameCol = i;
     }
 
     if (emailCol === -1) {
@@ -2887,7 +3197,8 @@ export function adminRoutes(db: Db, config: Config) {
         continue;
       }
 
-      const name = nameCol >= 0 ? (row[nameCol] ?? "").trim() || null : null;
+      const firstName = firstNameCol >= 0 ? (row[firstNameCol] ?? "").trim() || null : null;
+      const lastName = lastNameCol >= 0 ? (row[lastNameCol] ?? "").trim() || null : null;
 
       try {
         // Check if subscriber already exists before creating
@@ -2897,7 +3208,7 @@ export function adminRoutes(db: Db, config: Config) {
           .where(eq(schema.subscribers.email, email))
           .get();
 
-        const subscriber = createSubscriber(db, email, name, listSlugs);
+        const subscriber = createSubscriber(db, email, firstName, lastName, listSlugs);
 
         if (existingBefore) {
           skipped++;

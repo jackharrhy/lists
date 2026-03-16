@@ -18,7 +18,8 @@ export const users = sqliteTable("users", {
 export const subscribers = sqliteTable("subscribers", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   email: text("email").unique().notNull(),
-  name: text("name"),
+  firstName: text("first_name"),
+  lastName: text("last_name"),
   status: text("status", {
     enum: ["active", "blocklisted"],
   })

@@ -18,7 +18,8 @@ function getAllActiveConfirmedSubscribers(db: Db) {
     .selectDistinct({
       id: schema.subscribers.id,
       email: schema.subscribers.email,
-      name: schema.subscribers.name,
+      firstName: schema.subscribers.firstName,
+      lastName: schema.subscribers.lastName,
       unsubscribeToken: schema.subscribers.unsubscribeToken,
     })
     .from(schema.subscribers)
@@ -37,7 +38,8 @@ function getSubscribersByTag(db: Db, tagId: number) {
     .selectDistinct({
       id: schema.subscribers.id,
       email: schema.subscribers.email,
-      name: schema.subscribers.name,
+      firstName: schema.subscribers.firstName,
+      lastName: schema.subscribers.lastName,
       unsubscribeToken: schema.subscribers.unsubscribeToken,
     })
     .from(schema.subscribers)
@@ -58,7 +60,8 @@ function getSubscribersByIds(db: Db, ids: number[]) {
     .selectDistinct({
       id: schema.subscribers.id,
       email: schema.subscribers.email,
-      name: schema.subscribers.name,
+      firstName: schema.subscribers.firstName,
+      lastName: schema.subscribers.lastName,
       unsubscribeToken: schema.subscribers.unsubscribeToken,
     })
     .from(schema.subscribers)
@@ -71,6 +74,19 @@ function getSubscribersByIds(db: Db, ids: number[]) {
       ),
     )
     .all();
+}
+
+export function substituteVariables(
+  template: string,
+  subscriber: { firstName?: string | null; lastName?: string | null; email: string },
+  urls: { unsubscribeUrl: string; preferencesUrl: string },
+): string {
+  return template
+    .replace(/\{\{firstName\}\}/g, subscriber.firstName || "")
+    .replace(/\{\{lastName\}\}/g, subscriber.lastName || "")
+    .replace(/\{\{email\}\}/g, subscriber.email)
+    .replace(/\{\{unsubscribeUrl\}\}/g, urls.unsubscribeUrl)
+    .replace(/\{\{preferencesUrl\}\}/g, urls.preferencesUrl);
 }
 
 export function buildRawEmail({
@@ -154,7 +170,7 @@ export async function sendCampaign(
   });
 
   try {
-    let subscribers: { id: number; email: string; name: string | null; unsubscribeToken: string }[];
+    let subscribers: { id: number; email: string; firstName: string | null; lastName: string | null; unsubscribeToken: string }[];
     if (list) {
       subscribers = getConfirmedSubscribers(db, list.id);
     } else if (campaign.audience) {
@@ -173,7 +189,6 @@ export async function sendCampaign(
       // fallback: no list, no audience — shouldn't happen but handle gracefully
       subscribers = getAllActiveConfirmedSubscribers(db);
     }
-    const contentHtml = await marked(campaign.bodyMarkdown);
     const ses = new SESv2Client({ region: config.awsRegion });
 
     // figure out which subscribers already got this (for retries)
@@ -211,6 +226,13 @@ export async function sendCampaign(
         subscriber.unsubscribeToken,
       );
       const listUnsubHeaders = buildListUnsubscribeHeader(unsubscribeUrl);
+
+      const substitutedMarkdown = substituteVariables(
+        campaign.bodyMarkdown,
+        subscriber,
+        { unsubscribeUrl, preferencesUrl },
+      );
+      const contentHtml = await marked(substitutedMarkdown);
 
       const { html, text } = await renderNewsletter({
         subject: campaign.subject,

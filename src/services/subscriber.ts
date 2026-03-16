@@ -6,7 +6,8 @@ import { logEvent } from "./events";
 export function createSubscriber(
   db: Db,
   email: string,
-  name: string | null,
+  firstName: string | null,
+  lastName: string | null,
   listSlugs: string[],
 ) {
   const normalized = email.toLowerCase().trim();
@@ -18,7 +19,8 @@ export function createSubscriber(
       .insert(schema.subscribers)
       .values({
         email: normalized,
-        name,
+        firstName,
+        lastName,
         unsubscribeToken: generateToken(),
       })
       .returning()
@@ -293,7 +295,8 @@ export function getConfirmedSubscribers(db: Db, listId: number) {
     .select({
       id: schema.subscribers.id,
       email: schema.subscribers.email,
-      name: schema.subscribers.name,
+      firstName: schema.subscribers.firstName,
+      lastName: schema.subscribers.lastName,
       unsubscribeToken: schema.subscribers.unsubscribeToken,
     })
     .from(schema.subscribers)

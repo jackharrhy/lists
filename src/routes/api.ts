@@ -13,13 +13,16 @@ export function apiRoutes(db: Db, config: Config) {
 
   app.post("/subscribers", async (c) => {
     const body = await c.req.json();
-    const { email, name, lists } = body;
+    const { email, firstName, lastName, name, lists } = body;
 
     if (!email || !lists || !Array.isArray(lists) || lists.length === 0) {
       return c.json({ error: "email and lists are required" }, 400);
     }
 
-    const subscriber = createSubscriber(db, email, name ?? null, lists);
+    // Support both firstName/lastName and legacy "name" field
+    const fn = firstName ?? name ?? null;
+    const ln = lastName ?? null;
+    const subscriber = createSubscriber(db, email, fn, ln, lists);
     return c.json({ id: subscriber.id, email: subscriber.email }, 201);
   });
 

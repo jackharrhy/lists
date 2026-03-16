@@ -52,7 +52,7 @@ describe("Full campaign send flow", () => {
     const list = seedList(db, { slug: "newsletter", fromDomain: "example.com" });
 
     // create confirmed subscriber
-    const sub = createSubscriber(db, "reader@example.com", "Reader", [
+    const sub = createSubscriber(db, "reader@example.com", "Reader", null, [
       "newsletter",
     ]);
     confirmSubscriber(db, sub.unsubscribeToken);
@@ -113,7 +113,7 @@ describe("Campaign send failure flow", () => {
     const db = createTestDb();
     const list = seedList(db, { slug: "newsletter", fromDomain: "example.com" });
 
-    const sub = createSubscriber(db, "reader@example.com", "Reader", [
+    const sub = createSubscriber(db, "reader@example.com", "Reader", null, [
       "newsletter",
     ]);
     confirmSubscriber(db, sub.unsubscribeToken);
@@ -195,13 +195,13 @@ describe("Campaign retry skips already sent", () => {
     const list = seedList(db, { slug: "newsletter", fromDomain: "example.com" });
 
     // subscriber 1: already sent
-    const sub1 = createSubscriber(db, "already@example.com", "Already", [
+    const sub1 = createSubscriber(db, "already@example.com", "Already", null, [
       "newsletter",
     ]);
     confirmSubscriber(db, sub1.unsubscribeToken);
 
     // subscriber 2: not yet sent
-    const sub2 = createSubscriber(db, "pending@example.com", "Pending", [
+    const sub2 = createSubscriber(db, "pending@example.com", "Pending", null, [
       "newsletter",
     ]);
     confirmSubscriber(db, sub2.unsubscribeToken);
@@ -467,7 +467,7 @@ describe("Per-list unsubscribe flow via Hono", () => {
       fromDomain: "example.com",
     });
 
-    const subscriber = createSubscriber(db, "reader@example.com", "Reader", [
+    const subscriber = createSubscriber(db, "reader@example.com", "Reader", null, [
       "list-a",
       "list-b",
     ]);
@@ -526,7 +526,7 @@ describe("Per-list unsubscribe flow via Hono", () => {
       fromDomain: "example.com",
     });
 
-    const subscriber = createSubscriber(db, "reader@example.com", "Reader", [
+    const subscriber = createSubscriber(db, "reader@example.com", "Reader", null, [
       "list-a",
       "list-b",
     ]);
@@ -594,19 +594,19 @@ describe("Campaign with null listId (all-subscribers send)", () => {
     });
 
     // subscriber-1: confirmed on list-a only
-    const sub1 = createSubscriber(db, "sub1@example.com", "Sub One", [
+    const sub1 = createSubscriber(db, "sub1@example.com", "Sub One", null, [
       "list-a",
     ]);
     confirmSubscriber(db, sub1.unsubscribeToken);
 
     // subscriber-2: confirmed on list-b only
-    const sub2 = createSubscriber(db, "sub2@example.com", "Sub Two", [
+    const sub2 = createSubscriber(db, "sub2@example.com", "Sub Two", null, [
       "list-b",
     ]);
     confirmSubscriber(db, sub2.unsubscribeToken);
 
     // subscriber-3: confirmed on BOTH lists (should only get 1 email)
-    const sub3 = createSubscriber(db, "sub3@example.com", "Sub Three", [
+    const sub3 = createSubscriber(db, "sub3@example.com", "Sub Three", null, [
       "list-a",
       "list-b",
     ]);
@@ -661,11 +661,11 @@ describe("Tag-targeted campaign send", () => {
     const list = seedList(db, { slug: "newsletter", fromDomain: "example.com" });
 
     // Create 3 confirmed subscribers
-    const sub1 = createSubscriber(db, "tagged1@example.com", "Tagged1", ["newsletter"]);
+    const sub1 = createSubscriber(db, "tagged1@example.com", "Tagged1", null, ["newsletter"]);
     confirmSubscriber(db, sub1.unsubscribeToken);
-    const sub2 = createSubscriber(db, "tagged2@example.com", "Tagged2", ["newsletter"]);
+    const sub2 = createSubscriber(db, "tagged2@example.com", "Tagged2", null, ["newsletter"]);
     confirmSubscriber(db, sub2.unsubscribeToken);
-    const sub3 = createSubscriber(db, "untagged@example.com", "Untagged", ["newsletter"]);
+    const sub3 = createSubscriber(db, "untagged@example.com", "Untagged", null, ["newsletter"]);
     confirmSubscriber(db, sub3.unsubscribeToken);
 
     // Create a tag and apply it to sub1 and sub2 only
@@ -730,11 +730,11 @@ describe("Specific-subscribers campaign send", () => {
     const list = seedList(db, { slug: "newsletter", fromDomain: "example.com" });
 
     // Create 3 confirmed subscribers
-    const sub1 = createSubscriber(db, "pick1@example.com", "Pick1", ["newsletter"]);
+    const sub1 = createSubscriber(db, "pick1@example.com", "Pick1", null, ["newsletter"]);
     confirmSubscriber(db, sub1.unsubscribeToken);
-    const sub2 = createSubscriber(db, "skip@example.com", "Skip", ["newsletter"]);
+    const sub2 = createSubscriber(db, "skip@example.com", "Skip", null, ["newsletter"]);
     confirmSubscriber(db, sub2.unsubscribeToken);
-    const sub3 = createSubscriber(db, "pick3@example.com", "Pick3", ["newsletter"]);
+    const sub3 = createSubscriber(db, "pick3@example.com", "Pick3", null, ["newsletter"]);
     confirmSubscriber(db, sub3.unsubscribeToken);
 
     // Campaign targeting sub1 and sub3 only
@@ -859,7 +859,7 @@ describe("GET /campaigns/:id/preview?subscriberId=N", () => {
       fromDomain: "example.com",
     });
 
-    const sub = createSubscriber(db, "reader@example.com", "Reader", [
+    const sub = createSubscriber(db, "reader@example.com", "Reader", null, [
       "newsletter",
     ]);
     confirmSubscriber(db, sub.unsubscribeToken);

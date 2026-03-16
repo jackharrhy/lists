@@ -17,19 +17,19 @@ describe("createSubscriber", () => {
     const db = createTestDb();
     seedList(db, { slug: "news" });
 
-    const subscriber = createSubscriber(db, "  Alice@Example.COM  ", "Alice", [
+    const subscriber = createSubscriber(db, "  Alice@Example.COM  ", "Alice", null, [
       "news",
     ]);
 
     expect(subscriber.email).toBe("alice@example.com");
-    expect(subscriber.name).toBe("Alice");
+    expect(subscriber.firstName).toBe("Alice");
   });
 
   test("generates an unsubscribeToken", () => {
     const db = createTestDb();
     seedList(db, { slug: "news" });
 
-    const subscriber = createSubscriber(db, "bob@example.com", "Bob", [
+    const subscriber = createSubscriber(db, "bob@example.com", "Bob", null, [
       "news",
     ]);
 
@@ -41,7 +41,7 @@ describe("createSubscriber", () => {
     const db = createTestDb();
     const list = seedList(db, { slug: "news", name: "News" });
 
-    const subscriber = createSubscriber(db, "bob@example.com", "Bob", [
+    const subscriber = createSubscriber(db, "bob@example.com", "Bob", null, [
       "news",
     ]);
 
@@ -64,8 +64,8 @@ describe("createSubscriber", () => {
     const db = createTestDb();
     seedList(db, { slug: "news" });
 
-    const first = createSubscriber(db, "bob@example.com", "Bob", ["news"]);
-    const second = createSubscriber(db, "bob@example.com", "Bob", ["news"]);
+    const first = createSubscriber(db, "bob@example.com", "Bob", null, ["news"]);
+    const second = createSubscriber(db, "bob@example.com", "Bob", null, ["news"]);
 
     expect(second.id).toBe(first.id);
 
@@ -81,7 +81,7 @@ describe("createSubscriber", () => {
       name: "Updates",
     });
 
-    const subscriber = createSubscriber(db, "bob@example.com", "Bob", [
+    const subscriber = createSubscriber(db, "bob@example.com", "Bob", null, [
       "news",
       "updates",
     ]);
@@ -103,7 +103,7 @@ describe("confirmSubscriber", () => {
     seedList(db, { slug: "news", name: "News" });
     seedList(db, { slug: "updates", name: "Updates" });
 
-    const subscriber = createSubscriber(db, "bob@example.com", "Bob", [
+    const subscriber = createSubscriber(db, "bob@example.com", "Bob", null, [
       "news",
       "updates",
     ]);
@@ -123,7 +123,7 @@ describe("confirmSubscriber", () => {
     const db = createTestDb();
     seedList(db, { slug: "news" });
 
-    const subscriber = createSubscriber(db, "bob@example.com", "Bob", [
+    const subscriber = createSubscriber(db, "bob@example.com", "Bob", null, [
       "news",
     ]);
     const result = confirmSubscriber(db, subscriber.unsubscribeToken);
@@ -144,7 +144,7 @@ describe("unsubscribeAll", () => {
     const db = createTestDb();
     seedList(db, { slug: "news" });
 
-    const subscriber = createSubscriber(db, "bob@example.com", "Bob", [
+    const subscriber = createSubscriber(db, "bob@example.com", "Bob", null, [
       "news",
     ]);
     unsubscribeAll(db, subscriber.unsubscribeToken);
@@ -163,7 +163,7 @@ describe("unsubscribeAll", () => {
     seedList(db, { slug: "news", name: "News" });
     seedList(db, { slug: "updates", name: "Updates" });
 
-    const subscriber = createSubscriber(db, "bob@example.com", "Bob", [
+    const subscriber = createSubscriber(db, "bob@example.com", "Bob", null, [
       "news",
       "updates",
     ]);
@@ -183,7 +183,7 @@ describe("unsubscribeAll", () => {
     const db = createTestDb();
     seedList(db, { slug: "news" });
 
-    const subscriber = createSubscriber(db, "bob@example.com", "Bob", [
+    const subscriber = createSubscriber(db, "bob@example.com", "Bob", null, [
       "news",
     ]);
     const result = unsubscribeAll(db, subscriber.unsubscribeToken);
@@ -204,7 +204,7 @@ describe("getSubscriberPreferences", () => {
     const db = createTestDb();
     const list = seedList(db, { slug: "news", name: "News" });
 
-    const subscriber = createSubscriber(db, "bob@example.com", "Bob", [
+    const subscriber = createSubscriber(db, "bob@example.com", "Bob", null, [
       "news",
     ]);
     const prefs = getSubscriberPreferences(db, subscriber.unsubscribeToken);
@@ -230,7 +230,7 @@ describe("updatePreferences", () => {
     const list1 = seedList(db, { slug: "news", name: "News" });
     const list2 = seedList(db, { slug: "updates", name: "Updates" });
 
-    const subscriber = createSubscriber(db, "bob@example.com", "Bob", [
+    const subscriber = createSubscriber(db, "bob@example.com", "Bob", null, [
       "news",
     ]);
 
@@ -254,7 +254,7 @@ describe("updatePreferences", () => {
     const list1 = seedList(db, { slug: "news", name: "News" });
     const list2 = seedList(db, { slug: "updates", name: "Updates" });
 
-    const subscriber = createSubscriber(db, "bob@example.com", "Bob", [
+    const subscriber = createSubscriber(db, "bob@example.com", "Bob", null, [
       "news",
       "updates",
     ]);
@@ -281,7 +281,7 @@ describe("updatePreferences", () => {
     const db = createTestDb();
     const list = seedList(db, { slug: "news", name: "News" });
 
-    const subscriber = createSubscriber(db, "bob@example.com", "Bob", [
+    const subscriber = createSubscriber(db, "bob@example.com", "Bob", null, [
       "news",
     ]);
     confirmSubscriber(db, subscriber.unsubscribeToken);
@@ -324,7 +324,7 @@ describe("unsubscribeFromList", () => {
     const listA = seedList(db, { slug: "list-a", name: "List A" });
     const listB = seedList(db, { slug: "list-b", name: "List B" });
 
-    const subscriber = createSubscriber(db, "bob@example.com", "Bob", [
+    const subscriber = createSubscriber(db, "bob@example.com", "Bob", null, [
       "list-a",
       "list-b",
     ]);
@@ -374,7 +374,7 @@ describe("unsubscribeFromList", () => {
       .where(eq(schema.lists.slug, "list-a"))
       .get()!;
 
-    const subscriber = createSubscriber(db, "bob@example.com", "Bob", [
+    const subscriber = createSubscriber(db, "bob@example.com", "Bob", null, [
       "list-a",
     ]);
     confirmSubscriber(db, subscriber.unsubscribeToken);
@@ -406,7 +406,7 @@ describe("unsubscribeFromList", () => {
     const db = createTestDb();
     seedList(db, { slug: "list-a", name: "List A" });
 
-    const subscriber = createSubscriber(db, "bob@example.com", "Bob", [
+    const subscriber = createSubscriber(db, "bob@example.com", "Bob", null, [
       "list-a",
     ]);
 
@@ -420,7 +420,7 @@ describe("confirmSubscriber dedup", () => {
     const db = createTestDb();
     seedList(db, { slug: "news", name: "News" });
 
-    const subscriber = createSubscriber(db, "bob@example.com", "Bob", [
+    const subscriber = createSubscriber(db, "bob@example.com", "Bob", null, [
       "news",
     ]);
 
@@ -457,7 +457,7 @@ describe("Tag CRUD", () => {
 
     // Create a subscriber
     seedList(db, { slug: "news" });
-    const sub = createSubscriber(db, "tester@example.com", "Tester", ["news"]);
+    const sub = createSubscriber(db, "tester@example.com", "Tester", null, ["news"]);
 
     // Link subscriber to tag
     db.insert(schema.subscriberTags)
@@ -518,13 +518,13 @@ describe("getConfirmedSubscribers", () => {
     const db = createTestDb();
     const list = seedList(db, { slug: "news", name: "News" });
 
-    const sub1 = createSubscriber(db, "confirmed@example.com", "Confirmed", [
+    const sub1 = createSubscriber(db, "confirmed@example.com", "Confirmed", null, [
       "news",
     ]);
     confirmSubscriber(db, sub1.unsubscribeToken);
 
     // sub2 is unconfirmed — should not appear
-    createSubscriber(db, "unconfirmed@example.com", "Unconfirmed", ["news"]);
+    createSubscriber(db, "unconfirmed@example.com", "Unconfirmed", null, ["news"]);
 
     const confirmed = getConfirmedSubscribers(db, list.id);
 
@@ -536,12 +536,12 @@ describe("getConfirmedSubscribers", () => {
     const db = createTestDb();
     const list = seedList(db, { slug: "news", name: "News" });
 
-    const sub1 = createSubscriber(db, "active@example.com", "Active", [
+    const sub1 = createSubscriber(db, "active@example.com", "Active", null, [
       "news",
     ]);
     confirmSubscriber(db, sub1.unsubscribeToken);
 
-    const sub2 = createSubscriber(db, "unsub@example.com", "Unsub", ["news"]);
+    const sub2 = createSubscriber(db, "unsub@example.com", "Unsub", null, ["news"]);
     confirmSubscriber(db, sub2.unsubscribeToken);
     unsubscribeAll(db, sub2.unsubscribeToken);
 
