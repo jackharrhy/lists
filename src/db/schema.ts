@@ -20,7 +20,7 @@ export const subscribers = sqliteTable("subscribers", {
   email: text("email").unique().notNull(),
   name: text("name"),
   status: text("status", {
-    enum: ["active", "unsubscribed", "blocklisted"],
+    enum: ["active", "blocklisted"],
   })
     .notNull()
     .default("active"),
@@ -28,7 +28,6 @@ export const subscribers = sqliteTable("subscribers", {
   createdAt: text("created_at")
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
-  confirmedAt: text("confirmed_at"),
 });
 
 export const lists = sqliteTable("lists", {

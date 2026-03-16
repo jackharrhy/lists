@@ -4,6 +4,13 @@ export function generateToken(): string {
   return randomBytes(32).toString("hex");
 }
 
+export function buildConfirmUrl(baseUrl: string, token: string, domain?: string): string {
+  if (domain) {
+    return `${baseUrl}/confirm/${token}/${domain}`;
+  }
+  return `${baseUrl}/confirm/${token}`;
+}
+
 export function buildUnsubscribeUrl(baseUrl: string, token: string, listId?: number): string {
   if (listId !== undefined) {
     return `${baseUrl}/unsubscribe/${token}/${listId}`;

@@ -439,14 +439,6 @@ describe("Subscribe and confirm flow via Hono", () => {
     const confirmHtml = await confirmRes.text();
     expect(confirmHtml).toContain("Confirmed");
 
-    // subscriber should now be confirmed
-    const confirmedSub = db
-      .select()
-      .from(schema.subscribers)
-      .where(eq(schema.subscribers.id, subscriber!.id))
-      .get();
-    expect(confirmedSub!.confirmedAt).not.toBeNull();
-
     // subscriberLists should all be "confirmed"
     const confirmedLists = db
       .select()

@@ -69,13 +69,6 @@ export function confirmSubscriber(db: Db, token: string): boolean {
     )
     .all();
 
-  if (!subscriber.confirmedAt) {
-    db.update(schema.subscribers)
-      .set({ confirmedAt: new Date().toISOString() })
-      .where(eq(schema.subscribers.id, subscriber.id))
-      .run();
-  }
-
   if (unconfirmedSubs.length > 0) {
     db.update(schema.subscriberLists)
       .set({ status: "confirmed" })
@@ -105,6 +98,54 @@ export function confirmSubscriber(db: Db, token: string): boolean {
   return true;
 }
 
+/** Confirm only subscriberLists whose list.fromDomain matches the given domain. */
+export function confirmSubscriberDomain(db: Db, token: string, domain: string): boolean {
+  const subscriber = db.select().from(schema.subscribers).where(eq(schema.subscribers.unsubscribeToken, token)).get();
+  if (!subscriber) return false;
+
+  // find unconfirmed subscriberLists where the list's fromDomain matches
+  const unconfirmedSubs = db
+    .select({
+      subscriberId: schema.subscriberLists.subscriberId,
+      listId: schema.subscriberLists.listId,
+      listName: schema.lists.name,
+    })
+    .from(schema.subscriberLists)
+    .innerJoin(schema.lists, eq(schema.subscriberLists.listId, schema.lists.id))
+    .where(
+      and(
+        eq(schema.subscriberLists.subscriberId, subscriber.id),
+        eq(schema.subscriberLists.status, "unconfirmed"),
+        eq(schema.lists.fromDomain, domain),
+      ),
+    )
+    .all();
+
+  if (unconfirmedSubs.length > 0) {
+    for (const sub of unconfirmedSubs) {
+      db.update(schema.subscriberLists)
+        .set({ status: "confirmed" })
+        .where(
+          and(
+            eq(schema.subscriberLists.subscriberId, subscriber.id),
+            eq(schema.subscriberLists.listId, sub.listId),
+          ),
+        )
+        .run();
+    }
+
+    const listNames = unconfirmedSubs.map((s) => s.listName).filter(Boolean);
+
+    logEvent(db, {
+      type: "subscriber.confirmed",
+      detail: `${subscriber.email} confirmed (${domain}): ${listNames.join(", ")}`,
+      subscriberId: subscriber.id,
+    });
+  }
+
+  return true;
+}
+
 export function unsubscribeAll(db: Db, token: string): boolean {
   const subscriber = db.select().from(schema.subscribers).where(eq(schema.subscribers.unsubscribeToken, token)).get();
   if (!subscriber) return false;
@@ -123,11 +164,6 @@ export function unsubscribeAll(db: Db, token: string): boolean {
   const listNames = activeSubs
     .map((s) => db.select().from(schema.lists).where(eq(schema.lists.id, s.listId)).get()?.name)
     .filter(Boolean);
-
-  db.update(schema.subscribers)
-    .set({ status: "unsubscribed" })
-    .where(eq(schema.subscribers.id, subscriber.id))
-    .run();
 
   db.update(schema.subscriberLists)
     .set({ status: "unsubscribed" })
@@ -159,26 +195,6 @@ export function unsubscribeFromList(db: Db, token: string, listId: number): bool
       ),
     )
     .run();
-
-  // check if they have any remaining active subscriptions
-  const remaining = db
-    .select()
-    .from(schema.subscriberLists)
-    .where(
-      and(
-        eq(schema.subscriberLists.subscriberId, subscriber.id),
-        eq(schema.subscriberLists.status, "confirmed"),
-      ),
-    )
-    .all();
-
-  // if no active subscriptions left, mark subscriber as unsubscribed
-  if (remaining.length === 0) {
-    db.update(schema.subscribers)
-      .set({ status: "unsubscribed" })
-      .where(eq(schema.subscribers.id, subscriber.id))
-      .run();
-  }
 
   logEvent(db, {
     type: "subscriber.unsubscribed",

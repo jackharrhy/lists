@@ -5,11 +5,13 @@ import type { Config } from "../config";
 import {
   createSubscriber,
   confirmSubscriber,
+  confirmSubscriberDomain,
   unsubscribeAll,
   unsubscribeFromList,
   getSubscriberPreferences,
   updatePreferences,
 } from "../services/subscriber";
+import { buildConfirmUrl } from "../compliance";
 import { renderConfirmation } from "../../emails/render";
 import { SESv2Client, SendEmailCommand } from "@aws-sdk/client-sesv2";
 
@@ -167,9 +169,6 @@ export function publicRoutes(db: Db, config: Config) {
 
     const subscriber = createSubscriber(db, email, name, listSlugs);
 
-    // Build confirmation URL
-    const confirmUrl = `${config.baseUrl}/confirm/${subscriber.unsubscribeToken}`;
-
     // Look up selected lists and group by domain
     const allLists = db.select().from(schema.lists).all();
     const selectedLists = allLists.filter((l) => listSlugs.includes(l.slug));
@@ -186,6 +185,7 @@ export function publicRoutes(db: Db, config: Config) {
 
     for (const [domain, lists] of byDomain) {
       const listNames = lists.map((l) => l.name);
+      const confirmUrl = buildConfirmUrl(config.baseUrl, subscriber.unsubscribeToken, domain);
       const { html } = await renderConfirmation({ confirmUrl, listNames });
 
       await ses.send(
@@ -226,7 +226,39 @@ export function publicRoutes(db: Db, config: Config) {
     );
   });
 
-  // GET /confirm/:token
+  // GET /confirm/:token/:domain - per-domain confirm
+  app.get("/confirm/:token/:domain", (c) => {
+    const token = c.req.param("token");
+    const domain = c.req.param("domain");
+    const ok = confirmSubscriberDomain(db, token, domain);
+
+    if (ok) {
+      return c.html(
+        <Layout>
+          <h1 class="text-2xl font-bold mb-6">Confirmed</h1>
+          <div class="bg-white rounded-lg border border-gray-200 p-6">
+            <p class="text-sm text-gray-700">
+              Your <strong>{domain}</strong> subscriptions have been confirmed.
+            </p>
+          </div>
+        </Layout>,
+      );
+    }
+
+    return c.html(
+      <Layout>
+        <h1 class="text-2xl font-bold mb-6">Invalid link</h1>
+        <div class="bg-white rounded-lg border border-gray-200 p-6">
+          <p class="text-sm text-gray-700">
+            This confirmation link is invalid or has expired.
+          </p>
+        </div>
+      </Layout>,
+      400,
+    );
+  });
+
+  // GET /confirm/:token - legacy fallback (confirms all)
   app.get("/confirm/:token", (c) => {
     const token = c.req.param("token");
     const ok = confirmSubscriber(db, token);

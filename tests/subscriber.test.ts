@@ -98,25 +98,6 @@ describe("createSubscriber", () => {
 });
 
 describe("confirmSubscriber", () => {
-  test("sets confirmedAt on the subscriber", () => {
-    const db = createTestDb();
-    seedList(db, { slug: "news" });
-
-    const subscriber = createSubscriber(db, "bob@example.com", "Bob", [
-      "news",
-    ]);
-    confirmSubscriber(db, subscriber.unsubscribeToken);
-
-    const updated = db
-      .select()
-      .from(schema.subscribers)
-      .where(eq(schema.subscribers.id, subscriber.id))
-      .get();
-
-    expect(updated!.confirmedAt).toBeDefined();
-    expect(updated!.confirmedAt).not.toBeNull();
-  });
-
   test("updates all unconfirmed subscriberLists to confirmed", () => {
     const db = createTestDb();
     seedList(db, { slug: "news", name: "News" });
@@ -159,7 +140,7 @@ describe("confirmSubscriber", () => {
 });
 
 describe("unsubscribeAll", () => {
-  test("sets subscriber status to unsubscribed", () => {
+  test("keeps subscriber status as active (per-list only)", () => {
     const db = createTestDb();
     seedList(db, { slug: "news" });
 
@@ -174,7 +155,7 @@ describe("unsubscribeAll", () => {
       .where(eq(schema.subscribers.id, subscriber.id))
       .get();
 
-    expect(updated!.status).toBe("unsubscribed");
+    expect(updated!.status).toBe("active");
   });
 
   test("updates all subscriberLists to unsubscribed", () => {
@@ -384,7 +365,7 @@ describe("unsubscribeFromList", () => {
     expect(updated!.status).toBe("active");
   });
 
-  test("marks subscriber as unsubscribed when no active subs remain", () => {
+  test("keeps subscriber active when no active subs remain (per-list only)", () => {
     const db = createTestDb();
     seedList(db, { slug: "list-a", name: "List A" });
     const listA = db
@@ -405,7 +386,7 @@ describe("unsubscribeFromList", () => {
       .from(schema.subscribers)
       .where(eq(schema.subscribers.id, subscriber.id))
       .get();
-    expect(updated!.status).toBe("unsubscribed");
+    expect(updated!.status).toBe("active");
   });
 
   test("returns false for invalid token", () => {

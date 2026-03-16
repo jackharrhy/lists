@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { eq, desc, sql, and, inArray, isNotNull } from "drizzle-orm";
+import { eq, desc, sql, and, inArray } from "drizzle-orm";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
@@ -11,10 +11,10 @@ import type { Config } from "../config";
 import { adminAuth, createSession, destroySession, requireRole, requireListAccess, getAccessibleListIds } from "../auth";
 import { sendCampaign } from "../services/sender";
 import { renderConfirmation } from "../../emails/render";
-import { createSubscriber, confirmSubscriber, getConfirmedSubscribers } from "../services/subscriber";
+import { createSubscriber, confirmSubscriber, confirmSubscriberDomain, getConfirmedSubscribers } from "../services/subscriber";
 import { logEvent } from "../services/events";
 import { renderNewsletter } from "../../emails/render";
-import { buildUnsubscribeUrl, buildPreferencesUrl } from "../compliance";
+import { buildUnsubscribeUrl, buildPreferencesUrl, buildConfirmUrl } from "../compliance";
 
 // ---------------------------------------------------------------------------
 // Layout & components
@@ -444,7 +444,6 @@ export function adminRoutes(db: Db, config: Config) {
           status: schema.subscribers.status,
           unsubscribeToken: schema.subscribers.unsubscribeToken,
           createdAt: schema.subscribers.createdAt,
-          confirmedAt: schema.subscribers.confirmedAt,
         })
         .from(schema.subscribers)
         .innerJoin(schema.subscriberLists, eq(schema.subscriberLists.subscriberId, schema.subscribers.id))
@@ -467,7 +466,6 @@ export function adminRoutes(db: Db, config: Config) {
               <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Email</th>
               <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Name</th>
               <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Status</th>
-              <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Confirmed</th>
               <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Created</th>
               <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200"></th>
             </tr>
@@ -478,7 +476,6 @@ export function adminRoutes(db: Db, config: Config) {
                 <td class="px-4 py-3 border-b border-gray-100"><a href={`/admin/subscribers/${sub.id}`} class="text-blue-600 hover:text-blue-800">{sub.email}</a></td>
                 <td class="px-4 py-3 border-b border-gray-100">{sub.name ?? "—"}</td>
                 <td class="px-4 py-3 border-b border-gray-100">{sub.status}</td>
-                <td class="px-4 py-3 border-b border-gray-100">{sub.confirmedAt ? "Yes" : "No"}</td>
                 <td class="px-4 py-3 border-b border-gray-100">{fmtDate(sub.createdAt)}</td>
                 <td class="px-4 py-3 border-b border-gray-100">
                   <form method="post" action={`/admin/subscribers/${sub.id}/delete`} class="m-0" onsubmit={`return confirm('Delete ${sub.email}?')`}>
@@ -522,7 +519,7 @@ export function adminRoutes(db: Db, config: Config) {
             <div class="mb-4">
               <label class="flex items-center gap-2 text-sm font-medium text-gray-700">
                 <input type="checkbox" name="skip_confirm" value="1" />
-                Pre-confirm (skip double opt-in)
+                Pre-confirm list subscriptions (skip double opt-in)
               </label>
             </div>
             {allLists.length > 0 && (
@@ -650,7 +647,6 @@ export function adminRoutes(db: Db, config: Config) {
             <label for="status" class="block text-sm font-medium text-gray-700 mb-1">Status</label>
             <select id="status" name="status" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
               <option value="active" selected={sub.status === "active"}>active</option>
-              <option value="unsubscribed" selected={sub.status === "unsubscribed"}>unsubscribed</option>
               <option value="blocklisted" selected={sub.status === "blocklisted"}>blocklisted</option>
             </select>
           </div>
@@ -685,11 +681,6 @@ export function adminRoutes(db: Db, config: Config) {
                             </select>
                             <button type="submit" class="px-2 py-1 bg-gray-100 text-gray-700 text-xs rounded hover:bg-gray-200 cursor-pointer border border-gray-300">Set</button>
                           </form>
-                          {listStatus === "unconfirmed" && (
-                            <form method="post" action={`/admin/subscribers/${sub.id}/send-confirm`} class="m-0">
-                              <button type="submit" class="px-2 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 cursor-pointer border-none">Send confirmation</button>
-                            </form>
-                          )}
                           <form method="post" action={`/admin/subscribers/${sub.id}/list/${list.id}/remove`} class="m-0" onsubmit={`return confirm('Remove from ${list.name}?')`}>
                             <button type="submit" class="px-2 py-1 bg-red-50 text-red-600 text-xs rounded hover:bg-red-100 cursor-pointer border border-red-200">Remove</button>
                           </form>
@@ -701,6 +692,37 @@ export function adminRoutes(db: Db, config: Config) {
               ) : (
                 <p class="text-gray-400 text-sm mb-4">Not subscribed to any lists.</p>
               )}
+
+              {(() => {
+                // Group unconfirmed subscriberLists by domain for per-domain send-confirm
+                const unconfirmedByDomain = new Map<string, { domain: string; count: number }>();
+                for (const list of subscribedLists) {
+                  if (subListMap.get(list.id) === "unconfirmed") {
+                    const entry = unconfirmedByDomain.get(list.fromDomain);
+                    if (entry) {
+                      entry.count++;
+                    } else {
+                      unconfirmedByDomain.set(list.fromDomain, { domain: list.fromDomain, count: 1 });
+                    }
+                  }
+                }
+                const domains = [...unconfirmedByDomain.values()];
+                if (domains.length === 0) return null;
+                return (
+                  <div class="mb-6 space-y-2">
+                    <p class="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">Send confirmation email</p>
+                    {domains.map(({ domain, count }) => (
+                      <div class="flex items-center justify-between bg-white border border-gray-200 rounded-lg px-4 py-2">
+                        <span class="text-sm text-gray-700">{domain}: {count} unconfirmed {count === 1 ? "list" : "lists"}</span>
+                        <form method="post" action={`/admin/subscribers/${sub.id}/send-confirm`} class="m-0">
+                          <input type="hidden" name="domain" value={domain} />
+                          <button type="submit" class="px-2 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 cursor-pointer border-none">Send confirmation</button>
+                        </form>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
 
               {unsubscribedLists.length > 0 && (
                 <div class="mb-6">
@@ -757,9 +779,7 @@ export function adminRoutes(db: Db, config: Config) {
         </div>
 
         <dl class="mt-6">
-          <dt class="font-semibold text-xs uppercase text-gray-500 first:mt-0">First confirmed</dt>
-          <dd class="mt-1 ml-0">{sub.confirmedAt ? fmtDateTime(sub.confirmedAt) : "Never"}</dd>
-          <dt class="font-semibold text-xs uppercase text-gray-500 mt-3">Created</dt>
+          <dt class="font-semibold text-xs uppercase text-gray-500 first:mt-0">Created</dt>
           <dd class="mt-1 ml-0">{fmtDateTime(sub.createdAt)}</dd>
           <dt class="font-semibold text-xs uppercase text-gray-500 mt-3">Unsubscribe token</dt>
           <dd class="mt-1 ml-0 text-xs font-mono">{sub.unsubscribeToken}</dd>
@@ -874,14 +894,19 @@ export function adminRoutes(db: Db, config: Config) {
     const sub = db.select().from(schema.subscribers).where(eq(schema.subscribers.id, id)).get();
     if (!sub) return c.notFound();
 
-    // find unconfirmed lists for this subscriber
+    const body = await c.req.parseBody();
+    const domain = body["domain"] ? String(body["domain"]).trim() : null;
+
+    // find unconfirmed lists for this subscriber, filtered by domain if provided
     const unconfirmedSubLists = db
-      .select({ listId: schema.subscriberLists.listId })
+      .select({ listId: schema.subscriberLists.listId, fromDomain: schema.lists.fromDomain })
       .from(schema.subscriberLists)
+      .innerJoin(schema.lists, eq(schema.subscriberLists.listId, schema.lists.id))
       .where(
         and(
           eq(schema.subscriberLists.subscriberId, id),
           eq(schema.subscriberLists.status, "unconfirmed"),
+          ...(domain ? [eq(schema.lists.fromDomain, domain)] : []),
         ),
       )
       .all();
@@ -889,14 +914,13 @@ export function adminRoutes(db: Db, config: Config) {
     // nothing to confirm
     if (unconfirmedSubLists.length === 0) return c.redirect(`/admin/subscribers/${id}`);
 
-    const firstList = db.select().from(schema.lists).where(eq(schema.lists.id, unconfirmedSubLists[0]!.listId)).get();
-    const sendingDomain = firstList?.fromDomain ?? config.fromDomain;
+    const sendingDomain = domain ?? unconfirmedSubLists[0]!.fromDomain ?? config.fromDomain;
 
     const listNames = unconfirmedSubLists
       .map((sl) => db.select().from(schema.lists).where(eq(schema.lists.id, sl.listId)).get()?.name)
       .filter(Boolean) as string[];
 
-    const confirmUrl = `${config.baseUrl}/confirm/${sub.unsubscribeToken}`;
+    const confirmUrl = buildConfirmUrl(config.baseUrl, sub.unsubscribeToken, sendingDomain);
     const { html } = await renderConfirmation({ confirmUrl, listNames });
 
     const ses = new SESv2Client({ region: config.awsRegion });
@@ -916,7 +940,7 @@ export function adminRoutes(db: Db, config: Config) {
 
     logEvent(db, {
       type: "admin.confirmation_sent",
-      detail: `Confirmation email sent to ${sub.email}`,
+      detail: `Confirmation email sent to ${sub.email} for ${sendingDomain}`,
       subscriberId: id,
       userId: user.id,
     });
@@ -1699,26 +1723,28 @@ export function adminRoutes(db: Db, config: Config) {
           })
           .from(schema.subscribers)
           .innerJoin(schema.subscriberTags, eq(schema.subscriberTags.subscriberId, schema.subscribers.id))
+          .innerJoin(schema.subscriberLists, eq(schema.subscriberLists.subscriberId, schema.subscribers.id))
           .where(
             and(
               eq(schema.subscriberTags.tagId, aud.tagId),
               eq(schema.subscribers.status, "active"),
-              isNotNull(schema.subscribers.confirmedAt),
+              eq(schema.subscriberLists.status, "confirmed"),
             ),
           )
           .all();
       } else if (aud.type === "subscribers" && aud.subscriberIds) {
         previewSubscribers = db
-          .select({
+          .selectDistinct({
             id: schema.subscribers.id,
             email: schema.subscribers.email,
           })
           .from(schema.subscribers)
+          .innerJoin(schema.subscriberLists, eq(schema.subscriberLists.subscriberId, schema.subscribers.id))
           .where(
             and(
               inArray(schema.subscribers.id, aud.subscriberIds),
               eq(schema.subscribers.status, "active"),
-              isNotNull(schema.subscribers.confirmedAt),
+              eq(schema.subscriberLists.status, "confirmed"),
             ),
           )
           .all();
@@ -1730,10 +1756,11 @@ export function adminRoutes(db: Db, config: Config) {
             email: schema.subscribers.email,
           })
           .from(schema.subscribers)
+          .innerJoin(schema.subscriberLists, eq(schema.subscriberLists.subscriberId, schema.subscribers.id))
           .where(
             and(
               eq(schema.subscribers.status, "active"),
-              isNotNull(schema.subscribers.confirmedAt),
+              eq(schema.subscriberLists.status, "confirmed"),
             ),
           )
           .all();
@@ -1745,10 +1772,11 @@ export function adminRoutes(db: Db, config: Config) {
           email: schema.subscribers.email,
         })
         .from(schema.subscribers)
+        .innerJoin(schema.subscriberLists, eq(schema.subscriberLists.subscriberId, schema.subscribers.id))
         .where(
           and(
             eq(schema.subscribers.status, "active"),
-            isNotNull(schema.subscribers.confirmedAt),
+            eq(schema.subscriberLists.status, "confirmed"),
           ),
         )
         .all();

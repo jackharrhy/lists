@@ -1,5 +1,5 @@
 import { SESv2Client, SendEmailCommand } from "@aws-sdk/client-sesv2";
-import { eq, and, isNotNull, inArray } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import { marked } from "marked";
 import type { Config } from "../config";
 import { type Db, schema } from "../db";
@@ -22,10 +22,11 @@ function getAllActiveConfirmedSubscribers(db: Db) {
       unsubscribeToken: schema.subscribers.unsubscribeToken,
     })
     .from(schema.subscribers)
+    .innerJoin(schema.subscriberLists, eq(schema.subscriberLists.subscriberId, schema.subscribers.id))
     .where(
       and(
         eq(schema.subscribers.status, "active"),
-        isNotNull(schema.subscribers.confirmedAt),
+        eq(schema.subscriberLists.status, "confirmed"),
       ),
     )
     .all();
@@ -41,11 +42,12 @@ function getSubscribersByTag(db: Db, tagId: number) {
     })
     .from(schema.subscribers)
     .innerJoin(schema.subscriberTags, eq(schema.subscriberTags.subscriberId, schema.subscribers.id))
+    .innerJoin(schema.subscriberLists, eq(schema.subscriberLists.subscriberId, schema.subscribers.id))
     .where(
       and(
         eq(schema.subscriberTags.tagId, tagId),
         eq(schema.subscribers.status, "active"),
-        isNotNull(schema.subscribers.confirmedAt),
+        eq(schema.subscriberLists.status, "confirmed"),
       ),
     )
     .all();
@@ -53,18 +55,19 @@ function getSubscribersByTag(db: Db, tagId: number) {
 
 function getSubscribersByIds(db: Db, ids: number[]) {
   return db
-    .select({
+    .selectDistinct({
       id: schema.subscribers.id,
       email: schema.subscribers.email,
       name: schema.subscribers.name,
       unsubscribeToken: schema.subscribers.unsubscribeToken,
     })
     .from(schema.subscribers)
+    .innerJoin(schema.subscriberLists, eq(schema.subscriberLists.subscriberId, schema.subscribers.id))
     .where(
       and(
         inArray(schema.subscribers.id, ids),
         eq(schema.subscribers.status, "active"),
-        isNotNull(schema.subscribers.confirmedAt),
+        eq(schema.subscriberLists.status, "confirmed"),
       ),
     )
     .all();
