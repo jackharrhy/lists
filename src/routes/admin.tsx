@@ -10,6 +10,7 @@ import { schema } from "../db";
 import type { Config } from "../config";
 import { adminAuth, createSession, destroySession, requireRole, requireListAccess, getAccessibleListIds } from "../auth";
 import { sendCampaign } from "../services/sender";
+import { renderConfirmation } from "../../emails/render";
 import { createSubscriber, confirmSubscriber, getConfirmedSubscribers } from "../services/subscriber";
 import { logEvent } from "../services/events";
 import { renderNewsletter } from "../../emails/render";
@@ -705,7 +706,18 @@ export function adminRoutes(db: Db, config: Config) {
 
         <dl class="mt-6">
           <dt class="font-semibold text-xs uppercase text-gray-500 first:mt-0">Confirmed</dt>
-          <dd class="mt-1 ml-0">{sub.confirmedAt ? fmtDateTime(sub.confirmedAt) : "No"}</dd>
+          <dd class="mt-1 ml-0 flex items-center gap-3">
+            {sub.confirmedAt ? fmtDateTime(sub.confirmedAt) : (
+              <>
+                <span>No</span>
+                <form method="post" action={`/admin/subscribers/${sub.id}/send-confirm`} class="inline">
+                  <button type="submit" class="inline-block px-3 py-1 bg-blue-600 text-white text-xs font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none">
+                    Send confirmation email
+                  </button>
+                </form>
+              </>
+            )}
+          </dd>
           <dt class="font-semibold text-xs uppercase text-gray-500 mt-3">Created</dt>
           <dd class="mt-1 ml-0">{fmtDateTime(sub.createdAt)}</dd>
           <dt class="font-semibold text-xs uppercase text-gray-500 mt-3">Unsubscribe token</dt>
@@ -864,6 +876,56 @@ export function adminRoutes(db: Db, config: Config) {
       .where(eq(schema.subscribers.id, id))
       .run();
     return c.redirect("/admin/subscribers");
+  });
+
+  app.post("/subscribers/:id/send-confirm", async (c) => {
+    const user = c.get("user") as User;
+    const id = Number(c.req.param("id"));
+    const sub = db.select().from(schema.subscribers).where(eq(schema.subscribers.id, id)).get();
+    if (!sub) return c.notFound();
+    if (sub.confirmedAt) return c.redirect(`/admin/subscribers/${id}`);
+
+    // find the subscriber's lists to determine sending domain
+    const subLists = db
+      .select({ listId: schema.subscriberLists.listId })
+      .from(schema.subscriberLists)
+      .where(eq(schema.subscriberLists.subscriberId, id))
+      .all();
+    const firstList = subLists.length > 0
+      ? db.select().from(schema.lists).where(eq(schema.lists.id, subLists[0]!.listId)).get()
+      : null;
+    const sendingDomain = firstList?.fromDomain ?? config.fromDomain;
+
+    const listNames = subLists
+      .map((sl) => db.select().from(schema.lists).where(eq(schema.lists.id, sl.listId)).get()?.name)
+      .filter(Boolean) as string[];
+
+    const confirmUrl = `${config.baseUrl}/confirm/${sub.unsubscribeToken}`;
+    const { html } = await renderConfirmation({ confirmUrl, listNames });
+
+    const ses = new SESv2Client({ region: config.awsRegion });
+    await ses.send(
+      new SendEmailCommand({
+        FromEmailAddress: `noreply@${sendingDomain}`,
+        Destination: { ToAddresses: [sub.email] },
+        Content: {
+          Simple: {
+            Subject: { Data: "Confirm your subscription" },
+            Body: { Html: { Data: html } },
+          },
+        },
+        ConfigurationSetName: config.sesConfigSet || undefined,
+      }),
+    );
+
+    logEvent(db, {
+      type: "admin.confirmation_sent",
+      detail: `Confirmation email sent to ${sub.email}`,
+      subscriberId: id,
+      userId: user.id,
+    });
+
+    return c.redirect(`/admin/subscribers/${id}`);
   });
 
   app.post("/subscribers/:id/tags/add", async (c) => {
