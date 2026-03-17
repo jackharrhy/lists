@@ -8,8 +8,14 @@ export function Label({ for: htmlFor, children }: { for?: string; children: Chil
   return <label for={htmlFor} class="block text-sm font-medium text-gray-700 mb-1">{children}</label>;
 }
 
-export function Input(props: Record<string, any>) {
-  return <input {...props} class={`w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${props.class ?? ""}`} />;
+export function Input({ size, ...props }: Record<string, any>) {
+  const base = "border border-gray-300 rounded-md font-[inherit] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500";
+  const sizes: Record<string, string> = {
+    sm: "px-2 py-1.5 text-sm",
+    md: "w-full px-3 py-2 text-sm mb-3",
+  };
+  const s = sizes[size ?? "md"] ?? sizes.md;
+  return <input {...props} class={`${base} ${s} ${props.class ?? ""}`} />;
 }
 
 export function Select({ children, size, ...props }: Record<string, any>) {

@@ -186,16 +186,10 @@ export function mountMessageRoutes(app: Hono, db: Db, config: Config) {
         <form method="get" action="/admin/inbound" class="flex items-end gap-3 mb-6 flex-wrap">
           <div>
             <label class="block text-xs font-medium text-gray-500 mb-1">Search</label>
-            <Input
-              type="text"
-              name="search"
-              value={filterSearch}
-              placeholder="Subject or from…"
-              class="w-48 mb-0"
-            />
+            <Input type="text" name="search" size="sm" value={filterSearch} placeholder="Subject or from…" class="w-48" />
           </div>
           <div>
-            <label class="block text-xs font-medium text-gray-500 mb-1">Read status</label>
+            <label class="block text-xs font-medium text-gray-500 mb-1">Read</label>
             <Select name="read" size="sm">
               <option value="" selected={!filterRead}>All</option>
               <option value="unread" selected={filterRead === "unread"}>Unread</option>

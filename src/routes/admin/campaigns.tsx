@@ -200,13 +200,7 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
           </div>
           <div>
             <label class="block text-xs font-medium text-gray-500 mb-1">Search</label>
-            <input
-              type="text"
-              name="search"
-              value={filterSearch}
-              placeholder="Subject…"
-              class="px-2 py-1.5 text-sm border border-gray-300 rounded-md font-[inherit] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            />
+            <Input type="text" name="search" size="sm" value={filterSearch} placeholder="Subject…" class="w-48" />
           </div>
           <input type="hidden" name="page" value="1" />
           <Button type="submit" size="sm">Filter</Button>

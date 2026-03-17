@@ -132,13 +132,7 @@ export function mountSubscriberRoutes(app: Hono, db: Db, config: Config) {
         <form method="get" action="/admin/subscribers" class="flex items-end gap-3 mb-6 flex-wrap">
           <div>
             <label class="block text-xs font-medium text-gray-500 mb-1">Search</label>
-            <input
-              type="text"
-              name="search"
-              value={filterSearch}
-              placeholder="email, name…"
-              class="px-2 py-1.5 border border-gray-300 rounded-md text-sm font-[inherit] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            />
+            <Input type="text" name="search" size="sm" value={filterSearch} placeholder="Email or name…" class="w-48" />
           </div>
           <div>
             <label class="block text-xs font-medium text-gray-500 mb-1">Status</label>
