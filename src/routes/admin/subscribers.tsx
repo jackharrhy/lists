@@ -437,7 +437,8 @@ export function mountSubscriberRoutes(app: Hono, db: Db, config: Config) {
     const email = String(body["email"] ?? "").trim().toLowerCase();
     const firstName = String(body["firstName"] ?? "").trim() || null;
     const lastName = String(body["lastName"] ?? "").trim() || null;
-    const status = String(body["status"] ?? "active");
+    const rawStatus = String(body["status"] ?? "active");
+    const status = ["active", "blocklisted"].includes(rawStatus) ? rawStatus : "active";
 
     db.update(schema.subscribers)
       .set({ email, firstName, lastName, status })
@@ -549,7 +550,8 @@ export function mountSubscriberRoutes(app: Hono, db: Db, config: Config) {
     const subId = Number(c.req.param("id"));
     const listId = Number(c.req.param("listId"));
     const body = await c.req.parseBody();
-    const listStatus = String(body["listStatus"] ?? "unconfirmed");
+    const rawListStatus = String(body["listStatus"] ?? "unconfirmed");
+    const listStatus = ["unconfirmed", "confirmed", "unsubscribed"].includes(rawListStatus) ? rawListStatus : "unconfirmed";
     db.insert(schema.subscriberLists)
       .values({ subscriberId: subId, listId, status: listStatus })
       .onConflictDoNothing()
@@ -561,7 +563,8 @@ export function mountSubscriberRoutes(app: Hono, db: Db, config: Config) {
     const subId = Number(c.req.param("id"));
     const listId = Number(c.req.param("listId"));
     const body = await c.req.parseBody();
-    const listStatus = String(body["listStatus"] ?? "unconfirmed");
+    const rawListStatus = String(body["listStatus"] ?? "unconfirmed");
+    const listStatus = ["unconfirmed", "confirmed", "unsubscribed"].includes(rawListStatus) ? rawListStatus : "unconfirmed";
     db.update(schema.subscriberLists)
       .set({ status: listStatus })
       .where(

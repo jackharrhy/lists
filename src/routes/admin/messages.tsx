@@ -377,10 +377,11 @@ export function mountMessageRoutes(app: Hono, db: Db, config: Config) {
     const body = await c.req.parseBody();
     const fromAddr = String(body["fromAddr"] ?? "").trim();
     const toAddr = String(body["toAddr"] ?? "").trim();
-    const subject = String(body["subject"] ?? "").trim();
+    const subject = String(body["subject"] ?? "").replace(/[\r\n]/g, " ").trim();
     const replyBody = String(body["body"] ?? "").trim();
 
-    if (!fromAddr || !toAddr || !subject || !replyBody) {
+    const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!fromAddr || !toAddr || !subject || !replyBody || !emailRe.test(fromAddr) || !emailRe.test(toAddr)) {
       return c.redirect(`/admin/inbound/${id}`);
     }
 

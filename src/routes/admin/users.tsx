@@ -59,7 +59,9 @@ export function mountUserRoutes(app: Hono, db: Db, config: Config) {
     const email = String(body["email"] ?? "").trim().toLowerCase();
     const name = String(body["name"] ?? "").trim() || null;
     const password = String(body["password"] ?? "");
-    const role = String(body["role"] ?? "member");
+    const rawRole = String(body["role"] ?? "member");
+    const allowedRoles = user.role === "owner" ? ["owner", "admin", "member"] : ["admin", "member"];
+    const role = allowedRoles.includes(rawRole) ? rawRole : "member";
 
     if (!email || !password) {
       return c.redirect("/admin/users/new");

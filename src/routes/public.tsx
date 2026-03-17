@@ -157,8 +157,8 @@ export function publicRoutes(db: Db, config: Config) {
   app.post("/subscribe", async (c) => {
     const body = await c.req.parseBody({ all: true });
     const email = String(body["email"] ?? "").trim();
-    const firstName = body["firstName"] ? String(body["firstName"]).trim() : null;
-    const lastName = body["lastName"] ? String(body["lastName"]).trim() : null;
+    const firstName = String(body["firstName"] ?? "").trim().slice(0, 255) || null;
+    const lastName = String(body["lastName"] ?? "").trim().slice(0, 255) || null;
 
     let listSlugs: string[] = [];
     const raw = body["lists"];
@@ -168,7 +168,12 @@ export function publicRoutes(db: Db, config: Config) {
       listSlugs = [raw];
     }
 
-    if (!email || listSlugs.length === 0) {
+    const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!email || !emailRe.test(email)) {
+      return c.html(<Layout><h1>Invalid email</h1><p>Please enter a valid email address.</p></Layout>, 400);
+    }
+
+    if (listSlugs.length === 0) {
       return c.html(
         <Layout>
           <h1 class="text-2xl font-bold mb-6">Subscribe</h1>
@@ -308,7 +313,8 @@ export function publicRoutes(db: Db, config: Config) {
   // GET /unsubscribe/:token/:listId - per-list unsubscribe
   app.get("/unsubscribe/:token/:listId", (c) => {
     const token = c.req.param("token");
-    const listId = Number(c.req.param("listId"));
+    const listId = parseInt(c.req.param("listId"), 10);
+    if (isNaN(listId)) return c.text("Bad Request", 400);
     const list = db.select().from(schema.lists).where(eq(schema.lists.id, listId)).get();
     const ok = unsubscribeFromList(db, token, listId);
 
@@ -350,7 +356,8 @@ export function publicRoutes(db: Db, config: Config) {
   // POST /unsubscribe/:token/:listId - RFC 8058 one-click per-list
   app.post("/unsubscribe/:token/:listId", (c) => {
     const token = c.req.param("token");
-    const listId = Number(c.req.param("listId"));
+    const listId = parseInt(c.req.param("listId"), 10);
+    if (isNaN(listId)) return c.text("Bad Request", 400);
     unsubscribeFromList(db, token, listId);
     return c.text("Unsubscribed", 200);
   });
@@ -453,13 +460,8 @@ export function publicRoutes(db: Db, config: Config) {
     const token = c.req.param("token");
     const body = await c.req.parseBody({ all: true });
 
-    let listIds: number[] = [];
-    const raw = body["listIds"];
-    if (Array.isArray(raw)) {
-      listIds = raw.map(Number);
-    } else if (typeof raw === "string") {
-      listIds = [Number(raw)];
-    }
+    const rawIds = Array.isArray(body["listIds"]) ? body["listIds"] : [body["listIds"]].filter(Boolean);
+    const listIds = rawIds.map(Number).filter(n => Number.isInteger(n) && n > 0);
 
     updatePreferences(db, token, listIds);
 

@@ -364,7 +364,13 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
     const subject = String(body["subject"] ?? "").trim();
     const bodyMarkdown = String(body["bodyMarkdown"] ?? "");
 
-    const audienceMode = String(body["audienceMode"] ?? "list");
+    const validModes = ["list", "all", "tag", "specific"] as const;
+    let audienceMode = validModes.includes(body["audienceMode"] as any) ? body["audienceMode"] as string : "list";
+
+    if (audienceMode === "all" && !["owner", "admin"].includes(user.role)) {
+      audienceMode = "list"; // fallback
+    }
+
     let audienceType: string = audienceMode === "specific" ? "subscribers" : audienceMode;
     let audienceId: number | null = null;
     let audienceData: string | null = null;
@@ -858,7 +864,13 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
     const subject = String(body["subject"] ?? "").trim();
     const bodyMarkdown = String(body["bodyMarkdown"] ?? "");
 
-    const audienceMode = String(body["audienceMode"] ?? "list");
+    const validModes = ["list", "all", "tag", "specific"] as const;
+    let audienceMode = validModes.includes(body["audienceMode"] as any) ? body["audienceMode"] as string : "list";
+
+    if (audienceMode === "all" && !["owner", "admin"].includes(user.role)) {
+      audienceMode = "list"; // fallback
+    }
+
     let audienceType: string = audienceMode === "specific" ? "subscribers" : audienceMode;
     let audienceId: number | null = null;
     let audienceData: string | null = null;

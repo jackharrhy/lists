@@ -39,13 +39,15 @@ export function apiRoutes(db: Db, config: Config) {
   });
 
   app.delete("/subscribers/:id", (c) => {
-    const id = Number(c.req.param("id"));
+    const id = parseInt(c.req.param("id"), 10);
+    if (isNaN(id)) return c.json({ error: "Invalid subscriber id" }, 400);
     db.delete(schema.subscribers).where(eq(schema.subscribers.id, id)).run();
     return c.json({ ok: true });
   });
 
   app.post("/campaigns/:id/send", async (c) => {
-    const id = Number(c.req.param("id"));
+    const id = parseInt(c.req.param("id"), 10);
+    if (isNaN(id)) return c.json({ error: "Invalid campaign id" }, 400);
     try {
       await sendCampaign(db, config, id);
       return c.json({ ok: true });
