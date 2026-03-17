@@ -3,7 +3,9 @@ import {
   ReceiveMessageCommand,
   DeleteMessageCommand,
 } from "@aws-sdk/client-sqs";
+import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
 import { eq, desc, and } from "drizzle-orm";
+import { simpleParser } from "mailparser";
 import type { Config } from "../config";
 import type { Db } from "../db";
 import { schema } from "../db";
@@ -33,8 +35,19 @@ type SQSPayload = {
   };
 };
 
+async function fetchAndParseEmail(s3: S3Client, bucket: string, key: string) {
+  const resp = await s3.send(
+    new GetObjectCommand({ Bucket: bucket, Key: key }),
+  );
+  const bodyBytes = await resp.Body?.transformToByteArray();
+  if (!bodyBytes) return null;
+  const parsed = await simpleParser(Buffer.from(bodyBytes));
+  return parsed;
+}
+
 export async function startPoller(db: Db, config: Config) {
   const sqs = new SQSClient({ region: config.awsRegion });
+  const s3 = new S3Client({ region: config.awsRegion });
   const queueUrl = config.sqsQueueUrl;
 
   console.log(`Polling SQS queue: ${queueUrl}`);
@@ -59,106 +72,149 @@ export async function startPoller(db: Db, config: Config) {
             payload.action.objectKey ||
             payload.action.objectKeyPrefix + payload.messageId;
 
-          // try to match inbound to a campaign via reply-to address
-          // campaign sends use Reply-To: {list.slug}@reply.{domain}
+          // Parse raw email from S3 for body content and reliable headers
+          let bodyText: string | null = null;
+          let bodyHtml: string | null = null;
+          let parsedRfc822MessageId: string | null = null;
+          let parsedInReplyTo: string | null = null;
+
+          try {
+            const parsed = await fetchAndParseEmail(s3, config.s3Bucket, s3Key);
+            if (parsed) {
+              bodyText = parsed.text ?? null;
+              bodyHtml = parsed.html || null;
+              // Prefer parsed headers over Lambda payload (more reliable)
+              parsedRfc822MessageId = parsed.messageId ?? null;
+              parsedInReplyTo = parsed.inReplyTo
+                ? (typeof parsed.inReplyTo === "string"
+                  ? parsed.inReplyTo
+                  : parsed.inReplyTo.text ?? null)
+                : null;
+            }
+          } catch (err) {
+            console.error(`Failed to fetch/parse email from S3 (${s3Key}):`, err);
+          }
+
+          // Use parsed values with fallback to Lambda payload
+          const rfc822MessageId = parsedRfc822MessageId ?? payload.rfc822MessageId ?? null;
+          const inReplyTo = parsedInReplyTo ?? payload.inReplyTo ?? null;
+          const fromAddr = payload.from[0] ?? payload.source;
+          const toAddr = payload.to[0] ?? "";
+
+          // Thread matching
+          let parentId: number | null = null;
+          let threadId = 0; // will be set to self.id for new thread roots
           let campaignId: number | null = null;
-          for (const toAddr of payload.to) {
-            const match = toAddr.match(/^([^@]+)@reply\./);
-            if (!match) continue;
-            const slug = match[1];
-            const list = db
-              .select()
-              .from(schema.lists)
-              .where(eq(schema.lists.slug, slug!))
+
+          if (inReplyTo) {
+            // 1. Check inReplyTo against messages.rfc822MessageId
+            const parentMsg = db
+              .select({ id: schema.messages.id, threadId: schema.messages.threadId })
+              .from(schema.messages)
+              .where(eq(schema.messages.rfc822MessageId, inReplyTo))
               .get();
-            if (!list) continue;
-            // find the most recent sent campaign for this list
-            const campaign = db
-              .select()
-              .from(schema.campaigns)
-              .where(
-                and(
-                  eq(schema.campaigns.listId, list.id),
-                  eq(schema.campaigns.status, "sent"),
-                ),
-              )
-              .orderBy(desc(schema.campaigns.sentAt))
-              .get();
-            if (campaign) {
-              campaignId = campaign.id;
-              break;
+
+            if (parentMsg) {
+              parentId = parentMsg.id;
+              threadId = parentMsg.threadId;
+            } else {
+              // 2. Check inReplyTo against campaignSends.rfc822MessageId
+              const campaignSend = db
+                .select({
+                  campaignId: schema.campaignSends.campaignId,
+                })
+                .from(schema.campaignSends)
+                .where(eq(schema.campaignSends.rfc822MessageId, inReplyTo))
+                .get();
+
+              if (campaignSend) {
+                campaignId = campaignSend.campaignId;
+                // new thread root — threadId set after insert
+              }
             }
           }
 
-          // thread linking: check if this is a reply to one of our sent replies
-          let parentMessageId: number | null = null;
-          const inReplyTo = payload.inReplyTo;
-          if (inReplyTo) {
-            // strip angle brackets for matching: <abc@ses> -> abc@ses
-            const cleanId = inReplyTo.replace(/^<|>$/g, "");
-            // check if inReplyTo matches any of our sent replies' SES message ID
-            const parentReply = db
-              .select({ inboundMessageId: schema.replies.inboundMessageId })
-              .from(schema.replies)
-              .where(eq(schema.replies.sesMessageId, cleanId))
-              .get();
-            if (parentReply) {
-              parentMessageId = parentReply.inboundMessageId;
-            }
-          }
-          // fallback: check References array
-          if (!parentMessageId && payload.references) {
-            for (const ref of payload.references) {
-              const cleanRef = ref.replace(/^<|>$/g, "");
-              const parentReply = db
-                .select({ inboundMessageId: schema.replies.inboundMessageId })
-                .from(schema.replies)
-                .where(eq(schema.replies.sesMessageId, cleanRef))
+          // 5. If no match via inReplyTo, try campaign linkage via reply-to slug
+          if (!parentId && !campaignId) {
+            for (const toAddress of payload.to) {
+              const match = toAddress.match(/^([^@]+)@reply\./);
+              if (!match) continue;
+              const slug = match[1];
+              const list = db
+                .select()
+                .from(schema.lists)
+                .where(eq(schema.lists.slug, slug!))
                 .get();
-              if (parentReply) {
-                parentMessageId = parentReply.inboundMessageId;
+              if (!list) continue;
+              // find campaigns that targeted this list
+              const campaign = db
+                .select()
+                .from(schema.campaigns)
+                .where(
+                  and(
+                    eq(schema.campaigns.audienceType, "list"),
+                    eq(schema.campaigns.audienceId, list.id),
+                    eq(schema.campaigns.status, "sent"),
+                  ),
+                )
+                .orderBy(desc(schema.campaigns.sentAt))
+                .get();
+              if (campaign) {
+                campaignId = campaign.id;
                 break;
               }
             }
           }
 
-          db.insert(schema.inboundMessages)
+          // Insert into messages table
+          // sesMessageId is the SES internal ID (payload.messageId) — used for dedup
+          const inserted = db
+            .insert(schema.messages)
             .values({
-              messageId: payload.messageId,
-              rfc822MessageId: payload.rfc822MessageId ?? null,
-              inReplyTo: inReplyTo ?? null,
-              parentMessageId,
-              timestamp: payload.timestamp,
-              source: payload.source,
-              fromAddrs: JSON.stringify(payload.from),
-              toAddrs: JSON.stringify(payload.to),
+              threadId,
+              parentId,
+              direction: "inbound",
+              rfc822MessageId,
+              inReplyTo,
+              fromAddr,
+              toAddr,
               subject: payload.subject,
+              bodyText,
+              bodyHtml,
+              sesMessageId: payload.messageId,
+              s3Key,
               spamVerdict: payload.spamVerdict,
               virusVerdict: payload.virusVerdict,
               spfVerdict: payload.spfVerdict,
               dkimVerdict: payload.dkimVerdict,
               dmarcVerdict: payload.dmarcVerdict,
-              s3Key,
               campaignId,
             })
             .onConflictDoNothing({
-              target: schema.inboundMessages.messageId,
+              target: schema.messages.sesMessageId,
             })
-            .run();
-
-          const inserted = db.select().from(schema.inboundMessages).where(eq(schema.inboundMessages.messageId, payload.messageId)).get();
+            .returning()
+            .get();
 
           if (inserted) {
+            // For new thread roots (threadId === 0), set threadId = self.id
+            if (inserted.threadId === 0) {
+              db.update(schema.messages)
+                .set({ threadId: inserted.id })
+                .where(eq(schema.messages.id, inserted.id))
+                .run();
+            }
+
             logEvent(db, {
               type: "inbound.received",
-              detail: `Inbound from ${payload.source}: ${payload.subject}`,
-              inboundMessageId: inserted.id,
+              detail: `Inbound from ${fromAddr}: ${payload.subject}`,
+              messageId: inserted.id,
               campaignId: campaignId ?? undefined,
             });
           }
 
           console.log(
-            `Stored inbound message ${payload.messageId} from ${payload.source} (${payload.subject})${campaignId ? ` [campaign ${campaignId}]` : ""}`,
+            `Stored message ${payload.messageId} from ${fromAddr} (${payload.subject})${campaignId ? ` [campaign ${campaignId}]` : ""}`,
           );
 
           await sqs.send(

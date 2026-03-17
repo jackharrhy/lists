@@ -85,18 +85,18 @@ export const subscriberTags = sqliteTable("subscriber_tags", {
 
 export const campaigns = sqliteTable("campaigns", {
   id: integer("id").primaryKey({ autoIncrement: true }),
-  listId: integer("list_id")
-    .references(() => lists.id),
   subject: text("subject").notNull(),
   bodyMarkdown: text("body_markdown").notNull(),
   templateSlug: text("template_slug").notNull().default("newsletter"),
   fromAddress: text("from_address").notNull(),
-  audience: text("audience"),
+  audienceType: text("audience_type", {
+    enum: ["list", "tag", "all", "subscribers"],
+  }).notNull(),
+  audienceId: integer("audience_id"),
+  audienceData: text("audience_data"),
   status: text("status", {
     enum: ["draft", "sending", "sent", "failed"],
-  })
-    .notNull()
-    .default("draft"),
+  }).notNull().default("draft"),
   lastError: text("last_error"),
   sentAt: text("sent_at"),
   createdAt: text("created_at")
@@ -106,57 +106,37 @@ export const campaigns = sqliteTable("campaigns", {
 
 export const campaignSends = sqliteTable("campaign_sends", {
   id: integer("id").primaryKey({ autoIncrement: true }),
-  campaignId: integer("campaign_id")
-    .notNull()
-    .references(() => campaigns.id),
-  subscriberId: integer("subscriber_id")
-    .notNull()
-    .references(() => subscribers.id),
+  campaignId: integer("campaign_id").notNull().references(() => campaigns.id),
+  subscriberId: integer("subscriber_id").notNull().references(() => subscribers.id),
   sesMessageId: text("ses_message_id"),
-  status: text("status", {
-    enum: ["pending", "sent", "bounced"],
-  })
-    .notNull()
-    .default("pending"),
+  rfc822MessageId: text("rfc822_message_id"),
+  status: text("status", { enum: ["pending", "sent", "bounced"] }).notNull().default("pending"),
   sentAt: text("sent_at"),
 });
 
-export const inboundMessages = sqliteTable("inbound_messages", {
+export const messages = sqliteTable("messages", {
   id: integer("id").primaryKey({ autoIncrement: true }),
-  messageId: text("message_id").unique().notNull(),
+  threadId: integer("thread_id").notNull(),
+  parentId: integer("parent_id"),
+  direction: text("direction", { enum: ["inbound", "outbound"] }).notNull(),
   rfc822MessageId: text("rfc822_message_id"),
   inReplyTo: text("in_reply_to"),
-  parentMessageId: integer("parent_message_id"),
-  timestamp: text("timestamp").notNull(),
-  source: text("source").notNull(),
-  fromAddrs: text("from_addrs").notNull(),
-  toAddrs: text("to_addrs").notNull(),
+  fromAddr: text("from_addr").notNull(),
+  toAddr: text("to_addr").notNull(),
   subject: text("subject").notNull(),
+  bodyText: text("body_text"),
+  bodyHtml: text("body_html"),
+  sesMessageId: text("ses_message_id").unique(),
+  s3Key: text("s3_key"),
   spamVerdict: text("spam_verdict"),
   virusVerdict: text("virus_verdict"),
   spfVerdict: text("spf_verdict"),
   dkimVerdict: text("dkim_verdict"),
   dmarcVerdict: text("dmarc_verdict"),
-  s3Key: text("s3_key"),
   campaignId: integer("campaign_id").references(() => campaigns.id),
   readAt: text("read_at"),
+  sentAt: text("sent_at"),
   createdAt: text("created_at")
-    .notNull()
-    .$defaultFn(() => new Date().toISOString()),
-});
-
-export const replies = sqliteTable("replies", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  inboundMessageId: integer("inbound_message_id")
-    .notNull()
-    .references(() => inboundMessages.id),
-  fromAddr: text("from_addr").notNull(),
-  toAddr: text("to_addr").notNull(),
-  subject: text("subject").notNull(),
-  body: text("body").notNull(),
-  sesMessageId: text("ses_message_id"),
-  inReplyTo: text("in_reply_to"),
-  sentAt: text("sent_at")
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
 });
@@ -165,11 +145,11 @@ export const events = sqliteTable("events", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   type: text("type").notNull(),
   detail: text("detail").notNull().default(""),
-  meta: text("meta"), // JSON blob for structured data
+  meta: text("meta"),
   userId: integer("user_id").references(() => users.id),
   subscriberId: integer("subscriber_id").references(() => subscribers.id),
   campaignId: integer("campaign_id").references(() => campaigns.id),
-  inboundMessageId: integer("inbound_message_id").references(() => inboundMessages.id),
+  messageId: integer("message_id").references(() => messages.id),
   createdAt: text("created_at")
     .notNull()
     .$defaultFn(() => new Date().toISOString()),

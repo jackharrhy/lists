@@ -105,7 +105,7 @@ export function buildRawEmail({
   text: string;
   fromDomain: string;
   headers: Record<string, string>;
-}): string {
+}): { raw: string; messageId: string } {
   const boundary = `----=_Part_${Date.now().toString(36)}`;
   const messageId = `<${crypto.randomUUID()}@${fromDomain}>`;
 
@@ -138,7 +138,10 @@ export function buildRawEmail({
     `--${boundary}--`,
   ].join("\r\n");
 
-  return headerLines.join("\r\n") + "\r\n\r\n" + body;
+  return {
+    raw: headerLines.join("\r\n") + "\r\n\r\n" + body,
+    messageId,
+  };
 }
 
 export async function sendCampaign(
@@ -152,11 +155,13 @@ export async function sendCampaign(
     throw new Error(`Campaign ${campaignId} is ${campaign.status}, must be draft or failed to send`);
   }
 
-  // Resolve list (may be null for "all subscribers" campaigns)
-  const list = campaign.listId
-    ? db.select().from(schema.lists).where(eq(schema.lists.id, campaign.listId)).get()
+  // Resolve list when audienceType is "list"
+  const list = campaign.audienceType === "list" && campaign.audienceId
+    ? db.select().from(schema.lists).where(eq(schema.lists.id, campaign.audienceId)).get()
     : null;
-  if (campaign.listId && !list) throw new Error(`List ${campaign.listId} not found`);
+  if (campaign.audienceType === "list" && !list) {
+    throw new Error(`List ${campaign.audienceId} not found for campaign ${campaignId}`);
+  }
 
   db.update(schema.campaigns)
     .set({ status: "sending", lastError: null })
@@ -171,24 +176,28 @@ export async function sendCampaign(
 
   try {
     let subscribers: { id: number; email: string; firstName: string | null; lastName: string | null; unsubscribeToken: string }[];
-    if (list) {
-      subscribers = getConfirmedSubscribers(db, list.id);
-    } else if (campaign.audience) {
-      const aud = JSON.parse(campaign.audience) as { type: string; tagId?: number; subscriberIds?: number[] };
 
-      if (aud.type === "all") {
-        subscribers = getAllActiveConfirmedSubscribers(db);
-      } else if (aud.type === "tag" && aud.tagId) {
-        subscribers = getSubscribersByTag(db, aud.tagId);
-      } else if (aud.type === "subscribers" && aud.subscriberIds) {
-        subscribers = getSubscribersByIds(db, aud.subscriberIds);
-      } else {
-        throw new Error(`Unknown audience type: ${aud.type}`);
+    switch (campaign.audienceType) {
+      case "list":
+        subscribers = getConfirmedSubscribers(db, campaign.audienceId!);
+        break;
+      case "tag":
+        if (!campaign.audienceId) throw new Error("Tag audience requires audienceId");
+        subscribers = getSubscribersByTag(db, campaign.audienceId);
+        break;
+      case "subscribers": {
+        if (!campaign.audienceData) throw new Error("Subscribers audience requires audienceData");
+        const ids = JSON.parse(campaign.audienceData) as number[];
+        subscribers = getSubscribersByIds(db, ids);
+        break;
       }
-    } else {
-      // fallback: no list, no audience — shouldn't happen but handle gracefully
-      subscribers = getAllActiveConfirmedSubscribers(db);
+      case "all":
+        subscribers = getAllActiveConfirmedSubscribers(db);
+        break;
+      default:
+        throw new Error(`Unknown audience type: ${campaign.audienceType}`);
     }
+
     const ses = new SESv2Client({ region: config.awsRegion });
 
     // figure out which subscribers already got this (for retries)
@@ -212,7 +221,7 @@ export async function sendCampaign(
       ? `"${list.name}" <${campaign.fromAddress}>`
       : campaign.fromAddress;
     const emailFromDomain = list
-      ? config.fromDomain
+      ? list.fromDomain
       : (campaign.fromAddress.split("@")[1] ?? config.fromDomain);
 
     for (const subscriber of subscribers) {
@@ -242,7 +251,7 @@ export async function sendCampaign(
         preferencesUrl,
       });
 
-      const rawEmail = buildRawEmail({
+      const { raw: rawEmail, messageId: rfc822MessageId } = buildRawEmail({
         from: fromWithName,
         to: subscriber.email,
         subject: campaign.subject,
@@ -272,6 +281,7 @@ export async function sendCampaign(
             campaignId,
             subscriberId: subscriber.id,
             sesMessageId: result.MessageId ?? null,
+            rfc822MessageId,
             status: "sent",
             sentAt: new Date().toISOString(),
           })
@@ -282,6 +292,7 @@ export async function sendCampaign(
           .values({
             campaignId,
             subscriberId: subscriber.id,
+            rfc822MessageId,
             status: "bounced",
             sentAt: new Date().toISOString(),
           })

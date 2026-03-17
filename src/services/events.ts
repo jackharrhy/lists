@@ -8,7 +8,7 @@ type LogEventOpts = {
   userId?: number;
   subscriberId?: number;
   campaignId?: number;
-  inboundMessageId?: number;
+  messageId?: number;
 };
 
 export function logEvent(db: Db, opts: LogEventOpts) {
@@ -20,7 +20,7 @@ export function logEvent(db: Db, opts: LogEventOpts) {
       userId: opts.userId ?? null,
       subscriberId: opts.subscriberId ?? null,
       campaignId: opts.campaignId ?? null,
-      inboundMessageId: opts.inboundMessageId ?? null,
+      messageId: opts.messageId ?? null,
     })
     .run();
 }
