@@ -210,7 +210,7 @@ export function mountMessageRoutes(app: Hono, db: Db, config: Config) {
             </div>
           )}
           <input type="hidden" name="page" value="1" />
-          <Button type="submit" size="sm">Filter</Button>
+          <Button type="submit" size="filter">Filter</Button>
           {(filterSearch || filterRead || filterCampaign) && (
             <a href="/admin/inbound" class="text-sm text-gray-500 hover:text-gray-700 no-underline">Clear</a>
           )}

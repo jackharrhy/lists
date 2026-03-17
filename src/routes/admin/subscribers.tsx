@@ -151,7 +151,7 @@ export function mountSubscriberRoutes(app: Hono, db: Db, config: Config) {
             </Select>
           </div>
           <input type="hidden" name="page" value="1" />
-          <Button type="submit" size="sm">Filter</Button>
+          <Button type="submit" size="filter">Filter</Button>
           {hasFilters && (
             <a href="/admin/subscribers" class="text-sm text-gray-500 hover:text-gray-700 no-underline">Clear</a>
           )}

@@ -45,6 +45,7 @@ export function Button({ children, variant = "primary", size = "md", ...props }:
   const sizes = {
     sm: "px-2 py-1 text-xs rounded",
     md: "px-4 py-2 text-sm rounded-md",
+    filter: "px-3 py-1.5 text-sm rounded-md",
   };
   const variants = {
     primary: "bg-blue-600 text-white hover:bg-blue-700",

@@ -203,7 +203,7 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
             <Input type="text" name="search" size="sm" value={filterSearch} placeholder="Subject…" class="w-48" />
           </div>
           <input type="hidden" name="page" value="1" />
-          <Button type="submit" size="sm">Filter</Button>
+          <Button type="submit" size="filter">Filter</Button>
           {(filterStatus || filterSearch) && (
             <a href="/admin/campaigns" class="text-sm text-gray-500 hover:text-gray-700 no-underline">Clear</a>
           )}
