@@ -10,6 +10,7 @@ import { renderConfirmation } from "../../../emails/render";
 import { buildConfirmUrl } from "../../compliance";
 import { logEvent } from "../../services/events";
 import { AdminLayout, displayName, fmtDate, fmtDateTime, type User } from "./layout";
+import { Button, LinkButton, Input, Select, Label, FormGroup, Table, Th, Td, Card, PageHeader } from "./ui";
 
 export function mountSubscriberRoutes(app: Hono, db: Db, config: Config) {
    app.get("/subscribers", (c) => {
@@ -45,38 +46,35 @@ export function mountSubscriberRoutes(app: Hono, db: Db, config: Config) {
 
     return c.html(
       <AdminLayout title="Subscribers" user={user}>
-        <h1 class="text-2xl font-bold mt-0 mb-4">Subscribers</h1>
-        <p class="mb-6">
-          <a href="/admin/subscribers/new" class="inline-block px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none no-underline">
-            Add Subscriber
-          </a>
-        </p>
-        <table class="w-full bg-white rounded-lg overflow-hidden mb-6 text-sm">
+        <PageHeader title="Subscribers">
+          <LinkButton href="/admin/subscribers/new">Add Subscriber</LinkButton>
+        </PageHeader>
+        <Table>
           <thead>
             <tr>
-              <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Email</th>
-              <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Name</th>
-              <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Status</th>
-              <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Created</th>
-              <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200"></th>
+              <Th>Email</Th>
+              <Th>Name</Th>
+              <Th>Status</Th>
+              <Th>Created</Th>
+              <Th></Th>
             </tr>
           </thead>
           <tbody>
             {allSubscribers.map((sub) => (
               <tr>
-                <td class="px-4 py-3 border-b border-gray-100"><a href={`/admin/subscribers/${sub.id}`} class="text-blue-600 hover:text-blue-800">{sub.email}</a></td>
-                <td class="px-4 py-3 border-b border-gray-100">{displayName(sub)}</td>
-                <td class="px-4 py-3 border-b border-gray-100">{sub.status}</td>
-                <td class="px-4 py-3 border-b border-gray-100">{fmtDate(sub.createdAt)}</td>
-                <td class="px-4 py-3 border-b border-gray-100">
+                <Td><a href={`/admin/subscribers/${sub.id}`} class="text-blue-600 hover:text-blue-800">{sub.email}</a></Td>
+                <Td>{displayName(sub)}</Td>
+                <Td>{sub.status}</Td>
+                <Td>{fmtDate(sub.createdAt)}</Td>
+                <Td>
                   <form method="post" action={`/admin/subscribers/${sub.id}/delete`} class="m-0" onsubmit={`return confirm('Delete ${sub.email}?')`}>
                     <button type="submit" class="bg-transparent border-none text-red-600 cursor-pointer text-sm p-0">delete</button>
                   </form>
-                </td>
+                </Td>
               </tr>
             ))}
           </tbody>
-        </table>
+        </Table>
       </AdminLayout>,
     );
   });
@@ -97,28 +95,28 @@ export function mountSubscriberRoutes(app: Hono, db: Db, config: Config) {
     return c.html(
       <AdminLayout title="Add Subscriber" user={user}>
         <h1 class="text-2xl font-bold mt-0 mb-4">Add Subscriber</h1>
-        <div class="bg-white border border-gray-200 rounded-lg p-5 mb-6">
+        <Card>
           <form method="post" action="/admin/subscribers/new">
-            <div class="mb-4">
-              <label for="email" class="block text-sm font-medium text-gray-700 mb-1">Email</label>
-              <input type="email" id="email" name="email" required class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
-            </div>
-            <div class="mb-4">
-              <label for="firstName" class="block text-sm font-medium text-gray-700 mb-1">First name (optional)</label>
-              <input type="text" id="firstName" name="firstName" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
-            </div>
-            <div class="mb-4">
-              <label for="lastName" class="block text-sm font-medium text-gray-700 mb-1">Last name (optional)</label>
-              <input type="text" id="lastName" name="lastName" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
-            </div>
-            <div class="mb-4">
+            <FormGroup>
+              <Label for="email">Email</Label>
+              <Input type="email" id="email" name="email" required />
+            </FormGroup>
+            <FormGroup>
+              <Label for="firstName">First name (optional)</Label>
+              <Input type="text" id="firstName" name="firstName" />
+            </FormGroup>
+            <FormGroup>
+              <Label for="lastName">Last name (optional)</Label>
+              <Input type="text" id="lastName" name="lastName" />
+            </FormGroup>
+            <FormGroup>
               <label class="flex items-center gap-2 text-sm font-medium text-gray-700">
                 <input type="checkbox" name="skip_confirm" value="1" />
                 Pre-confirm list subscriptions (skip double opt-in)
               </label>
-            </div>
+            </FormGroup>
             {allLists.length > 0 && (
-              <div class="mb-4">
+              <FormGroup>
                 <p class="text-sm font-medium text-gray-700 mb-2">Lists</p>
                 {allLists.map((list) => (
                   <label class="flex items-center gap-2 text-sm text-gray-800 mb-1">
@@ -126,11 +124,11 @@ export function mountSubscriberRoutes(app: Hono, db: Db, config: Config) {
                     {list.name}
                   </label>
                 ))}
-              </div>
+              </FormGroup>
             )}
-            <button type="submit" class="inline-block px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none no-underline">Add Subscriber</button>
+            <Button type="submit">Add Subscriber</Button>
           </form>
-        </div>
+        </Card>
       </AdminLayout>,
     );
   });
@@ -231,27 +229,27 @@ export function mountSubscriberRoutes(app: Hono, db: Db, config: Config) {
         <h1 class="text-2xl font-bold mt-0 mb-4">{sub.email}</h1>
 
         <form method="post" action={`/admin/subscribers/${id}/edit`}>
-          <div class="mb-4">
-            <label for="email" class="block text-sm font-medium text-gray-700 mb-1">Email</label>
-            <input type="email" id="email" name="email" required value={sub.email} class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
-          </div>
-          <div class="mb-4">
-            <label for="firstName" class="block text-sm font-medium text-gray-700 mb-1">First name</label>
-            <input type="text" id="firstName" name="firstName" value={sub.firstName ?? ""} class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
-          </div>
-          <div class="mb-4">
-            <label for="lastName" class="block text-sm font-medium text-gray-700 mb-1">Last name</label>
-            <input type="text" id="lastName" name="lastName" value={sub.lastName ?? ""} class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
-          </div>
-          <div class="mb-4">
-            <label for="status" class="block text-sm font-medium text-gray-700 mb-1">Status</label>
-            <select id="status" name="status" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+          <FormGroup>
+            <Label for="email">Email</Label>
+            <Input type="email" id="email" name="email" required value={sub.email} />
+          </FormGroup>
+          <FormGroup>
+            <Label for="firstName">First name</Label>
+            <Input type="text" id="firstName" name="firstName" value={sub.firstName ?? ""} />
+          </FormGroup>
+          <FormGroup>
+            <Label for="lastName">Last name</Label>
+            <Input type="text" id="lastName" name="lastName" value={sub.lastName ?? ""} />
+          </FormGroup>
+          <FormGroup>
+            <Label for="status">Status</Label>
+            <Select id="status" name="status">
               <option value="active" selected={sub.status === "active"}>active</option>
               <option value="blocklisted" selected={sub.status === "blocklisted"}>blocklisted</option>
-            </select>
-          </div>
+            </Select>
+          </FormGroup>
 
-          <button type="submit" class="inline-block px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none no-underline">Save changes</button>
+          <Button type="submit">Save changes</Button>
         </form>
 
         <h2 class="text-xl font-semibold mt-6 mb-3">List subscriptions</h2>
@@ -388,24 +386,24 @@ export function mountSubscriberRoutes(app: Hono, db: Db, config: Config) {
         {subSends.length > 0 && (
           <>
             <h2 class="text-xl font-semibold mt-6 mb-3">Campaigns received ({subSends.length})</h2>
-            <table class="w-full bg-white rounded-lg overflow-hidden mb-6 text-sm">
+            <Table>
               <thead>
                 <tr>
-                  <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Campaign</th>
-                  <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Status</th>
-                  <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Sent</th>
+                  <Th>Campaign</Th>
+                  <Th>Status</Th>
+                  <Th>Sent</Th>
                 </tr>
               </thead>
               <tbody>
                 {subSends.map((s) => (
                   <tr>
-                    <td class="px-4 py-3 border-b border-gray-100"><a href={`/admin/campaigns/${s.campaignId}`} class="text-blue-600 hover:text-blue-800">{s.subject ?? `Campaign ${s.campaignId}`}</a></td>
-                    <td class="px-4 py-3 border-b border-gray-100">{s.status}</td>
-                    <td class="px-4 py-3 border-b border-gray-100">{fmtDateTime(s.sentAt)}</td>
+                    <Td><a href={`/admin/campaigns/${s.campaignId}`} class="text-blue-600 hover:text-blue-800">{s.subject ?? `Campaign ${s.campaignId}`}</a></Td>
+                    <Td>{s.status}</Td>
+                    <Td>{fmtDateTime(s.sentAt)}</Td>
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </Table>
           </>
         )}
 
@@ -426,9 +424,7 @@ export function mountSubscriberRoutes(app: Hono, db: Db, config: Config) {
 
         <hr class="my-8" />
         <form method="post" action={`/admin/subscribers/${id}/delete`} onsubmit="return confirm('Delete this subscriber and all their list subscriptions? This cannot be undone.')">
-          <button type="submit" class="inline-block px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-md hover:bg-red-700 cursor-pointer border-none no-underline">
-            Delete Subscriber
-          </button>
+          <Button type="submit" variant="danger">Delete Subscriber</Button>
         </form>
       </AdminLayout>,
     );

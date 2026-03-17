@@ -7,6 +7,7 @@ import { getAccessibleListIds } from "../../auth";
 import { createSubscriber, confirmSubscriber } from "../../services/subscriber";
 import { logEvent } from "../../services/events";
 import { AdminLayout, type User } from "./layout";
+import { Button, Input, Label, FormGroup, Table, Th, Td, Card } from "./ui";
 
 function parseCSV(text: string): string[][] {
   const rows: string[][] = [];
@@ -37,27 +38,21 @@ export function mountImportRoutes(app: Hono, db: Db, config: Config) {
     return c.html(
       <AdminLayout title="Import Subscribers" user={user}>
         <h1 class="text-2xl font-bold mt-0 mb-4">Import Subscribers</h1>
-        <div class="bg-white border border-gray-200 rounded-lg p-5 mb-6">
+        <Card>
           <form method="post" action="/admin/import/upload" enctype="multipart/form-data">
-            <div class="mb-4">
-              <label for="csv" class="block text-sm font-medium text-gray-700 mb-1">CSV File</label>
-              <input
+            <FormGroup>
+              <Label for="csv">CSV File</Label>
+              <Input
                 type="file"
                 id="csv"
                 name="csv"
                 accept=".csv"
                 required
-                class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
-            </div>
-            <button
-              type="submit"
-              class="inline-block px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none no-underline"
-            >
-              Upload CSV
-            </button>
+            </FormGroup>
+            <Button type="submit">Upload CSV</Button>
           </form>
-        </div>
+        </Card>
       </AdminLayout>,
     );
   });
@@ -115,12 +110,12 @@ export function mountImportRoutes(app: Hono, db: Db, config: Config) {
       <AdminLayout title="Map Columns" user={user}>
         <h1 class="text-2xl font-bold mt-0 mb-4">Map Columns</h1>
         <form method="post" action="/admin/import/process">
-          <div class="bg-white border border-gray-200 rounded-lg p-5 mb-6 overflow-x-auto">
-            <table class="w-full bg-white rounded-lg overflow-hidden mb-4 text-sm">
+          <Card class="overflow-x-auto">
+            <Table>
               <thead>
                 <tr>
                   {headers.map((_, i) => (
-                    <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">
+                    <Th>
                       <select
                         name={`col_${i}`}
                         class="w-full px-2 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
@@ -130,7 +125,7 @@ export function mountImportRoutes(app: Hono, db: Db, config: Config) {
                         <option value="firstName" selected={autoMappings[i] === "firstName"}>First Name</option>
                         <option value="lastName" selected={autoMappings[i] === "lastName"}>Last Name</option>
                       </select>
-                    </th>
+                    </Th>
                   ))}
                 </tr>
                 <tr>
@@ -143,19 +138,19 @@ export function mountImportRoutes(app: Hono, db: Db, config: Config) {
                 {previewRows.map((row) => (
                   <tr>
                     {headers.map((_, i) => (
-                      <td class="px-4 py-2 border-b border-gray-100 text-sm">{row[i] ?? ""}</td>
+                      <Td>{row[i] ?? ""}</Td>
                     ))}
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </Table>
             {dataRows.length > 5 && (
               <p class="text-sm text-gray-500">Showing 5 of {dataRows.length} rows.</p>
             )}
-          </div>
+          </Card>
 
           {allLists.length > 0 && (
-            <div class="bg-white border border-gray-200 rounded-lg p-5 mb-6">
+            <Card>
               <p class="text-sm font-medium text-gray-700 mb-2">Import to lists</p>
               {allLists.map((list) => (
                 <label class="flex items-center gap-2 text-sm text-gray-800 mb-1">
@@ -163,30 +158,25 @@ export function mountImportRoutes(app: Hono, db: Db, config: Config) {
                   {list.name}
                 </label>
               ))}
-            </div>
+            </Card>
           )}
 
-          <div class="bg-white border border-gray-200 rounded-lg p-5 mb-6">
+          <Card>
             <label class="flex items-center gap-2 text-sm font-medium text-gray-700">
               <input type="checkbox" name="preconfirm" value="1" />
               Pre-confirm subscribers (skip double opt-in)
             </label>
-          </div>
+          </Card>
 
-          <div class="bg-white border border-gray-200 rounded-lg p-5 mb-6">
-            <label class="block text-sm font-medium text-gray-700 mb-1">Apply tag to all imported subscribers (optional)</label>
-            <input type="text" name="importTag" placeholder="e.g. imported-2026-03" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
-          </div>
+          <Card>
+            <Label>Apply tag to all imported subscribers (optional)</Label>
+            <Input type="text" name="importTag" placeholder="e.g. imported-2026-03" />
+          </Card>
 
           <input type="hidden" name="csvData" value={JSON.stringify(dataRows)} />
           <input type="hidden" name="headers" value={JSON.stringify(headers)} />
 
-          <button
-            type="submit"
-            class="inline-block px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none no-underline"
-          >
-            Import {dataRows.length} subscribers
-          </button>
+          <Button type="submit">Import {dataRows.length} subscribers</Button>
         </form>
       </AdminLayout>,
     );
@@ -309,7 +299,7 @@ export function mountImportRoutes(app: Hono, db: Db, config: Config) {
     return c.html(
       <AdminLayout title="Import Complete" user={user}>
         <h1 class="text-2xl font-bold mt-0 mb-4">Import Complete</h1>
-        <div class="bg-white border border-gray-200 rounded-lg p-5 mb-6">
+        <Card>
           <div class="flex gap-4 mb-4">
             <div class="inline-flex flex-col items-center bg-green-50 border border-green-200 rounded-lg px-6 py-4 min-w-[120px] text-center">
               <span class="text-3xl font-bold text-green-600">{imported}</span>
@@ -325,7 +315,7 @@ export function mountImportRoutes(app: Hono, db: Db, config: Config) {
             </div>
           </div>
           <a href="/admin/subscribers" class="text-blue-600 hover:text-blue-800">View subscribers</a>
-        </div>
+        </Card>
       </AdminLayout>,
     );
   });

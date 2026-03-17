@@ -6,6 +6,7 @@ import type { Config } from "../../config";
 import { requireRole } from "../../auth";
 import { logEvent } from "../../services/events";
 import { AdminLayout, fmtDate, fmtDateTime, type User } from "./layout";
+import { Button, LinkButton, Input, Select, Label, FormGroup, Table, Th, Td, Card, PageHeader } from "./ui";
 
 export function mountUserRoutes(app: Hono, db: Db, config: Config) {
   app.get("/users/new", requireRole("owner", "admin"), (c) => {
@@ -15,27 +16,27 @@ export function mountUserRoutes(app: Hono, db: Db, config: Config) {
     return c.html(
       <AdminLayout title="Invite User" user={user}>
         <h1 class="text-2xl font-bold mt-0 mb-4">Invite User</h1>
-        <div class="bg-white border border-gray-200 rounded-lg p-5 mb-6">
+        <Card>
           <form method="post" action="/admin/users/new">
-            <div class="mb-4">
-              <label for="email" class="block text-sm font-medium text-gray-700 mb-1">Email</label>
-              <input type="email" id="email" name="email" required class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
-            </div>
-            <div class="mb-4">
-              <label for="name" class="block text-sm font-medium text-gray-700 mb-1">Name</label>
-              <input type="text" id="name" name="name" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
-            </div>
-            <div class="mb-4">
-              <label for="password" class="block text-sm font-medium text-gray-700 mb-1">Password</label>
-              <input type="password" id="password" name="password" required class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
-            </div>
-            <div class="mb-4">
-              <label for="role" class="block text-sm font-medium text-gray-700 mb-1">Role</label>
-              <select id="role" name="role" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" onchange="document.getElementById('listSection').style.display = this.value === 'member' ? 'block' : 'none'">
+            <FormGroup>
+              <Label for="email">Email</Label>
+              <Input type="email" id="email" name="email" required />
+            </FormGroup>
+            <FormGroup>
+              <Label for="name">Name</Label>
+              <Input type="text" id="name" name="name" />
+            </FormGroup>
+            <FormGroup>
+              <Label for="password">Password</Label>
+              <Input type="password" id="password" name="password" required />
+            </FormGroup>
+            <FormGroup>
+              <Label for="role">Role</Label>
+              <Select id="role" name="role" onchange="document.getElementById('listSection').style.display = this.value === 'member' ? 'block' : 'none'">
                 <option value="admin">Admin</option>
                 <option value="member" selected>Member</option>
-              </select>
-            </div>
+              </Select>
+            </FormGroup>
             <div id="listSection" class="mb-4">
               <p class="text-sm font-medium text-gray-700 mb-2">List access (for members)</p>
               {allLists.map((list) => (
@@ -45,9 +46,9 @@ export function mountUserRoutes(app: Hono, db: Db, config: Config) {
                 </label>
               ))}
             </div>
-            <button type="submit" class="inline-block px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none no-underline">Create User</button>
+            <Button type="submit">Create User</Button>
           </form>
-        </div>
+        </Card>
       </AdminLayout>,
     );
   });
@@ -109,20 +110,20 @@ export function mountUserRoutes(app: Hono, db: Db, config: Config) {
     return c.html(
       <AdminLayout title={targetUser.email} user={currentUser}>
         <h1 class="text-2xl font-bold mt-0 mb-4">{targetUser.name ?? targetUser.email}</h1>
-        <div class="bg-white border border-gray-200 rounded-lg p-5 mb-6">
+        <Card>
           <form method="post" action={`/admin/users/${id}/edit`}>
-            <div class="mb-4">
-              <label for="name" class="block text-sm font-medium text-gray-700 mb-1">Name</label>
-              <input type="text" id="name" name="name" value={targetUser.name ?? ""} class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
-            </div>
-            <div class="mb-4">
-              <label for="role" class="block text-sm font-medium text-gray-700 mb-1">Role</label>
-              <select id="role" name="role" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" onchange="document.getElementById('editListSection').style.display = this.value === 'member' ? 'block' : 'none'">
+            <FormGroup>
+              <Label for="name">Name</Label>
+              <Input type="text" id="name" name="name" value={targetUser.name ?? ""} />
+            </FormGroup>
+            <FormGroup>
+              <Label for="role">Role</Label>
+              <Select id="role" name="role" onchange="document.getElementById('editListSection').style.display = this.value === 'member' ? 'block' : 'none'">
                 <option value="owner" selected={targetUser.role === "owner"}>Owner</option>
                 <option value="admin" selected={targetUser.role === "admin"}>Admin</option>
                 <option value="member" selected={targetUser.role === "member"}>Member</option>
-              </select>
-            </div>
+              </Select>
+            </FormGroup>
             <div id="editListSection" class="mb-4" style={targetUser.role === "member" ? "" : "display:none"}>
               <p class="text-sm font-medium text-gray-700 mb-2">List access (for members)</p>
               {allLists.map((list) => (
@@ -132,13 +133,13 @@ export function mountUserRoutes(app: Hono, db: Db, config: Config) {
                 </label>
               ))}
             </div>
-            <div class="mb-4">
-              <label for="password" class="block text-sm font-medium text-gray-700 mb-1">New password (leave blank to keep current)</label>
-              <input type="password" id="password" name="password" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
-            </div>
-            <button type="submit" class="inline-block px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none no-underline">Save changes</button>
+            <FormGroup>
+              <Label for="password">New password (leave blank to keep current)</Label>
+              <Input type="password" id="password" name="password" />
+            </FormGroup>
+            <Button type="submit">Save changes</Button>
           </form>
-        </div>
+        </Card>
 
         <dl class="mt-4">
           <dt class="font-semibold text-xs uppercase text-gray-500">Email</dt>
@@ -151,9 +152,7 @@ export function mountUserRoutes(app: Hono, db: Db, config: Config) {
           <>
             <hr class="my-8" />
             <form method="post" action={`/admin/users/${id}/delete`} onsubmit="return confirm('Delete this user? This cannot be undone.')">
-              <button type="submit" class="inline-block px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-md hover:bg-red-700 cursor-pointer border-none no-underline">
-                Delete User
-              </button>
+              <Button type="submit" variant="danger">Delete User</Button>
             </form>
           </>
         )}
@@ -237,34 +236,31 @@ export function mountUserRoutes(app: Hono, db: Db, config: Config) {
 
     return c.html(
       <AdminLayout title="Users" user={user}>
-        <h1 class="text-2xl font-bold mt-0 mb-4">Users</h1>
-        <p class="mb-6">
-          <a href="/admin/users/new" class="inline-block px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none no-underline">
-            Invite User
-          </a>
-        </p>
-        <table class="w-full bg-white rounded-lg overflow-hidden mb-6 text-sm">
+        <PageHeader title="Users">
+          <LinkButton href="/admin/users/new">Invite User</LinkButton>
+        </PageHeader>
+        <Table>
           <thead>
             <tr>
-              <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Email</th>
-              <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Name</th>
-              <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Role</th>
-              <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Created</th>
+              <Th>Email</Th>
+              <Th>Name</Th>
+              <Th>Role</Th>
+              <Th>Created</Th>
             </tr>
           </thead>
           <tbody>
             {allUsers.map((u) => (
               <tr>
-                <td class="px-4 py-3 border-b border-gray-100">
+                <Td>
                   <a href={`/admin/users/${u.id}`} class="text-blue-600 hover:text-blue-800">{u.email}</a>
-                </td>
-                <td class="px-4 py-3 border-b border-gray-100">{u.name ?? "—"}</td>
-                <td class="px-4 py-3 border-b border-gray-100">{u.role}</td>
-                <td class="px-4 py-3 border-b border-gray-100">{fmtDate(u.createdAt)}</td>
+                </Td>
+                <Td>{u.name ?? "—"}</Td>
+                <Td>{u.role}</Td>
+                <Td>{fmtDate(u.createdAt)}</Td>
               </tr>
             ))}
           </tbody>
-        </table>
+        </Table>
       </AdminLayout>,
     );
   });

@@ -6,6 +6,7 @@ import type { Config } from "../../config";
 import { requireRole, requireListAccess, getAccessibleListIds } from "../../auth";
 import { logEvent } from "../../services/events";
 import { AdminLayout, displayName, fmtDate, fmtDateTime, CampaignBadge, type User } from "./layout";
+import { Button, LinkButton, Input, Label, FormGroup, Table, Th, Td, Card, PageHeader } from "./ui";
 
 export function mountListRoutes(app: Hono, db: Db, config: Config) {
   app.get("/lists", (c) => {
@@ -40,34 +41,29 @@ export function mountListRoutes(app: Hono, db: Db, config: Config) {
 
     return c.html(
       <AdminLayout title="Lists" user={user}>
-        <h1 class="text-2xl font-bold mt-0 mb-4">Lists</h1>
-        {isAdmin && (
-          <p class="mb-6">
-            <a href="/admin/lists/new" class="inline-block px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none no-underline">
-              New List
-            </a>
-          </p>
-        )}
-        <table class="w-full bg-white rounded-lg overflow-hidden mb-6 text-sm">
+        <PageHeader title="Lists">
+          {isAdmin && <LinkButton href="/admin/lists/new">New List</LinkButton>}
+        </PageHeader>
+        <Table>
           <thead>
             <tr>
-              <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Slug</th>
-              <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Name</th>
-              <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Domain</th>
-              <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Subscribers</th>
+              <Th>Slug</Th>
+              <Th>Name</Th>
+              <Th>Domain</Th>
+              <Th>Subscribers</Th>
             </tr>
           </thead>
           <tbody>
             {allLists.map((list) => (
               <tr>
-                <td class="px-4 py-3 border-b border-gray-100"><a href={`/admin/lists/${list.id}`} class="text-blue-600 hover:text-blue-800">{list.slug}</a></td>
-                <td class="px-4 py-3 border-b border-gray-100">{list.name}</td>
-                <td class="px-4 py-3 border-b border-gray-100 text-gray-500">{list.fromDomain}</td>
-                <td class="px-4 py-3 border-b border-gray-100">{listCounts.get(list.id) ?? 0}</td>
+                <Td><a href={`/admin/lists/${list.id}`} class="text-blue-600 hover:text-blue-800">{list.slug}</a></Td>
+                <Td>{list.name}</Td>
+                <Td class="text-gray-500">{list.fromDomain}</Td>
+                <Td>{listCounts.get(list.id) ?? 0}</Td>
               </tr>
             ))}
           </tbody>
-        </table>
+        </Table>
       </AdminLayout>,
     );
   });
@@ -77,33 +73,33 @@ export function mountListRoutes(app: Hono, db: Db, config: Config) {
     return c.html(
       <AdminLayout title="New List" user={user}>
         <h1 class="text-2xl font-bold mt-0 mb-4">New List</h1>
-        <div class="bg-white border border-gray-200 rounded-lg p-5 mb-6">
+        <Card>
           <form method="post" action="/admin/lists/new">
             <div class="grid grid-cols-2 gap-4">
-              <div class="mb-4">
-                <label for="slug" class="block text-sm font-medium text-gray-700 mb-1">Slug</label>
-                <input type="text" id="slug" name="slug" required placeholder="weekly-digest" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
-              </div>
-              <div class="mb-4">
-                <label for="name" class="block text-sm font-medium text-gray-700 mb-1">Name</label>
-                <input type="text" id="name" name="name" required placeholder="Weekly Digest" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
-              </div>
+              <FormGroup>
+                <Label for="slug">Slug</Label>
+                <Input type="text" id="slug" name="slug" required placeholder="weekly-digest" />
+              </FormGroup>
+              <FormGroup>
+                <Label for="name">Name</Label>
+                <Input type="text" id="name" name="name" required placeholder="Weekly Digest" />
+              </FormGroup>
             </div>
-            <div class="mb-4">
-              <label for="description" class="block text-sm font-medium text-gray-700 mb-1">Description</label>
-              <input type="text" id="description" name="description" placeholder="Optional description" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
-            </div>
-            <div class="mb-4">
-              <label for="fromDomain" class="block text-sm font-medium text-gray-700 mb-1">Sending domain</label>
-              <input type="text" id="fromDomain" name="fromDomain" required placeholder="siliconharbour.dev" value={config.fromDomain} class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
-            </div>
-            <div class="mb-4">
-              <label for="fromAddress" class="block text-sm font-medium text-gray-700 mb-1">Default from address</label>
-              <input type="email" id="fromAddress" name="fromAddress" placeholder="newsletter@siliconharbour.dev" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
-            </div>
-            <button type="submit" class="inline-block px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none no-underline">Create List</button>
+            <FormGroup>
+              <Label for="description">Description</Label>
+              <Input type="text" id="description" name="description" placeholder="Optional description" />
+            </FormGroup>
+            <FormGroup>
+              <Label for="fromDomain">Sending domain</Label>
+              <Input type="text" id="fromDomain" name="fromDomain" required placeholder="siliconharbour.dev" value={config.fromDomain} />
+            </FormGroup>
+            <FormGroup>
+              <Label for="fromAddress">Default from address</Label>
+              <Input type="email" id="fromAddress" name="fromAddress" placeholder="newsletter@siliconharbour.dev" />
+            </FormGroup>
+            <Button type="submit">Create List</Button>
           </form>
-        </div>
+        </Card>
       </AdminLayout>,
     );
   });
@@ -184,49 +180,49 @@ export function mountListRoutes(app: Hono, db: Db, config: Config) {
         <h1 class="text-2xl font-bold mt-0 mb-4">{list.name}</h1>
 
         <form method="post" action={`/admin/lists/${id}/edit`}>
-          <div class="mb-4">
-            <label for="slug" class="block text-sm font-medium text-gray-700 mb-1">Slug</label>
-            <input type="text" id="slug" name="slug" required value={list.slug} class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
-          </div>
-          <div class="mb-4">
-            <label for="name" class="block text-sm font-medium text-gray-700 mb-1">Name</label>
-            <input type="text" id="name" name="name" required value={list.name} class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
-          </div>
-          <div class="mb-4">
-            <label for="description" class="block text-sm font-medium text-gray-700 mb-1">Description</label>
-            <input type="text" id="description" name="description" value={list.description} class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
-          </div>
-          <div class="mb-4">
-            <label for="fromDomain" class="block text-sm font-medium text-gray-700 mb-1">Sending domain</label>
-            <input type="text" id="fromDomain" name="fromDomain" required value={list.fromDomain} class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
-          </div>
-          <div class="mb-4">
-            <label for="fromAddress" class="block text-sm font-medium text-gray-700 mb-1">Default from address</label>
-            <input type="email" id="fromAddress" name="fromAddress" value={list.fromAddress} placeholder={`newsletter@${list.fromDomain}`} class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
-          </div>
-          <button type="submit" class="inline-block px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none no-underline">Save changes</button>
+          <FormGroup>
+            <Label for="slug">Slug</Label>
+            <Input type="text" id="slug" name="slug" required value={list.slug} />
+          </FormGroup>
+          <FormGroup>
+            <Label for="name">Name</Label>
+            <Input type="text" id="name" name="name" required value={list.name} />
+          </FormGroup>
+          <FormGroup>
+            <Label for="description">Description</Label>
+            <Input type="text" id="description" name="description" value={list.description} />
+          </FormGroup>
+          <FormGroup>
+            <Label for="fromDomain">Sending domain</Label>
+            <Input type="text" id="fromDomain" name="fromDomain" required value={list.fromDomain} />
+          </FormGroup>
+          <FormGroup>
+            <Label for="fromAddress">Default from address</Label>
+            <Input type="email" id="fromAddress" name="fromAddress" value={list.fromAddress} placeholder={`newsletter@${list.fromDomain}`} />
+          </FormGroup>
+          <Button type="submit">Save changes</Button>
         </form>
 
         <h2 class="text-xl font-semibold mt-6 mb-3">Confirmed subscribers ({confirmedSubs.length})</h2>
         {confirmedSubs.length > 0 ? (
-          <table class="w-full bg-white rounded-lg overflow-hidden mb-6 text-sm">
+          <Table>
             <thead>
               <tr>
-                <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Email</th>
-                <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Name</th>
-                <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Subscribed</th>
+                <Th>Email</Th>
+                <Th>Name</Th>
+                <Th>Subscribed</Th>
               </tr>
             </thead>
             <tbody>
               {confirmedSubs.map((s) => (
                 <tr>
-                  <td class="px-4 py-3 border-b border-gray-100"><a href={`/admin/subscribers/${s.id}`} class="text-blue-600 hover:text-blue-800">{s.email}</a></td>
-                  <td class="px-4 py-3 border-b border-gray-100">{displayName(s)}</td>
-                  <td class="px-4 py-3 border-b border-gray-100">{fmtDate(s.subscribedAt)}</td>
+                  <Td><a href={`/admin/subscribers/${s.id}`} class="text-blue-600 hover:text-blue-800">{s.email}</a></Td>
+                  <Td>{displayName(s)}</Td>
+                  <Td>{fmtDate(s.subscribedAt)}</Td>
                 </tr>
               ))}
             </tbody>
-          </table>
+          </Table>
         ) : (
           <p class="text-gray-400">No confirmed subscribers.</p>
         )}
@@ -234,48 +230,48 @@ export function mountListRoutes(app: Hono, db: Db, config: Config) {
         {unconfirmedSubs.length > 0 && (
           <>
             <h2 class="text-xl font-semibold mt-6 mb-3">Pending confirmation ({unconfirmedSubs.length})</h2>
-            <table class="w-full bg-white rounded-lg overflow-hidden mb-6 text-sm">
+            <Table>
               <thead>
                 <tr>
-                  <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Email</th>
-                  <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Name</th>
-                  <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Subscribed</th>
+                  <Th>Email</Th>
+                  <Th>Name</Th>
+                  <Th>Subscribed</Th>
                 </tr>
               </thead>
               <tbody>
                 {unconfirmedSubs.map((s) => (
                   <tr>
-                    <td class="px-4 py-3 border-b border-gray-100"><a href={`/admin/subscribers/${s.id}`} class="text-blue-600 hover:text-blue-800">{s.email}</a></td>
-                    <td class="px-4 py-3 border-b border-gray-100">{displayName(s)}</td>
-                    <td class="px-4 py-3 border-b border-gray-100">{fmtDate(s.subscribedAt)}</td>
+                    <Td><a href={`/admin/subscribers/${s.id}`} class="text-blue-600 hover:text-blue-800">{s.email}</a></Td>
+                    <Td>{displayName(s)}</Td>
+                    <Td>{fmtDate(s.subscribedAt)}</Td>
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </Table>
           </>
         )}
 
         {listCampaigns.length > 0 && (
           <>
             <h2 class="text-xl font-semibold mt-6 mb-3">Campaigns ({listCampaigns.length})</h2>
-            <table class="w-full bg-white rounded-lg overflow-hidden mb-6 text-sm">
+            <Table>
               <thead>
                 <tr>
-                  <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Subject</th>
-                  <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Status</th>
-                  <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Sent</th>
+                  <Th>Subject</Th>
+                  <Th>Status</Th>
+                  <Th>Sent</Th>
                 </tr>
               </thead>
               <tbody>
                 {listCampaigns.map((cam) => (
                   <tr>
-                    <td class="px-4 py-3 border-b border-gray-100"><a href={`/admin/campaigns/${cam.id}`} class="text-blue-600 hover:text-blue-800">{cam.subject}</a></td>
-                    <td class="px-4 py-3 border-b border-gray-100"><CampaignBadge status={cam.status} /></td>
-                    <td class="px-4 py-3 border-b border-gray-100">{fmtDateTime(cam.sentAt)}</td>
+                    <Td><a href={`/admin/campaigns/${cam.id}`} class="text-blue-600 hover:text-blue-800">{cam.subject}</a></Td>
+                    <Td><CampaignBadge status={cam.status} /></Td>
+                    <Td>{fmtDateTime(cam.sentAt)}</Td>
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </Table>
           </>
         )}
 
@@ -283,9 +279,7 @@ export function mountListRoutes(app: Hono, db: Db, config: Config) {
           <>
             <hr class="my-8" />
             <form method="post" action={`/admin/lists/${id}/delete`} onsubmit="return confirm('Delete this list? Subscribers will be unlinked but not deleted. Campaigns on this list will also be deleted.')">
-              <button type="submit" class="inline-block px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-md hover:bg-red-700 cursor-pointer border-none no-underline">
-                Delete List
-              </button>
+              <Button type="submit" variant="danger">Delete List</Button>
             </form>
           </>
         )}

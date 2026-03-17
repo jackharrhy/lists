@@ -5,6 +5,7 @@ import { schema } from "../../db";
 import type { Config } from "../../config";
 import { logEvent } from "../../services/events";
 import { AdminLayout, displayName, fmtDate, type User } from "./layout";
+import { Button, LinkButton, Input, Label, FormGroup, Table, Th, Td, Card, PageHeader } from "./ui";
 
 export function mountTagRoutes(app: Hono, db: Db, config: Config) {
   app.get("/tags", (c) => {
@@ -23,30 +24,27 @@ export function mountTagRoutes(app: Hono, db: Db, config: Config) {
 
     return c.html(
       <AdminLayout title="Tags" user={user}>
-        <h1 class="text-2xl font-bold mt-0 mb-4">Tags</h1>
-        <p class="mb-6">
-          <a href="/admin/tags/new" class="inline-block px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none no-underline">
-            New Tag
-          </a>
-        </p>
-        <table class="w-full bg-white rounded-lg overflow-hidden mb-6 text-sm">
+        <PageHeader title="Tags">
+          <LinkButton href="/admin/tags/new">New Tag</LinkButton>
+        </PageHeader>
+        <Table>
           <thead>
             <tr>
-              <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Name</th>
-              <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Subscribers</th>
-              <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Created</th>
+              <Th>Name</Th>
+              <Th>Subscribers</Th>
+              <Th>Created</Th>
             </tr>
           </thead>
           <tbody>
             {allTags.map((tag) => (
               <tr>
-                <td class="px-4 py-3 border-b border-gray-100"><a href={`/admin/tags/${tag.id}`} class="text-blue-600 hover:text-blue-800">{tag.name}</a></td>
-                <td class="px-4 py-3 border-b border-gray-100">{tagCounts.get(tag.id) ?? 0}</td>
-                <td class="px-4 py-3 border-b border-gray-100">{fmtDate(tag.createdAt)}</td>
+                <Td><a href={`/admin/tags/${tag.id}`} class="text-blue-600 hover:text-blue-800">{tag.name}</a></Td>
+                <Td>{tagCounts.get(tag.id) ?? 0}</Td>
+                <Td>{fmtDate(tag.createdAt)}</Td>
               </tr>
             ))}
           </tbody>
-        </table>
+        </Table>
       </AdminLayout>,
     );
   });
@@ -56,15 +54,15 @@ export function mountTagRoutes(app: Hono, db: Db, config: Config) {
     return c.html(
       <AdminLayout title="New Tag" user={user}>
         <h1 class="text-2xl font-bold mt-0 mb-4">New Tag</h1>
-        <div class="bg-white border border-gray-200 rounded-lg p-5 mb-6">
+        <Card>
           <form method="post" action="/admin/tags/new">
-            <div class="mb-4">
-              <label for="name" class="block text-sm font-medium text-gray-700 mb-1">Name</label>
-              <input type="text" id="name" name="name" required class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
-            </div>
-            <button type="submit" class="inline-block px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none no-underline">Create Tag</button>
+            <FormGroup>
+              <Label for="name">Name</Label>
+              <Input type="text" id="name" name="name" required />
+            </FormGroup>
+            <Button type="submit">Create Tag</Button>
           </form>
-        </div>
+        </Card>
       </AdminLayout>,
     );
   });
@@ -121,31 +119,29 @@ export function mountTagRoutes(app: Hono, db: Db, config: Config) {
         </dl>
 
         {taggedSubscribers.length > 0 && (
-          <table class="w-full bg-white rounded-lg overflow-hidden mb-6 text-sm">
+          <Table>
             <thead>
               <tr>
-                <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Email</th>
-                <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Name</th>
-                <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Status</th>
+                <Th>Email</Th>
+                <Th>Name</Th>
+                <Th>Status</Th>
               </tr>
             </thead>
             <tbody>
               {taggedSubscribers.map((s) => (
                 <tr>
-                  <td class="px-4 py-3 border-b border-gray-100"><a href={`/admin/subscribers/${s.id}`} class="text-blue-600 hover:text-blue-800">{s.email}</a></td>
-                  <td class="px-4 py-3 border-b border-gray-100">{displayName(s)}</td>
-                  <td class="px-4 py-3 border-b border-gray-100">{s.status}</td>
+                  <Td><a href={`/admin/subscribers/${s.id}`} class="text-blue-600 hover:text-blue-800">{s.email}</a></Td>
+                  <Td>{displayName(s)}</Td>
+                  <Td>{s.status}</Td>
                 </tr>
               ))}
             </tbody>
-          </table>
+          </Table>
         )}
 
         <hr class="my-8" />
         <form method="post" action={`/admin/tags/${id}/delete`} onsubmit="return confirm('Delete this tag? It will be removed from all subscribers.')">
-          <button type="submit" class="inline-block px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-md hover:bg-red-700 cursor-pointer border-none no-underline">
-            Delete Tag
-          </button>
+          <Button type="submit" variant="danger">Delete Tag</Button>
         </form>
       </AdminLayout>,
     );

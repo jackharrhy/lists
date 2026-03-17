@@ -9,6 +9,7 @@ import type { Config } from "../../config";
 import { getAccessibleListIds } from "../../auth";
 import { logEvent } from "../../services/events";
 import { AdminLayout, extractEmail, fmtDateTime, VerdictChips, type User } from "./layout";
+import { Button, Input, Textarea, Label, FormGroup, Table, Th, Td } from "./ui";
 
 export function mountMessageRoutes(app: Hono, db: Db, config: Config) {
   app.get("/inbound", (c) => {
@@ -125,27 +126,27 @@ export function mountMessageRoutes(app: Hono, db: Db, config: Config) {
     return c.html(
       <AdminLayout title="Inbound" user={user}>
         <h1 class="text-2xl font-bold mt-0 mb-4">Inbound Messages</h1>
-        <table class="w-full bg-white rounded-lg overflow-hidden mb-6 text-sm">
+        <Table>
           <thead>
             <tr>
-              <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">From</th>
-              <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Subject</th>
-              <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Date</th>
-              <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Replies</th>
-              <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Campaign</th>
-              <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Auth</th>
+              <Th>From</Th>
+              <Th>Subject</Th>
+              <Th>Date</Th>
+              <Th>Replies</Th>
+              <Th>Campaign</Th>
+              <Th>Auth</Th>
             </tr>
           </thead>
           <tbody>
             {threads.map((msg) => (
               <tr class={threadHasUnread.get(msg.threadId) ? "font-semibold" : ""}>
-                <td class="px-4 py-3 border-b border-gray-100">{msg.fromAddr}</td>
-                <td class="px-4 py-3 border-b border-gray-100">
+                <Td>{msg.fromAddr}</Td>
+                <Td>
                   <a href={`/admin/inbound/${msg.id}`} class="text-blue-600 hover:text-blue-800">{msg.subject}</a>
-                </td>
-                <td class="px-4 py-3 border-b border-gray-100">{fmtDateTime(msg.createdAt)}</td>
-                <td class="px-4 py-3 border-b border-gray-100">{replyCounts.get(msg.threadId) ?? 0}</td>
-                <td class="px-4 py-3 border-b border-gray-100">
+                </Td>
+                <Td>{fmtDateTime(msg.createdAt)}</Td>
+                <Td>{replyCounts.get(msg.threadId) ?? 0}</Td>
+                <Td>
                   {(() => {
                     const camId = threadCampaignMap.get(msg.threadId) ?? msg.campaignId;
                     return camId && campaignMap.has(camId) ? (
@@ -154,14 +155,14 @@ export function mountMessageRoutes(app: Hono, db: Db, config: Config) {
                       <span class="text-gray-400">{"\u2014"}</span>
                     );
                   })()}
-                </td>
-                <td class="px-4 py-3 border-b border-gray-100">
+                </Td>
+                <Td>
                   <VerdictChips spf={msg.spfVerdict} dkim={msg.dkimVerdict} dmarc={msg.dmarcVerdict} />
-                </td>
+                </Td>
               </tr>
             ))}
           </tbody>
-        </table>
+        </Table>
       </AdminLayout>,
     );
   });
@@ -280,44 +281,41 @@ export function mountMessageRoutes(app: Hono, db: Db, config: Config) {
         <div class="bg-gray-50 border border-gray-200 rounded-lg p-5 mt-2">
           <h3 class="text-sm font-semibold text-gray-700 mt-0 mb-3">Reply</h3>
           <form method="post" action={`/admin/inbound/${id}/reply`}>
-            <div class="mb-4">
-              <label for="fromAddr" class="block text-sm font-medium text-gray-700 mb-1">From</label>
-              <input
+            <FormGroup>
+              <Label for="fromAddr">From</Label>
+              <Input
                 type="email"
                 id="fromAddr"
                 name="fromAddr"
                 required
                 value={extractEmail(msg.toAddr)}
-                class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
-            </div>
-            <div class="mb-4">
-              <label for="toAddr" class="block text-sm font-medium text-gray-700 mb-1">To</label>
-              <input
+            </FormGroup>
+            <FormGroup>
+              <Label for="toAddr">To</Label>
+              <Input
                 type="email"
                 id="toAddr"
                 name="toAddr"
                 required
                 value={extractEmail(msg.fromAddr)}
-                class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
-            </div>
-            <div class="mb-4">
-              <label for="replySubject" class="block text-sm font-medium text-gray-700 mb-1">Subject</label>
-              <input
+            </FormGroup>
+            <FormGroup>
+              <Label for="replySubject">Subject</Label>
+              <Input
                 type="text"
                 id="replySubject"
                 name="subject"
                 required
                 value={msg.subject.startsWith("Re:") ? msg.subject : `Re: ${msg.subject}`}
-                class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
-            </div>
-            <div class="mb-4">
-              <label for="replyBody" class="block text-sm font-medium text-gray-700 mb-1">Body (plain text)</label>
-              <textarea id="replyBody" name="body" required placeholder="Your reply…" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 min-h-[200px] resize-y focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
-            </div>
-            <button type="submit" class="inline-block px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none no-underline">Send Reply</button>
+            </FormGroup>
+            <FormGroup>
+              <Label for="replyBody">Body (plain text)</Label>
+              <Textarea id="replyBody" name="body" required placeholder="Your reply…" />
+            </FormGroup>
+            <Button type="submit">Send Reply</Button>
           </form>
         </div>
       </AdminLayout>,

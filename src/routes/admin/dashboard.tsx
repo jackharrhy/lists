@@ -5,6 +5,7 @@ import { schema } from "../../db";
 import type { Config } from "../../config";
 import { getAccessibleListIds } from "../../auth";
 import { AdminLayout, fmtDate, CampaignBadge, type User } from "./layout";
+import { Table, Th, Td } from "./ui";
 
 export function mountDashboardRoutes(app: Hono, db: Db, config: Config) {
   app.get("/", (c) => {
@@ -97,28 +98,28 @@ export function mountDashboardRoutes(app: Hono, db: Db, config: Config) {
         {recentCampaigns.length === 0 ? (
           <p>No campaigns yet.</p>
         ) : (
-          <table class="w-full bg-white rounded-lg overflow-hidden mb-6 text-sm">
+          <Table>
             <thead>
               <tr>
-                <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Subject</th>
-                <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Status</th>
-                <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Created</th>
+                <Th>Subject</Th>
+                <Th>Status</Th>
+                <Th>Created</Th>
               </tr>
             </thead>
             <tbody>
               {recentCampaigns.map((cam) => (
                 <tr>
-                  <td class="px-4 py-3 border-b border-gray-100">
+                  <Td>
                     <a href={`/admin/campaigns/${cam.id}`} class="text-blue-600 hover:text-blue-800">{cam.subject}</a>
-                  </td>
-                  <td class="px-4 py-3 border-b border-gray-100">
+                  </Td>
+                  <Td>
                     <CampaignBadge status={cam.status} />
-                  </td>
-                  <td class="px-4 py-3 border-b border-gray-100">{fmtDate(cam.createdAt)}</td>
+                  </Td>
+                  <Td>{fmtDate(cam.createdAt)}</Td>
                 </tr>
               ))}
             </tbody>
-          </table>
+          </Table>
         )}
       </AdminLayout>,
     );

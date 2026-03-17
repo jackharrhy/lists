@@ -11,6 +11,7 @@ import { buildUnsubscribeUrl, buildPreferencesUrl } from "../../compliance";
 import { logEvent } from "../../services/events";
 import { getConfirmedSubscribers } from "../../services/subscriber";
 import { AdminLayout, fmtDate, fmtDateTime, CampaignBadge, describeAudience, type User } from "./layout";
+import { Button, LinkButton, Input, Select, Textarea, Label, FormGroup, Table, Th, Td, Card, PageHeader } from "./ui";
 
 export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
   // ---- Preview endpoints (raw HTML, no AdminLayout) -----------------------
@@ -113,38 +114,35 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
 
     return c.html(
       <AdminLayout title="Campaigns" user={user}>
-        <h1 class="text-2xl font-bold mt-0 mb-4">Campaigns</h1>
-        <p>
-          <a href="/admin/campaigns/new" class="inline-block px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none no-underline">
-            New Campaign
-          </a>
-        </p>
-        <table class="w-full bg-white rounded-lg overflow-hidden mb-6 text-sm">
+        <PageHeader title="Campaigns">
+          <LinkButton href="/admin/campaigns/new">New Campaign</LinkButton>
+        </PageHeader>
+        <Table>
           <thead>
             <tr>
-              <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Subject</th>
-              <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Audience</th>
-              <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">From</th>
-              <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Status</th>
-              <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Created</th>
+              <Th>Subject</Th>
+              <Th>Audience</Th>
+              <Th>From</Th>
+              <Th>Status</Th>
+              <Th>Created</Th>
             </tr>
           </thead>
           <tbody>
             {allCampaigns.map((cam) => (
               <tr>
-                <td class="px-4 py-3 border-b border-gray-100">
+                <Td>
                   <a href={`/admin/campaigns/${cam.id}`} class="text-blue-600 hover:text-blue-800">{cam.subject}</a>
-                </td>
-                <td class="px-4 py-3 border-b border-gray-100">{describeAudience(cam, listNameMap, tagNameMap)}</td>
-                <td class="px-4 py-3 border-b border-gray-100">{cam.fromAddress}</td>
-                <td class="px-4 py-3 border-b border-gray-100">
+                </Td>
+                <Td>{describeAudience(cam, listNameMap, tagNameMap)}</Td>
+                <Td>{cam.fromAddress}</Td>
+                <Td>
                   <CampaignBadge status={cam.status} />
-                </td>
-                <td class="px-4 py-3 border-b border-gray-100">{fmtDate(cam.createdAt)}</td>
+                </Td>
+                <Td>{fmtDate(cam.createdAt)}</Td>
               </tr>
             ))}
           </tbody>
-        </table>
+        </Table>
       </AdminLayout>,
     );
   });
@@ -170,77 +168,76 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
         <h1 class="text-2xl font-bold mt-0 mb-4">New Campaign</h1>
         <div class="grid grid-cols-2 gap-6">
           <div>
-            <div class="bg-white border border-gray-200 rounded-lg p-5 mb-6">
+            <Card>
               <form method="post" action="/admin/campaigns/new">
-                <div class="mb-4">
-                  <label for="audienceMode" class="block text-sm font-medium text-gray-700 mb-1">Audience</label>
-                  <select id="audienceMode" name="audienceMode" required class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                <FormGroup>
+                  <Label for="audienceMode">Audience</Label>
+                  <Select id="audienceMode" name="audienceMode" required>
                     <option value="list">A list</option>
                     <option value="all">All subscribers</option>
                     <option value="tag">A tag</option>
                     <option value="specific">Specific people</option>
-                  </select>
-                </div>
+                  </Select>
+                </FormGroup>
 
                 <div data-audience="list" class="mb-4">
-                  <label for="listId" class="block text-sm font-medium text-gray-700 mb-1">List</label>
-                  <select id="listId" name="listId" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                  <Label for="listId">List</Label>
+                  <Select id="listId" name="listId">
                     <option value="">Select a list...</option>
                     {allLists.map((list) => (
                       <option value={String(list.id)} data-from-address={list.fromAddress}>
                         {list.name} ({list.slug})
                       </option>
                     ))}
-                  </select>
+                  </Select>
                 </div>
 
                 <div data-audience="tag" class="mb-4 hidden">
-                  <label for="tagId" class="block text-sm font-medium text-gray-700 mb-1">Tag</label>
-                  <select id="tagId" name="tagId" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                  <Label for="tagId">Tag</Label>
+                  <Select id="tagId" name="tagId">
                     <option value="">Select a tag...</option>
                     {allTags.map((tag) => (
                       <option value={String(tag.id)}>{tag.name}</option>
                     ))}
-                  </select>
+                  </Select>
                 </div>
 
                 <div data-audience="specific" class="mb-4 hidden">
-                  <label class="block text-sm font-medium text-gray-700 mb-1">Subscribers</label>
+                  <Label>Subscribers</Label>
                   <input type="text" id="subscriberSearch" placeholder="Search by email or name..." class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm mb-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
                   <div id="searchResults" class="border border-gray-200 rounded-md max-h-40 overflow-y-auto hidden"></div>
                   <div id="selectedSubscribers" class="flex flex-wrap gap-2 mt-2"></div>
                   <input type="hidden" name="subscriberIds" id="subscriberIds" />
                 </div>
 
-                <div class="mb-4">
-                  <label for="fromAddress" class="block text-sm font-medium text-gray-700 mb-1">From Address</label>
-                  <input
+                <FormGroup>
+                  <Label for="fromAddress">From Address</Label>
+                  <Input
                     type="email"
                     id="fromAddress"
                     name="fromAddress"
                     required
                     placeholder={`newsletter@${config.fromDomain}`}
-                    class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   />
-                </div>
-                <div class="mb-4">
-                  <label for="subject" class="block text-sm font-medium text-gray-700 mb-1">Subject</label>
-                  <input type="text" id="subject" name="subject" required placeholder="Campaign subject" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
-                </div>
-                <div class="mb-4">
-                  <label for="bodyMarkdown" class="block text-sm font-medium text-gray-700 mb-1">Body (Markdown)</label>
-                  <textarea id="bodyMarkdown" name="bodyMarkdown" required placeholder="Write your email in markdown…" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 min-h-[200px] resize-y focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+                </FormGroup>
+                <FormGroup>
+                  <Label for="subject">Subject</Label>
+                  <Input type="text" id="subject" name="subject" required placeholder="Campaign subject" />
+                </FormGroup>
+                <FormGroup>
+                  <Label for="bodyMarkdown">Body (Markdown)</Label>
+                  <Textarea id="bodyMarkdown" name="bodyMarkdown" required placeholder="Write your email in markdown…" />
                   <p class="text-xs text-gray-400 mt-1">{"Available variables: {{firstName}}, {{lastName}}, {{email}}, {{unsubscribeUrl}}, {{preferencesUrl}}"}</p>
-                </div>
-                <button type="submit" class="inline-block px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none no-underline">Create Draft</button>
+                </FormGroup>
+                <Button type="submit">Create Draft</Button>
               </form>
-            </div>
+            </Card>
           </div>
           <div>
-            <div class="bg-white border border-gray-200 rounded-lg p-5 mb-6">
+            <Card>
               <h2 class="text-lg font-semibold mt-0 mb-3">Preview</h2>
               <iframe id="previewFrame" class="w-full border-0" style="min-height: 500px;" srcdoc="<p style='color:#999;font-family:system-ui;padding:2rem'>Start writing to see a preview</p>" />
-            </div>
+            </Card>
           </div>
         </div>
         <script dangerouslySetInnerHTML={{ __html: `var subscribers = ${JSON.stringify(allSubscribers.map(s => ({ id: s.id, email: s.email, firstName: s.firstName, lastName: s.lastName })))};` }} />
@@ -516,26 +513,20 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
 
         {(campaign.status === "draft" || campaign.status === "failed") && (
           <div class="flex gap-2 mb-6">
-            <a href={`/admin/campaigns/${id}/edit`} class="inline-block px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none no-underline">
-              Edit Campaign
-            </a>
+            <LinkButton href={`/admin/campaigns/${id}/edit`}>Edit Campaign</LinkButton>
           </div>
         )}
 
         {campaign.status === "draft" && (
           <form method="post" action={`/admin/campaigns/${id}/send`} class="mb-6">
-            <button type="submit" class="inline-block px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-md hover:bg-red-700 cursor-pointer border-none no-underline">
-              Send Campaign
-            </button>
+            <Button type="submit" variant="danger">Send Campaign</Button>
           </form>
         )}
 
         {campaign.status === "failed" && (
           <div class="flex gap-2 mb-6">
             <form method="post" action={`/admin/campaigns/${id}/retry`}>
-              <button type="submit" class="inline-block px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none no-underline">
-                Retry (skip already sent)
-              </button>
+              <Button type="submit">Retry (skip already sent)</Button>
             </form>
             <form method="post" action={`/admin/campaigns/${id}/reset`}>
               <button type="submit" class="inline-block px-4 py-2 bg-gray-500 text-white text-sm font-medium rounded-md hover:bg-gray-600 cursor-pointer border-none no-underline">
@@ -558,26 +549,26 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
         {sends.length > 0 && (
           <>
             <h2 class="text-xl font-semibold mt-6 mb-3">Sends ({sends.length})</h2>
-            <table class="w-full bg-white rounded-lg overflow-hidden mb-6 text-sm">
+            <Table>
               <thead>
                 <tr>
-                  <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Subscriber ID</th>
-                  <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Status</th>
-                  <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Sent At</th>
-                  <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">SES Message ID</th>
+                  <Th>Subscriber ID</Th>
+                  <Th>Status</Th>
+                  <Th>Sent At</Th>
+                  <Th>SES Message ID</Th>
                 </tr>
               </thead>
               <tbody>
                 {sends.map((send) => (
                   <tr>
-                    <td class="px-4 py-3 border-b border-gray-100">{send.subscriberId}</td>
-                    <td class="px-4 py-3 border-b border-gray-100">{send.status}</td>
-                    <td class="px-4 py-3 border-b border-gray-100">{fmtDateTime(send.sentAt)}</td>
-                    <td class="px-4 py-3 border-b border-gray-100 text-xs">{send.sesMessageId ?? "—"}</td>
+                    <Td>{send.subscriberId}</Td>
+                    <Td>{send.status}</Td>
+                    <Td>{fmtDateTime(send.sentAt)}</Td>
+                    <Td class="text-xs">{send.sesMessageId ?? "—"}</Td>
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </Table>
           </>
         )}
 
@@ -608,34 +599,32 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
         {inboundReplies.length > 0 && (
           <>
             <h2 class="text-xl font-semibold mt-6 mb-3">Replies ({inboundReplies.length})</h2>
-            <table class="w-full bg-white rounded-lg overflow-hidden mb-6 text-sm">
+            <Table>
               <thead>
                 <tr>
-                  <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">From</th>
-                  <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Subject</th>
-                  <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Received</th>
-                  <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200"></th>
+                  <Th>From</Th>
+                  <Th>Subject</Th>
+                  <Th>Received</Th>
+                  <Th></Th>
                 </tr>
               </thead>
               <tbody>
                 {inboundReplies.map((r) => (
                   <tr>
-                    <td class="px-4 py-3 border-b border-gray-100">{r.fromAddr}</td>
-                    <td class="px-4 py-3 border-b border-gray-100">{r.subject}</td>
-                    <td class="px-4 py-3 border-b border-gray-100">{fmtDateTime(r.createdAt)}</td>
-                    <td class="px-4 py-3 border-b border-gray-100"><a href={`/admin/inbound/${r.id}`} class="text-blue-600 hover:text-blue-800">View</a></td>
+                    <Td>{r.fromAddr}</Td>
+                    <Td>{r.subject}</Td>
+                    <Td>{fmtDateTime(r.createdAt)}</Td>
+                    <Td><a href={`/admin/inbound/${r.id}`} class="text-blue-600 hover:text-blue-800">View</a></Td>
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </Table>
           </>
         )}
 
         <hr class="my-8" />
         <form method="post" action={`/admin/campaigns/${id}/delete`} onsubmit="return confirm('Delete this campaign and all its send records? This cannot be undone.')">
-          <button type="submit" class="inline-block px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-md hover:bg-red-700 cursor-pointer border-none no-underline">
-            Delete Campaign
-          </button>
+          <Button type="submit" variant="danger">Delete Campaign</Button>
         </form>
       </AdminLayout>,
     );
@@ -677,78 +666,77 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
         <h1 class="text-2xl font-bold mt-0 mb-4">Edit Campaign</h1>
         <div class="grid grid-cols-2 gap-6">
           <div>
-            <div class="bg-white border border-gray-200 rounded-lg p-5 mb-6">
+            <Card>
               <form method="post" action={`/admin/campaigns/${id}/edit`}>
-                <div class="mb-4">
-                  <label for="audienceMode" class="block text-sm font-medium text-gray-700 mb-1">Audience</label>
-                  <select id="audienceMode" name="audienceMode" required class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                <FormGroup>
+                  <Label for="audienceMode">Audience</Label>
+                  <Select id="audienceMode" name="audienceMode" required>
                     <option value="list" selected={currentAudienceMode === "list"}>A list</option>
                     <option value="all" selected={currentAudienceMode === "all"}>All subscribers</option>
                     <option value="tag" selected={currentAudienceMode === "tag"}>A tag</option>
                     <option value="specific" selected={currentAudienceMode === "specific"}>Specific people</option>
-                  </select>
-                </div>
+                  </Select>
+                </FormGroup>
 
                 <div data-audience="list" class={`mb-4${currentAudienceMode !== "list" ? " hidden" : ""}`}>
-                  <label for="listId" class="block text-sm font-medium text-gray-700 mb-1">List</label>
-                  <select id="listId" name="listId" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                  <Label for="listId">List</Label>
+                  <Select id="listId" name="listId">
                     <option value="">Select a list...</option>
                     {allLists.map((list) => (
                       <option value={String(list.id)} data-from-address={list.fromAddress} selected={currentListId === list.id}>
                         {list.name} ({list.slug})
                       </option>
                     ))}
-                  </select>
+                  </Select>
                 </div>
 
                 <div data-audience="tag" class={`mb-4${currentAudienceMode !== "tag" ? " hidden" : ""}`}>
-                  <label for="tagId" class="block text-sm font-medium text-gray-700 mb-1">Tag</label>
-                  <select id="tagId" name="tagId" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                  <Label for="tagId">Tag</Label>
+                  <Select id="tagId" name="tagId">
                     <option value="">Select a tag...</option>
                     {allTags.map((tag) => (
                       <option value={String(tag.id)} selected={currentTagId === tag.id}>{tag.name}</option>
                     ))}
-                  </select>
+                  </Select>
                 </div>
 
                 <div data-audience="specific" class={`mb-4${currentAudienceMode !== "specific" ? " hidden" : ""}`}>
-                  <label class="block text-sm font-medium text-gray-700 mb-1">Subscribers</label>
+                  <Label>Subscribers</Label>
                   <input type="text" id="subscriberSearch" placeholder="Search by email or name..." class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm mb-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
                   <div id="searchResults" class="border border-gray-200 rounded-md max-h-40 overflow-y-auto hidden"></div>
                   <div id="selectedSubscribers" class="flex flex-wrap gap-2 mt-2"></div>
                   <input type="hidden" name="subscriberIds" id="subscriberIds" value={currentSubscriberIds.join(",")} />
                 </div>
 
-                <div class="mb-4">
-                  <label for="fromAddress" class="block text-sm font-medium text-gray-700 mb-1">From Address</label>
-                  <input
+                <FormGroup>
+                  <Label for="fromAddress">From Address</Label>
+                  <Input
                     type="email"
                     id="fromAddress"
                     name="fromAddress"
                     required
                     value={campaign.fromAddress}
                     placeholder={`newsletter@${config.fromDomain}`}
-                    class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   />
-                </div>
-                <div class="mb-4">
-                  <label for="subject" class="block text-sm font-medium text-gray-700 mb-1">Subject</label>
-                  <input type="text" id="subject" name="subject" required value={campaign.subject} placeholder="Campaign subject" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
-                </div>
-                <div class="mb-4">
-                  <label for="bodyMarkdown" class="block text-sm font-medium text-gray-700 mb-1">Body (Markdown)</label>
+                </FormGroup>
+                <FormGroup>
+                  <Label for="subject">Subject</Label>
+                  <Input type="text" id="subject" name="subject" required value={campaign.subject} placeholder="Campaign subject" />
+                </FormGroup>
+                <FormGroup>
+                  <Label for="bodyMarkdown">Body (Markdown)</Label>
                   <textarea id="bodyMarkdown" name="bodyMarkdown" required placeholder="Write your email in markdown…" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 min-h-[200px] resize-y focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">{campaign.bodyMarkdown}</textarea>
                   <p class="text-xs text-gray-400 mt-1">{"Available variables: {{firstName}}, {{lastName}}, {{email}}, {{unsubscribeUrl}}, {{preferencesUrl}}"}</p>
-                </div>
-                <button type="submit" class="inline-block px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none no-underline">Save Changes</button>
+                </FormGroup>
+                <Button type="submit">Save Changes</Button>
               </form>
-            </div>
+            </Card>
           </div>
           <div>
-            <div class="bg-white border border-gray-200 rounded-lg p-5 mb-6">
+            <Card>
               <h2 class="text-lg font-semibold mt-0 mb-3">Preview</h2>
               <iframe id="previewFrame" class="w-full border-0" style="min-height: 500px;" src={`/admin/campaigns/${id}/preview`} />
-            </div>
+            </Card>
           </div>
         </div>
         <script dangerouslySetInnerHTML={{ __html: `var subscribers = ${JSON.stringify(allSubscribers.map(s => ({ id: s.id, email: s.email, firstName: s.firstName, lastName: s.lastName })))};` }} />
