@@ -229,7 +229,8 @@ describe("Member filtered view", () => {
     // Create a campaign on each list
     db.insert(schema.campaigns)
       .values({
-        listId: listA.id,
+        audienceType: "list",
+        audienceId: listA.id,
         subject: "Campaign A",
         bodyMarkdown: "# A",
         fromAddress: "a@example.com",
@@ -238,7 +239,8 @@ describe("Member filtered view", () => {
       .run();
     db.insert(schema.campaigns)
       .values({
-        listId: listB.id,
+        audienceType: "list",
+        audienceId: listB.id,
         subject: "Campaign B",
         bodyMarkdown: "# B",
         fromAddress: "b@example.com",

@@ -10,6 +10,6 @@ test("test DB initializes with all tables", () => {
   expect(subscribers).toEqual([]);
   const campaigns = db.select().from(schema.campaigns).all();
   expect(campaigns).toEqual([]);
-  const inboundMessages = db.select().from(schema.inboundMessages).all();
-  expect(inboundMessages).toEqual([]);
+  const messages = db.select().from(schema.messages).all();
+  expect(messages).toEqual([]);
 });

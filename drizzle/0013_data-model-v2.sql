@@ -1,8 +1,8 @@
-DROP TABLE IF EXISTS `events`;
-DROP TABLE IF EXISTS `replies`;
-DROP TABLE IF EXISTS `inbound_messages`;
-DROP TABLE IF EXISTS `campaign_sends`;
-DROP TABLE IF EXISTS `campaigns`;
+DROP TABLE IF EXISTS `events`;--> statement-breakpoint
+DROP TABLE IF EXISTS `replies`;--> statement-breakpoint
+DROP TABLE IF EXISTS `inbound_messages`;--> statement-breakpoint
+DROP TABLE IF EXISTS `campaign_sends`;--> statement-breakpoint
+DROP TABLE IF EXISTS `campaigns`;--> statement-breakpoint
 
 CREATE TABLE `campaigns` (
   `id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
@@ -17,7 +17,7 @@ CREATE TABLE `campaigns` (
   `last_error` text,
   `sent_at` text,
   `created_at` text NOT NULL
-);
+);--> statement-breakpoint
 
 CREATE TABLE `campaign_sends` (
   `id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
@@ -27,7 +27,7 @@ CREATE TABLE `campaign_sends` (
   `rfc822_message_id` text,
   `status` text NOT NULL DEFAULT 'pending',
   `sent_at` text
-);
+);--> statement-breakpoint
 
 CREATE TABLE `messages` (
   `id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
@@ -52,9 +52,9 @@ CREATE TABLE `messages` (
   `read_at` text,
   `sent_at` text,
   `created_at` text NOT NULL
-);
+);--> statement-breakpoint
 
-CREATE UNIQUE INDEX `messages_ses_message_id_unique` ON `messages` (`ses_message_id`);
+CREATE UNIQUE INDEX `messages_ses_message_id_unique` ON `messages` (`ses_message_id`);--> statement-breakpoint
 
 CREATE TABLE `events` (
   `id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,

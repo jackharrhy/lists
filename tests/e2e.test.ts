@@ -61,7 +61,8 @@ describe("Full campaign send flow", () => {
     const campaign = db
       .insert(schema.campaigns)
       .values({
-        listId: list.id,
+        audienceType: "list",
+        audienceId: list.id,
         subject: "Hello World",
         bodyMarkdown: "# Welcome\n\nThis is a test campaign.",
         fromAddress: "news@example.com",
@@ -121,7 +122,8 @@ describe("Campaign send failure flow", () => {
     const campaign = db
       .insert(schema.campaigns)
       .values({
-        listId: list.id,
+        audienceType: "list",
+        audienceId: list.id,
         subject: "Failing Campaign",
         bodyMarkdown: "# Oops",
         fromAddress: "news@example.com",
@@ -170,7 +172,8 @@ describe("Campaign send failure flow", () => {
     const campaign = db
       .insert(schema.campaigns)
       .values({
-        listId: list.id,
+        audienceType: "list",
+        audienceId: list.id,
         subject: "Already Sent",
         bodyMarkdown: "# Done",
         fromAddress: "news@example.com",
@@ -210,7 +213,8 @@ describe("Campaign retry skips already sent", () => {
     const campaign = db
       .insert(schema.campaigns)
       .values({
-        listId: list.id,
+        audienceType: "list",
+        audienceId: list.id,
         subject: "Retry Campaign",
         bodyMarkdown: "# Retry",
         fromAddress: "news@example.com",
@@ -268,7 +272,8 @@ describe("Inbound message processing", () => {
     const campaign = db
       .insert(schema.campaigns)
       .values({
-        listId: list.id,
+        audienceType: "list",
+        audienceId: list.id,
         subject: "Sent Campaign",
         bodyMarkdown: "# Sent",
         fromAddress: "news@example.com",
@@ -316,7 +321,8 @@ describe("Inbound message processing", () => {
         .from(schema.campaigns)
         .where(
           and(
-            eq(schema.campaigns.listId, matchedList.id),
+            eq(schema.campaigns.audienceType, "list"),
+            eq(schema.campaigns.audienceId, matchedList.id),
             eq(schema.campaigns.status, "sent"),
           ),
         )
@@ -332,13 +338,16 @@ describe("Inbound message processing", () => {
       payload.action.objectKey ||
       payload.action.objectKeyPrefix + payload.messageId;
 
-    db.insert(schema.inboundMessages)
+    const fromAddr = payload.from[0] ?? payload.source;
+    const toAddr = payload.to[0] ?? "";
+
+    db.insert(schema.messages)
       .values({
-        messageId: payload.messageId,
-        timestamp: payload.timestamp,
-        source: payload.source,
-        fromAddrs: JSON.stringify(payload.from),
-        toAddrs: JSON.stringify(payload.to),
+        threadId: 0,
+        direction: "inbound",
+        sesMessageId: payload.messageId,
+        fromAddr,
+        toAddr,
         subject: payload.subject,
         spamVerdict: payload.spamVerdict,
         virusVerdict: payload.virusVerdict,
@@ -349,24 +358,22 @@ describe("Inbound message processing", () => {
         campaignId,
       })
       .onConflictDoNothing({
-        target: schema.inboundMessages.messageId,
+        target: schema.messages.sesMessageId,
       })
       .run();
 
     // verify it was inserted
     const inbound = db
       .select()
-      .from(schema.inboundMessages)
-      .where(eq(schema.inboundMessages.messageId, "inbound-msg-001"))
+      .from(schema.messages)
+      .where(eq(schema.messages.sesMessageId, "inbound-msg-001"))
       .get();
 
     expect(inbound).toBeDefined();
-    expect(inbound!.source).toBe("replier@gmail.com");
+    expect(inbound!.fromAddr).toBe("replier@gmail.com");
     expect(inbound!.subject).toBe("Re: Sent Campaign");
     expect(inbound!.s3Key).toBe("inbound/inbound-msg-001");
-    expect(JSON.parse(inbound!.toAddrs)).toEqual([
-      "newsletter@reply.example.com",
-    ]);
+    expect(inbound!.toAddr).toBe("newsletter@reply.example.com");
 
     // campaignId should be linked correctly
     expect(inbound!.campaignId).toBe(campaign.id);
@@ -612,11 +619,11 @@ describe("Campaign with null listId (all-subscribers send)", () => {
     ]);
     confirmSubscriber(db, sub3.unsubscribeToken);
 
-    // campaign with null listId
+    // campaign with audienceType "all" (was null listId)
     const campaign = db
       .insert(schema.campaigns)
       .values({
-        listId: null,
+        audienceType: "all",
         subject: "Broadcast to Everyone",
         bodyMarkdown: "# Hello All\n\nThis goes to everyone.",
         fromAddress: "broadcast@example.com",
@@ -678,16 +685,16 @@ describe("Tag-targeted campaign send", () => {
     db.insert(schema.subscriberTags).values({ subscriberId: sub1.id, tagId: tag.id }).run();
     db.insert(schema.subscriberTags).values({ subscriberId: sub2.id, tagId: tag.id }).run();
 
-    // Campaign with tag audience (no listId)
+    // Campaign with tag audience
     const campaign = db
       .insert(schema.campaigns)
       .values({
-        listId: null,
+        audienceType: "tag",
+        audienceId: tag.id,
         subject: "VIP Only",
         bodyMarkdown: "# VIP content",
         fromAddress: "vip@example.com",
         status: "draft",
-        audience: JSON.stringify({ type: "tag", tagId: tag.id }),
       })
       .returning()
       .get();
@@ -741,12 +748,12 @@ describe("Specific-subscribers campaign send", () => {
     const campaign = db
       .insert(schema.campaigns)
       .values({
-        listId: null,
+        audienceType: "subscribers",
+        audienceData: JSON.stringify([sub1.id, sub3.id]),
         subject: "Selected Subscribers",
         bodyMarkdown: "# Just for you",
         fromAddress: "news@example.com",
         status: "draft",
-        audience: JSON.stringify({ type: "subscribers", subscriberIds: [sub1.id, sub3.id] }),
       })
       .returning()
       .get();
@@ -814,7 +821,8 @@ describe("GET /campaigns/:id/preview", () => {
     const campaign = db
       .insert(schema.campaigns)
       .values({
-        listId: list.id,
+        audienceType: "list",
+        audienceId: list.id,
         subject: "Preview Test Subject",
         bodyMarkdown: "# Big Heading\n\nSome **bold** content here.",
         fromAddress: "news@example.com",
@@ -867,7 +875,8 @@ describe("GET /campaigns/:id/preview?subscriberId=N", () => {
     const campaign = db
       .insert(schema.campaigns)
       .values({
-        listId: list.id,
+        audienceType: "list",
+        audienceId: list.id,
         subject: "Unsub Preview",
         bodyMarkdown: "# Content",
         fromAddress: "news@example.com",
@@ -962,14 +971,14 @@ describe("Poller stores rfc822MessageId", () => {
 
     const s3Key = payload.action.objectKey || payload.action.objectKeyPrefix + payload.messageId;
 
-    db.insert(schema.inboundMessages)
+    db.insert(schema.messages)
       .values({
-        messageId: payload.messageId,
+        threadId: 0,
+        direction: "inbound",
+        sesMessageId: payload.messageId,
         rfc822MessageId: payload.rfc822MessageId ?? null,
-        timestamp: payload.timestamp,
-        source: payload.source,
-        fromAddrs: JSON.stringify(payload.from),
-        toAddrs: JSON.stringify(payload.to),
+        fromAddr: payload.from[0] ?? payload.source,
+        toAddr: payload.to[0] ?? "",
         subject: payload.subject,
         spamVerdict: payload.spamVerdict,
         virusVerdict: payload.virusVerdict,
@@ -978,13 +987,13 @@ describe("Poller stores rfc822MessageId", () => {
         dmarcVerdict: payload.dmarcVerdict,
         s3Key,
       })
-      .onConflictDoNothing({ target: schema.inboundMessages.messageId })
+      .onConflictDoNothing({ target: schema.messages.sesMessageId })
       .run();
 
     const inbound = db
       .select()
-      .from(schema.inboundMessages)
-      .where(eq(schema.inboundMessages.messageId, "rfc822-test-001"))
+      .from(schema.messages)
+      .where(eq(schema.messages.sesMessageId, "rfc822-test-001"))
       .get();
 
     expect(inbound).toBeDefined();
@@ -1037,14 +1046,14 @@ describe("Poller handles missing rfc822MessageId", () => {
 
     const s3Key = payload.action.objectKey || payload.action.objectKeyPrefix + payload.messageId;
 
-    db.insert(schema.inboundMessages)
+    db.insert(schema.messages)
       .values({
-        messageId: payload.messageId,
+        threadId: 0,
+        direction: "inbound",
+        sesMessageId: payload.messageId,
         rfc822MessageId: payload.rfc822MessageId ?? null,
-        timestamp: payload.timestamp,
-        source: payload.source,
-        fromAddrs: JSON.stringify(payload.from),
-        toAddrs: JSON.stringify(payload.to),
+        fromAddr: payload.from[0] ?? payload.source,
+        toAddr: payload.to[0] ?? "",
         subject: payload.subject,
         spamVerdict: payload.spamVerdict,
         virusVerdict: payload.virusVerdict,
@@ -1053,13 +1062,13 @@ describe("Poller handles missing rfc822MessageId", () => {
         dmarcVerdict: payload.dmarcVerdict,
         s3Key,
       })
-      .onConflictDoNothing({ target: schema.inboundMessages.messageId })
+      .onConflictDoNothing({ target: schema.messages.sesMessageId })
       .run();
 
     const inbound = db
       .select()
-      .from(schema.inboundMessages)
-      .where(eq(schema.inboundMessages.messageId, "rfc822-missing-001"))
+      .from(schema.messages)
+      .where(eq(schema.messages.sesMessageId, "rfc822-missing-001"))
       .get();
 
     expect(inbound).toBeDefined();
@@ -1079,14 +1088,14 @@ describe("Reply uses RFC 822 Message-ID for threading headers", () => {
 
     // Insert an inbound message with a known rfc822MessageId
     const inbound = db
-      .insert(schema.inboundMessages)
+      .insert(schema.messages)
       .values({
-        messageId: "thread-test-001",
+        threadId: 0,
+        direction: "inbound",
+        sesMessageId: "thread-test-001",
         rfc822MessageId: "<original-msg-id@gmail.com>",
-        timestamp: new Date().toISOString(),
-        source: "sender@gmail.com",
-        fromAddrs: JSON.stringify(["sender@gmail.com"]),
-        toAddrs: JSON.stringify(["newsletter@reply.example.com"]),
+        fromAddr: "sender@gmail.com",
+        toAddr: "newsletter@reply.example.com",
         subject: "Original Subject",
         spamVerdict: "PASS",
         virusVerdict: "PASS",
@@ -1152,14 +1161,14 @@ describe("Reply omits threading headers when rfc822MessageId is null", () => {
 
     // Insert an inbound message with NO rfc822MessageId
     const inbound = db
-      .insert(schema.inboundMessages)
+      .insert(schema.messages)
       .values({
-        messageId: "no-thread-test-001",
+        threadId: 0,
+        direction: "inbound",
+        sesMessageId: "no-thread-test-001",
         rfc822MessageId: null,
-        timestamp: new Date().toISOString(),
-        source: "sender@gmail.com",
-        fromAddrs: JSON.stringify(["sender@gmail.com"]),
-        toAddrs: JSON.stringify(["newsletter@reply.example.com"]),
+        fromAddr: "sender@gmail.com",
+        toAddr: "newsletter@reply.example.com",
         subject: "No Thread Subject",
         spamVerdict: "PASS",
         virusVerdict: "PASS",
