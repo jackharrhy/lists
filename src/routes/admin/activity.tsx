@@ -5,6 +5,7 @@ import { schema } from "../../db";
 import type { Config } from "../../config";
 import { getAccessibleListIds } from "../../auth";
 import { AdminLayout, fmtDateTime, type User } from "./layout";
+import { Button, LinkButton, Select, PageHeader } from "./ui";
 
 const PAGE_SIZE = 50;
 
@@ -161,52 +162,51 @@ export function mountActivityRoutes(app: Hono, db: Db, _config: Config) {
 
     return c.html(
       <AdminLayout title="Activity" user={user}>
-        <div class="flex items-center justify-between mb-4">
-          <h1 class="text-2xl font-bold mt-0 mb-0">Activity</h1>
+        <PageHeader title="Activity">
           <span class="text-xs text-gray-400">Page {page}</span>
-        </div>
+        </PageHeader>
 
         {/* Filters */}
         <form method="get" action="/admin/activity" class="flex items-end gap-3 mb-6 flex-wrap">
           <div>
             <label class="block text-xs font-medium text-gray-500 mb-1">Type</label>
-            <select name="group" class="px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <Select name="group" size="sm">
               <option value="" selected={!filterGroup}>All</option>
               {EVENT_GROUPS.map((g) => (
                 <option value={g.value} selected={filterGroup === g.value}>{g.label}</option>
               ))}
-            </select>
+            </Select>
           </div>
           {allSubscribers.length > 0 && (
             <div>
               <label class="block text-xs font-medium text-gray-500 mb-1">Subscriber</label>
-              <select name="subscriber" class="px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <Select name="subscriber" size="sm">
                 <option value="" selected={!filterSubscriber}>All</option>
                 {allSubscribers.map((s) => (
                   <option value={String(s.id)} selected={filterSubscriber === String(s.id)}>
                     {s.email}
                   </option>
                 ))}
-              </select>
+              </Select>
             </div>
           )}
           {allCampaigns.length > 0 && (
             <div>
               <label class="block text-xs font-medium text-gray-500 mb-1">Campaign</label>
-              <select name="campaign" class="px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <Select name="campaign" size="sm">
                 <option value="" selected={!filterCampaign}>All</option>
                 {allCampaigns.map((cam) => (
                   <option value={String(cam.id)} selected={filterCampaign === String(cam.id)}>
                     {cam.subject.slice(0, 40)}
                   </option>
                 ))}
-              </select>
+              </Select>
             </div>
           )}
           <input type="hidden" name="page" value="1" />
-          <button type="submit" class="px-3 py-1.5 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700 border-none cursor-pointer">Filter</button>
+          <Button type="submit" size="sm">Filter</Button>
           {(filterGroup || filterSubscriber || filterCampaign) && (
-            <a href="/admin/activity" class="px-3 py-1.5 text-sm text-gray-500 hover:text-gray-700 no-underline">Clear</a>
+            <a href="/admin/activity" class="text-sm text-gray-500 hover:text-gray-700 no-underline">Clear</a>
           )}
         </form>
 
@@ -243,19 +243,14 @@ export function mountActivityRoutes(app: Hono, db: Db, _config: Config) {
         {(page > 1 || hasMore) && (
           <div class="flex items-center justify-between mt-6 pt-4 border-t border-gray-100">
             <div>
-              {page > 1 && (
-                <a href={buildUrl({ page: page - 1 })} class="px-3 py-1.5 text-sm text-blue-600 hover:text-blue-800 no-underline border border-blue-200 rounded hover:bg-blue-50">
-                  ← Previous
-                </a>
-              )}
+              {page > 1
+                ? <LinkButton href={buildUrl({ page: page - 1 })} variant="secondary" size="sm">← Previous</LinkButton>
+                : <span />
+              }
             </div>
             <span class="text-xs text-gray-400">Showing {PAGE_SIZE * (page - 1) + 1}–{PAGE_SIZE * (page - 1) + events.length}</span>
             <div>
-              {hasMore && (
-                <a href={buildUrl({ page: page + 1 })} class="px-3 py-1.5 text-sm text-blue-600 hover:text-blue-800 no-underline border border-blue-200 rounded hover:bg-blue-50">
-                  Next →
-                </a>
-              )}
+              {hasMore && <LinkButton href={buildUrl({ page: page + 1 })} variant="secondary" size="sm">Next →</LinkButton>}
             </div>
           </div>
         )}

@@ -12,8 +12,14 @@ export function Input(props: Record<string, any>) {
   return <input {...props} class={`w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${props.class ?? ""}`} />;
 }
 
-export function Select({ children, ...props }: Record<string, any>) {
-  return <select {...props} class={`w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${props.class ?? ""}`}>{children}</select>;
+export function Select({ children, size, ...props }: Record<string, any>) {
+  const base = "border border-gray-300 rounded-md font-[inherit] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500";
+  const sizes: Record<string, string> = {
+    sm: "px-2 py-1.5 text-sm",
+    md: "w-full px-3 py-2 text-sm mb-3",
+  };
+  const s = sizes[size ?? "md"] ?? sizes.md;
+  return <select {...props} class={`${base} ${s} ${props.class ?? ""}`}>{children}</select>;
 }
 
 export function Textarea(props: Record<string, any>) {
@@ -45,14 +51,20 @@ export function Button({ children, variant = "primary", size = "md", ...props }:
   return <button {...props} class={`inline-block ${base} ${s} ${v} ${props.class ?? ""}`}>{children}</button>;
 }
 
-export function LinkButton({ href, children, variant = "primary", ...props }: Record<string, any>) {
+export function LinkButton({ href, children, variant = "primary", size = "md", ...props }: Record<string, any>) {
   const base = "inline-block font-medium rounded-md cursor-pointer border-none no-underline";
-  const variants = {
-    primary: "px-4 py-2 text-sm bg-blue-600 text-white hover:bg-blue-700",
-    danger: "px-4 py-2 text-sm bg-red-600 text-white hover:bg-red-700",
+  const sizes: Record<string, string> = {
+    sm: "px-2 py-1 text-xs",
+    md: "px-4 py-2 text-sm",
   };
-  const v = variants[variant as keyof typeof variants] ?? variants.primary;
-  return <a href={href} {...props} class={`${base} ${v} ${props.class ?? ""}`}>{children}</a>;
+  const variants: Record<string, string> = {
+    primary: "bg-blue-600 text-white hover:bg-blue-700",
+    danger: "bg-red-600 text-white hover:bg-red-700",
+    secondary: "bg-white text-gray-700 hover:bg-gray-50 border border-gray-300",
+  };
+  const s = sizes[size as string] ?? sizes.md;
+  const v = variants[variant as string] ?? variants.primary;
+  return <a href={href} {...props} class={`${base} ${s} ${v} ${props.class ?? ""}`}>{children}</a>;
 }
 
 // ---------------------------------------------------------------------------
