@@ -108,7 +108,7 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
 
     // Build where conditions
     const filterConditions = [];
-    if (filterStatus && ["draft", "sending", "sent", "failed"].includes(filterStatus)) {
+    if (filterStatus && ["draft", "sending", "sent", "failed", "scheduled"].includes(filterStatus)) {
       filterConditions.push(eq(schema.campaigns.status, filterStatus as any));
     }
     if (filterSearch) {
@@ -176,6 +176,7 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
     const CAMPAIGN_STATUSES = [
       { value: "", label: "All" },
       { value: "draft", label: "Draft" },
+      { value: "scheduled", label: "Scheduled" },
       { value: "sending", label: "Sending" },
       { value: "sent", label: "Sent" },
       { value: "failed", label: "Failed" },
@@ -232,9 +233,12 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
                 </Td>
                 <Td>{describeAudience(cam, listNameMap, tagNameMap)}</Td>
                 <Td>{cam.fromAddress}</Td>
-                <Td>
-                  <CampaignBadge status={cam.status} />
-                </Td>
+                 <Td>
+                   <CampaignBadge status={cam.status} />
+                   {cam.status === "scheduled" && cam.scheduledAt && (
+                     <span class="ml-2 text-xs text-gray-500">{fmtDateTime(cam.scheduledAt)}</span>
+                   )}
+                 </Td>
                 <Td>{fmtDate(cam.createdAt)}</Td>
               </tr>
             ))}
@@ -349,6 +353,27 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
                   <Textarea id="bodyMarkdown" name="bodyMarkdown" required placeholder="Write your email in markdown…" />
                   <p class="text-xs text-gray-400 mt-1">{"Available variables: {{firstName}}, {{lastName}}, {{email}}, {{unsubscribeUrl}}, {{preferencesUrl}}"}</p>
                 </FormGroup>
+
+                <h3 class="text-sm font-semibold text-gray-700 mt-6 mb-3">Sending options</h3>
+
+                <FormGroup>
+                  <Label for="scheduledAt">Schedule for (optional)</Label>
+                  <Input type="datetime-local" id="scheduledAt" name="scheduledAt" />
+                </FormGroup>
+
+                <div id="batchOptions">
+                  <div class="flex gap-4">
+                    <FormGroup>
+                      <Label for="batchSize">Batch size (emails per batch)</Label>
+                      <Input type="number" id="batchSize" name="batchSize" min="1" placeholder="e.g. 20 (leave empty to send all at once)" />
+                    </FormGroup>
+                    <FormGroup>
+                      <Label for="batchInterval">Minutes between batches</Label>
+                      <Input type="number" id="batchInterval" name="batchInterval" min="1" placeholder="e.g. 10" />
+                    </FormGroup>
+                  </div>
+                </div>
+
                 <Button type="submit">Create Draft</Button>
               </form>
             </Card>
@@ -511,9 +536,14 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
       }
     }
 
+    const scheduledAt = body["scheduledAt"] ? new Date(String(body["scheduledAt"])).toISOString() : null;
+    const batchSize = body["batchSize"] ? parseInt(String(body["batchSize"]), 10) || null : null;
+    const batchInterval = body["batchInterval"] ? parseInt(String(body["batchInterval"]), 10) || null : null;
+    const status = scheduledAt ? "scheduled" : "draft";
+
     const result = db
       .insert(schema.campaigns)
-      .values({ audienceType, audienceId, audienceData, fromAddress, subject, bodyMarkdown })
+      .values({ audienceType, audienceId, audienceData, fromAddress, subject, bodyMarkdown, scheduledAt, batchSize, batchInterval, status })
       .returning({ id: schema.campaigns.id })
       .get();
 
@@ -631,13 +661,22 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
           </span>
         </div>
 
+        {campaign.scheduledAt && (
+          <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4 text-sm text-blue-800">
+            Scheduled for: {fmtDateTime(campaign.scheduledAt)}
+            {campaign.batchSize && (
+              <span class="ml-4">Batch: {campaign.batchSize} emails every {campaign.batchInterval ?? 10} minutes</span>
+            )}
+          </div>
+        )}
+
         {campaign.lastError && (
           <div class="bg-red-50 border border-red-200 rounded-lg p-4 mb-6 font-mono text-sm whitespace-pre-wrap break-all text-red-800">
             <strong>Error:</strong>{"\n"}{campaign.lastError}
           </div>
         )}
 
-        {(campaign.status === "draft" || campaign.status === "failed") && (
+        {(campaign.status === "draft" || campaign.status === "failed" || campaign.status === "scheduled") && (
           <div class="flex gap-2 mb-6">
             <LinkButton href={`/admin/campaigns/${id}/edit`}>Edit Campaign</LinkButton>
           </div>
@@ -647,6 +686,14 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
           <form method="post" action={`/admin/campaigns/${id}/send`} class="mb-6">
             <Button type="submit" variant="danger">Send Campaign</Button>
           </form>
+        )}
+
+        {campaign.status === "scheduled" && (
+          <div class="flex gap-2 mb-6">
+            <form method="post" action={`/admin/campaigns/${id}/unschedule`}>
+              <Button type="submit" variant="secondary">Unschedule (revert to draft)</Button>
+            </form>
+          </div>
         )}
 
         {campaign.status === "failed" && (
@@ -761,7 +808,7 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
     const id = Number(c.req.param("id"));
     const campaign = db.select().from(schema.campaigns).where(eq(schema.campaigns.id, id)).get();
     if (!campaign) return c.notFound();
-    if (campaign.status !== "draft" && campaign.status !== "failed") {
+    if (campaign.status !== "draft" && campaign.status !== "failed" && campaign.status !== "scheduled") {
       return c.redirect(`/admin/campaigns/${id}`);
     }
 
@@ -854,6 +901,32 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
                   <textarea id="bodyMarkdown" name="bodyMarkdown" required placeholder="Write your email in markdown…" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 min-h-[200px] resize-y focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">{campaign.bodyMarkdown}</textarea>
                   <p class="text-xs text-gray-400 mt-1">{"Available variables: {{firstName}}, {{lastName}}, {{email}}, {{unsubscribeUrl}}, {{preferencesUrl}}"}</p>
                 </FormGroup>
+
+                <h3 class="text-sm font-semibold text-gray-700 mt-6 mb-3">Sending options</h3>
+
+                <FormGroup>
+                  <Label for="scheduledAt">Schedule for (optional)</Label>
+                  <Input
+                    type="datetime-local"
+                    id="scheduledAt"
+                    name="scheduledAt"
+                    value={campaign.scheduledAt ? campaign.scheduledAt.slice(0, 16) : undefined}
+                  />
+                </FormGroup>
+
+                <div id="batchOptions">
+                  <div class="flex gap-4">
+                    <FormGroup>
+                      <Label for="batchSize">Batch size (emails per batch)</Label>
+                      <Input type="number" id="batchSize" name="batchSize" min="1" placeholder="e.g. 20 (leave empty to send all at once)" value={campaign.batchSize ?? undefined} />
+                    </FormGroup>
+                    <FormGroup>
+                      <Label for="batchInterval">Minutes between batches</Label>
+                      <Input type="number" id="batchInterval" name="batchInterval" min="1" placeholder="e.g. 10" value={campaign.batchInterval ?? undefined} />
+                    </FormGroup>
+                  </div>
+                </div>
+
                 <Button type="submit">Save Changes</Button>
               </form>
             </Card>
@@ -1000,8 +1073,13 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
       return c.redirect(`/admin/campaigns/${id}/edit`);
     }
 
+    const scheduledAt = body["scheduledAt"] ? new Date(String(body["scheduledAt"])).toISOString() : null;
+    const batchSize = body["batchSize"] ? parseInt(String(body["batchSize"]), 10) || null : null;
+    const batchInterval = body["batchInterval"] ? parseInt(String(body["batchInterval"]), 10) || null : null;
+    const status = scheduledAt ? "scheduled" : "draft";
+
     db.update(schema.campaigns)
-      .set({ audienceType, audienceId, audienceData, fromAddress, subject, bodyMarkdown })
+      .set({ audienceType, audienceId, audienceData, fromAddress, subject, bodyMarkdown, scheduledAt, batchSize, batchInterval, status })
       .where(eq(schema.campaigns.id, id))
       .run();
 
@@ -1039,6 +1117,15 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
     const id = Number(c.req.param("id"));
     db.update(schema.campaigns)
       .set({ status: "draft", lastError: null })
+      .where(eq(schema.campaigns.id, id))
+      .run();
+    return c.redirect(`/admin/campaigns/${id}`);
+  });
+
+  app.post("/campaigns/:id/unschedule", (c) => {
+    const id = Number(c.req.param("id"));
+    db.update(schema.campaigns)
+      .set({ status: "draft", scheduledAt: null })
       .where(eq(schema.campaigns.id, id))
       .run();
     return c.redirect(`/admin/campaigns/${id}`);

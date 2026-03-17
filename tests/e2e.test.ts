@@ -176,7 +176,7 @@ describe("Campaign send failure flow", () => {
       .get();
 
     expect(sendCampaign(db, testConfig, campaign.id)).rejects.toThrow(
-      "must be draft or failed to send",
+      "must be draft, failed, or scheduled",
     );
   });
 });

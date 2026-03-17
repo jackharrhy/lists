@@ -95,8 +95,11 @@ export const campaigns = sqliteTable("campaigns", {
   audienceId: integer("audience_id"),
   audienceData: text("audience_data"),
   status: text("status", {
-    enum: ["draft", "sending", "sent", "failed"],
+    enum: ["draft", "scheduled", "sending", "sent", "failed"],
   }).notNull().default("draft"),
+  scheduledAt: text("scheduled_at"),
+  batchSize: integer("batch_size"),
+  batchInterval: integer("batch_interval"),
   lastError: text("last_error"),
   sentAt: text("sent_at"),
   createdAt: text("created_at")

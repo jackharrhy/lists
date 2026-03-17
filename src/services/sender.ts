@@ -151,8 +151,8 @@ export async function sendCampaign(
 ) {
   const campaign = db.select().from(schema.campaigns).where(eq(schema.campaigns.id, campaignId)).get();
   if (!campaign) throw new Error(`Campaign ${campaignId} not found`);
-  if (campaign.status !== "draft" && campaign.status !== "failed") {
-    throw new Error(`Campaign ${campaignId} is ${campaign.status}, must be draft or failed to send`);
+  if (!["draft", "failed", "scheduled"].includes(campaign.status)) {
+    throw new Error(`Campaign ${campaignId} is ${campaign.status}, must be draft, failed, or scheduled`);
   }
 
   // Resolve list when audienceType is "list"
@@ -173,6 +173,8 @@ export async function sendCampaign(
     detail: `Campaign "${campaign.subject}" started sending`,
     campaignId,
   });
+
+  const isBatched = !!campaign.batchSize;
 
   try {
     let subscribers: { id: number; email: string; firstName: string | null; lastName: string | null; unsubscribeToken: string }[];
@@ -211,6 +213,11 @@ export async function sendCampaign(
         .all()
         .map((r) => r.subscriberId),
     );
+
+    // For batched campaigns, limit to the next N unsent subscribers
+    if (isBatched && campaign.batchSize) {
+      subscribers = subscribers.filter((s) => !alreadySent.has(s.id)).slice(0, campaign.batchSize);
+    }
 
     // Derive per-campaign values depending on whether there's a list
     const listName = list ? list.name : "Newsletter";
@@ -298,6 +305,53 @@ export async function sendCampaign(
           })
           .run();
         console.error(`Failed to send to ${subscriber.email}: ${msg}`);
+      }
+    }
+
+    // For batched campaigns, check if there are more unsent subscribers remaining
+    if (isBatched) {
+      const sentSoFar = new Set(
+        db.select({ subscriberId: schema.campaignSends.subscriberId })
+          .from(schema.campaignSends)
+          .where(and(
+            eq(schema.campaignSends.campaignId, campaignId),
+            eq(schema.campaignSends.status, "sent"),
+          ))
+          .all()
+          .map((r) => r.subscriberId),
+      );
+
+      // Re-resolve audience to check for remaining unsent
+      let allAudienceIds: number[];
+      switch (campaign.audienceType) {
+        case "list":
+          allAudienceIds = getConfirmedSubscribers(db, campaign.audienceId!).map((s) => s.id);
+          break;
+        case "tag":
+          allAudienceIds = getSubscribersByTag(db, campaign.audienceId!).map((s) => s.id);
+          break;
+        case "subscribers": {
+          const ids = JSON.parse(campaign.audienceData!) as number[];
+          allAudienceIds = getSubscribersByIds(db, ids).map((s) => s.id);
+          break;
+        }
+        case "all":
+          allAudienceIds = getAllActiveConfirmedSubscribers(db).map((s) => s.id);
+          break;
+        default:
+          allAudienceIds = [];
+      }
+
+      const remainingCount = allAudienceIds.filter((id) => !sentSoFar.has(id)).length;
+
+      if (remainingCount > 0) {
+        const nextAt = new Date(Date.now() + (campaign.batchInterval ?? 10) * 60 * 1000).toISOString();
+        db.update(schema.campaigns)
+          .set({ status: "scheduled", scheduledAt: nextAt })
+          .where(eq(schema.campaigns.id, campaignId))
+          .run();
+        console.log(`Campaign ${campaignId}: sent batch, ${remainingCount} remaining, next at ${nextAt}`);
+        return; // don't fall through to mark as "sent"
       }
     }
 

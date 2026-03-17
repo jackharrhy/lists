@@ -9,6 +9,7 @@ import { webhookRoutes } from "./routes/webhooks";
 import { adminRoutes } from "./routes/admin/index";
 import { mountDesignRoutes } from "./routes/admin/design";
 import { startPoller } from "./services/poller";
+import { startScheduler } from "./services/scheduler";
 import { bootstrapOwner } from "./bootstrap";
 
 const config = loadConfig();
@@ -29,6 +30,11 @@ mountDesignRoutes(app);
 
 startPoller(db, config).catch((err) => {
   console.error("Poller crashed:", err);
+  process.exit(1);
+});
+
+startScheduler(db, config).catch((err) => {
+  console.error("Scheduler crashed:", err);
   process.exit(1);
 });
 
