@@ -29,30 +29,44 @@ export function AdminLayout({
       </head>
       <body class="font-sans text-gray-900 bg-gray-50 m-0 p-0 leading-relaxed">
         <nav class="bg-gray-900 py-3 mb-6">
-          <div class="max-w-5xl mx-auto px-6 flex items-center gap-6">
-            <a href="/admin/" class="text-white font-bold text-base mr-auto no-underline">
+          <div class="max-w-5xl mx-auto px-6 flex items-center gap-4">
+            <a href="/admin/" class="text-white font-bold text-base no-underline">
               Lists
             </a>
-            <a href="/admin/" class="text-gray-400 text-sm no-underline hover:text-white">Dashboard</a>
-            <a href="/admin/subscribers" class="text-gray-400 text-sm no-underline hover:text-white">Subscribers</a>
-            <a href="/admin/lists" class="text-gray-400 text-sm no-underline hover:text-white">Lists</a>
-            <a href="/admin/campaigns" class="text-gray-400 text-sm no-underline hover:text-white">Campaigns</a>
-            <a href="/admin/inbound" class="text-gray-400 text-sm no-underline hover:text-white">Inbound</a>
-            <a href="/admin/activity" class="text-gray-400 text-sm no-underline hover:text-white">Activity</a>
-            <a href="/admin/tags" class="text-gray-400 text-sm no-underline hover:text-white">Tags</a>
-            <a href="/admin/import" class="text-gray-400 text-sm no-underline hover:text-white">Import</a>
-            {isAdmin && (
-              <a href="/admin/users" class="text-gray-400 text-sm no-underline hover:text-white">Users</a>
-            )}
-            <span class="text-gray-400 text-sm">{user?.name ?? user?.email ?? ""}</span>
-            <form method="post" action="/admin/logout" class="m-0">
-              <button
-                type="submit"
-                class="bg-transparent text-gray-400 border-none cursor-pointer text-sm p-0 hover:text-white"
-              >
-                Logout
-              </button>
-            </form>
+
+            {/* Main nav */}
+            <div class="flex items-center gap-3 ml-4">
+              <a href="/admin/" class="text-gray-400 text-sm no-underline hover:text-white">Dashboard</a>
+              <a href="/admin/subscribers" class="text-gray-400 text-sm no-underline hover:text-white">Subscribers</a>
+              <a href="/admin/lists" class="text-gray-400 text-sm no-underline hover:text-white">Lists</a>
+              <a href="/admin/campaigns" class="text-gray-400 text-sm no-underline hover:text-white">Campaigns</a>
+              <a href="/admin/inbound" class="text-gray-400 text-sm no-underline hover:text-white">Inbound</a>
+            </div>
+
+            <span class="text-gray-700">|</span>
+
+            {/* Tools */}
+            <div class="flex items-center gap-3">
+              <a href="/admin/activity" class="text-gray-500 text-xs no-underline hover:text-white">Activity</a>
+              <a href="/admin/tags" class="text-gray-500 text-xs no-underline hover:text-white">Tags</a>
+              <a href="/admin/import" class="text-gray-500 text-xs no-underline hover:text-white">Import</a>
+              {isAdmin && (
+                <a href="/admin/users" class="text-gray-500 text-xs no-underline hover:text-white">Users</a>
+              )}
+            </div>
+
+            {/* User */}
+            <div class="flex items-center gap-3 ml-auto">
+              <span class="text-gray-500 text-xs">{user?.name ?? user?.email ?? ""}</span>
+              <form method="post" action="/admin/logout" class="m-0">
+                <button
+                  type="submit"
+                  class="bg-transparent text-gray-500 border-none cursor-pointer text-xs p-0 hover:text-white"
+                >
+                  Logout
+                </button>
+              </form>
+            </div>
           </div>
         </nav>
         <div class="max-w-5xl mx-auto px-6 py-4">
