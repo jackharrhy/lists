@@ -107,25 +107,52 @@ export async function startPoller(db: Db, config: Config) {
           let campaignId: number | null = null;
 
           if (inReplyTo) {
-            // 1. Check inReplyTo against messages.rfc822MessageId
-            const parentMsg = db
+            // Extract the bare ID from angle brackets for SES matching
+            // inReplyTo looks like: <id@email.amazonses.com> or <uuid@domain>
+            const bareInReplyTo = inReplyTo.replace(/^<|>$/g, "");
+            // SES rewrites Message-ID to <sesMessageId@email.amazonses.com>
+            // So extract just the part before @ for matching against sesMessageId
+            const sesIdFromReply = bareInReplyTo.split("@")[0] ?? "";
+
+            // 1. Check inReplyTo against messages.rfc822MessageId (exact match)
+            let parentMsg = db
               .select({ id: schema.messages.id, threadId: schema.messages.threadId })
               .from(schema.messages)
               .where(eq(schema.messages.rfc822MessageId, inReplyTo))
               .get();
 
+            // 2. Check against messages.sesMessageId (SES rewrites Message-ID on delivery)
+            if (!parentMsg && sesIdFromReply) {
+              parentMsg = db
+                .select({ id: schema.messages.id, threadId: schema.messages.threadId })
+                .from(schema.messages)
+                .where(eq(schema.messages.sesMessageId, sesIdFromReply))
+                .get();
+            }
+
             if (parentMsg) {
               parentId = parentMsg.id;
               threadId = parentMsg.threadId;
             } else {
-              // 2. Check inReplyTo against campaignSends.rfc822MessageId
-              const campaignSend = db
+              // 3. Check inReplyTo against campaignSends.rfc822MessageId
+              let campaignSend = db
                 .select({
                   campaignId: schema.campaignSends.campaignId,
                 })
                 .from(schema.campaignSends)
                 .where(eq(schema.campaignSends.rfc822MessageId, inReplyTo))
                 .get();
+
+              // 4. Check against campaignSends.sesMessageId
+              if (!campaignSend && sesIdFromReply) {
+                campaignSend = db
+                  .select({
+                    campaignId: schema.campaignSends.campaignId,
+                  })
+                  .from(schema.campaignSends)
+                  .where(eq(schema.campaignSends.sesMessageId, sesIdFromReply))
+                  .get();
+              }
 
               if (campaignSend) {
                 campaignId = campaignSend.campaignId;

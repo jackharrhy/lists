@@ -1244,3 +1244,81 @@ describe("Reply omits threading headers when rfc822MessageId is null", () => {
     expect(rawEmail).not.toContain("References:");
   });
 });
+
+// ---------------------------------------------------------------------------
+// 17. Thread matching via SES-rewritten Message-ID
+// ---------------------------------------------------------------------------
+describe("Thread matching via SES-rewritten Message-ID", () => {
+  test("inbound reply threads correctly when In-Reply-To uses SES format", () => {
+    const db = createTestDb();
+
+    // Simulate: we sent an outbound message (reply)
+    // Our generated rfc822MessageId: <uuid@reply.example.com>
+    // SES rewrites this to <sesId@email.amazonses.com> on delivery
+    // When recipient replies, their In-Reply-To points to the SES-rewritten ID
+
+    const outboundSesId = "0100019cfd0b2cd2-c18f07a0-4e9e-45c7-8a4c-bc835326eb3c-000000";
+    const ourGeneratedMsgId = "<f02cdfa1-8fee-4cdb-bad2-799dd524e6ac@reply.example.com>";
+
+    // Insert the original inbound message (root of thread)
+    db.insert(schema.messages)
+      .values({
+        threadId: 0,
+        direction: "inbound",
+        rfc822MessageId: "<original@gmail.com>",
+        fromAddr: "user@gmail.com",
+        toAddr: "list@reply.example.com",
+        subject: "Hello",
+        sesMessageId: "original-ses-id",
+        createdAt: new Date().toISOString(),
+      })
+      .run();
+    const root = db.select().from(schema.messages).where(eq(schema.messages.sesMessageId, "original-ses-id")).get()!;
+    db.update(schema.messages).set({ threadId: root.id }).where(eq(schema.messages.id, root.id)).run();
+
+    // Insert our outbound reply
+    db.insert(schema.messages)
+      .values({
+        threadId: root.id,
+        parentId: root.id,
+        direction: "outbound",
+        rfc822MessageId: ourGeneratedMsgId,
+        inReplyTo: "<original@gmail.com>",
+        fromAddr: "list@reply.example.com",
+        toAddr: "user@gmail.com",
+        subject: "Re: Hello",
+        sesMessageId: outboundSesId,
+        sentAt: new Date().toISOString(),
+        createdAt: new Date().toISOString(),
+      })
+      .run();
+
+    // Now simulate an inbound reply that references the SES-rewritten ID
+    // This is what actually happens: Gmail replies with In-Reply-To pointing to
+    // <sesId@email.amazonses.com>, NOT our original <uuid@reply.example.com>
+    const inReplyTo = `<${outboundSesId}@email.amazonses.com>`;
+    const sesIdFromReply = inReplyTo.replace(/^<|>$/g, "").split("@")[0] ?? "";
+
+    // This is the matching logic from the poller:
+    // 1. Try exact match on rfc822MessageId
+    let parentMsg = db
+      .select({ id: schema.messages.id, threadId: schema.messages.threadId })
+      .from(schema.messages)
+      .where(eq(schema.messages.rfc822MessageId, inReplyTo))
+      .get();
+
+    // This should NOT match (our rfc822MessageId is different from the SES-rewritten one)
+    expect(parentMsg).toBeUndefined();
+
+    // 2. Try matching against sesMessageId
+    parentMsg = db
+      .select({ id: schema.messages.id, threadId: schema.messages.threadId })
+      .from(schema.messages)
+      .where(eq(schema.messages.sesMessageId, sesIdFromReply))
+      .get();
+
+    // This SHOULD match our outbound message
+    expect(parentMsg).toBeDefined();
+    expect(parentMsg!.threadId).toBe(root.id);
+  });
+});
