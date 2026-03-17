@@ -5,6 +5,7 @@ import { loadConfig } from "./config";
 import { createDb } from "./db";
 import { publicRoutes } from "./routes/public";
 import { apiRoutes } from "./routes/api";
+import { webhookRoutes } from "./routes/webhooks";
 import { adminRoutes } from "./routes/admin/index";
 import { mountDesignRoutes } from "./routes/admin/design";
 import { startPoller } from "./services/poller";
@@ -21,6 +22,7 @@ app.use("/static/*", serveStatic({ root: "./public", rewriteRequestPath: (p) => 
 
 app.get("/", (c) => c.redirect("/subscribe"));
 app.route("/", publicRoutes(db, config));
+app.route("/webhooks", webhookRoutes(db));
 app.route("/api", apiRoutes(db, config));
 app.route("/admin", adminRoutes(db, config));
 mountDesignRoutes(app);

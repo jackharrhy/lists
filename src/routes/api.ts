@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { z } from "zod";
 import { eq } from "drizzle-orm";
 import { type Db, schema } from "../db";
 import type { Config } from "../config";
@@ -6,20 +7,26 @@ import { apiAuth } from "../auth";
 import { createSubscriber } from "../services/subscriber";
 import { sendCampaign } from "../services/sender";
 
+const CreateSubscriberSchema = z.object({
+  email: z.string().email(),
+  firstName: z.string().optional(),
+  lastName: z.string().optional(),
+  name: z.string().optional(), // legacy compat
+  lists: z.array(z.string()).min(1),
+});
+
 export function apiRoutes(db: Db, config: Config) {
   const app = new Hono();
 
   app.use("/*", apiAuth(config.apiToken));
 
   app.post("/subscribers", async (c) => {
-    const body = await c.req.json();
-    const { email, firstName, lastName, name, lists } = body;
-
-    if (!email || !lists || !Array.isArray(lists) || lists.length === 0) {
-      return c.json({ error: "email and lists are required" }, 400);
+    const raw = await c.req.json().catch(() => null);
+    const parsed = CreateSubscriberSchema.safeParse(raw);
+    if (!parsed.success) {
+      return c.json({ error: "Invalid request", details: parsed.error.flatten() }, 400);
     }
-
-    // Support both firstName/lastName and legacy "name" field
+    const { email, firstName, lastName, name, lists } = parsed.data;
     const fn = firstName ?? name ?? null;
     const ln = lastName ?? null;
     const subscriber = createSubscriber(db, email, fn, ln, lists);

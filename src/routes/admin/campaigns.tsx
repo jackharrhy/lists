@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { z } from "zod";
 import { eq, desc, and, inArray } from "drizzle-orm";
 import { marked } from "marked";
 import type { Db } from "../../db";
@@ -64,8 +65,17 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
     return c.html(html);
   });
 
+  const CampaignPreviewSchema = z.object({
+    bodyMarkdown: z.string().default(""),
+    subject: z.string().default("Preview"),
+    listName: z.string().default("Newsletter"),
+  });
+
   app.post("/campaigns/preview", async (c) => {
-    const { bodyMarkdown, subject, listName } = await c.req.json();
+    const raw = await c.req.json().catch(() => ({}));
+    const parsed = CampaignPreviewSchema.safeParse(raw);
+    if (!parsed.success) return c.text("Bad Request", 400);
+    const { bodyMarkdown, subject, listName } = parsed.data;
     const substitutedMarkdown = substituteVariables(
       bodyMarkdown || "",
       { firstName: "Jane", lastName: "Doe", email: "subscriber@example.com" },
