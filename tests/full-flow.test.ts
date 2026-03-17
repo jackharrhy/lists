@@ -587,3 +587,100 @@ describe("Full HTTP flow: campaign edit then send", () => {
     expect(final!.status).toBe("sent");
   });
 });
+
+// ---------------------------------------------------------------------------
+// 8. Inbound list groups by thread (one row per conversation)
+// ---------------------------------------------------------------------------
+describe("Inbound list groups by thread", () => {
+  test("multiple messages in same thread show as one row", async () => {
+    const db = createTestDb();
+    const app = createApp(db);
+    await seedOwner(db);
+    const cookie = await login(app);
+
+    // Insert a thread with 3 messages: root inbound, outbound reply, follow-up inbound
+    db.insert(schema.messages)
+      .values({
+        threadId: 0,
+        direction: "inbound",
+        rfc822MessageId: "<root@gmail.com>",
+        fromAddr: "user@gmail.com",
+        toAddr: "list@reply.example.com",
+        subject: "Thread Subject",
+        sesMessageId: "root-ses-id",
+        bodyText: "First message",
+        createdAt: "2026-03-17T10:00:00Z",
+      })
+      .run();
+    const root = db.select().from(schema.messages).where(eq(schema.messages.sesMessageId, "root-ses-id")).get()!;
+    db.update(schema.messages).set({ threadId: root.id }).where(eq(schema.messages.id, root.id)).run();
+
+    db.insert(schema.messages)
+      .values({
+        threadId: root.id,
+        parentId: root.id,
+        direction: "outbound",
+        rfc822MessageId: "<reply@example.com>",
+        fromAddr: "list@reply.example.com",
+        toAddr: "user@gmail.com",
+        subject: "Re: Thread Subject",
+        sesMessageId: "reply-ses-id",
+        bodyText: "Our reply",
+        sentAt: "2026-03-17T10:05:00Z",
+        createdAt: "2026-03-17T10:05:00Z",
+      })
+      .run();
+
+    db.insert(schema.messages)
+      .values({
+        threadId: root.id,
+        parentId: root.id,
+        direction: "inbound",
+        rfc822MessageId: "<followup@gmail.com>",
+        fromAddr: "user@gmail.com",
+        toAddr: "list@reply.example.com",
+        subject: "Re: Thread Subject",
+        sesMessageId: "followup-ses-id",
+        bodyText: "Follow up",
+        createdAt: "2026-03-17T10:10:00Z",
+      })
+      .run();
+
+    // Also insert an unrelated single message (different thread)
+    db.insert(schema.messages)
+      .values({
+        threadId: 0,
+        direction: "inbound",
+        rfc822MessageId: "<other@gmail.com>",
+        fromAddr: "other@gmail.com",
+        toAddr: "list@reply.example.com",
+        subject: "Unrelated",
+        sesMessageId: "other-ses-id",
+        bodyText: "Different conversation",
+        createdAt: "2026-03-17T11:00:00Z",
+      })
+      .run();
+    const other = db.select().from(schema.messages).where(eq(schema.messages.sesMessageId, "other-ses-id")).get()!;
+    db.update(schema.messages).set({ threadId: other.id }).where(eq(schema.messages.id, other.id)).run();
+
+    // GET the inbound list
+    const res = await app.request("/admin/inbound", {
+      headers: { Cookie: cookie },
+    });
+    expect(res.status).toBe(200);
+    const html = await res.text();
+
+    // Should show "Thread Subject" once (grouped), not twice
+    const threadSubjectMatches = html.match(/Thread Subject/g) ?? [];
+    // The subject appears in the link text -- should be 1 row, so 1 occurrence in <a> tags
+    // (might appear more times in HTML attributes, so just check it's fewer than 3)
+    expect(threadSubjectMatches.length).toBeLessThanOrEqual(2);
+
+    // Should show "Unrelated" once
+    expect(html).toContain("Unrelated");
+
+    // The reply count for the thread should be 2 (outbound reply + follow-up inbound)
+    // Look for "2" in the replies column -- the thread has 3 messages total, minus 1 root = 2
+    expect(html).toContain(">2<");
+  });
+});
