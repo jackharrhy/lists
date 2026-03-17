@@ -4,6 +4,7 @@ import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { SESv2Client, SendEmailCommand } from "@aws-sdk/client-sesv2";
+import { simpleParser } from "mailparser";
 import { marked } from "marked";
 import type { Db } from "../db";
 import { schema } from "../db";
@@ -84,14 +85,48 @@ function AdminLayout({
   );
 }
 
-function Verdict({ value }: { value: string | null }) {
-  if (!value) return <span class="text-red-600 font-semibold text-xs">—</span>;
-  const pass = value.toUpperCase() === "PASS";
+function parseAddrs(json: string): string[] {
+  try { return JSON.parse(json); } catch { return [json]; }
+}
+
+function VerdictChips({ spf, dkim, dmarc }: { spf?: string | null; dkim?: string | null; dmarc?: string | null }) {
+  const chip = (label: string, value?: string | null) => {
+    if (!value) return null;
+    const pass = value === "PASS";
+    return (
+      <span class={`text-[10px] font-medium ${pass ? "text-green-600" : "text-red-600"}`}>
+        {label}{pass ? "\u2713" : "\u2717"}
+      </span>
+    );
+  };
   return (
-    <span class={pass ? "text-green-600 font-semibold text-xs" : "text-red-600 font-semibold text-xs"}>
-      {value.toUpperCase()}
+    <span class="flex items-center gap-1.5">
+      {chip("SPF", spf)}
+      {chip("DKIM", dkim)}
+      {chip("DMARC", dmarc)}
     </span>
   );
+}
+
+async function fetchEmailBody(s3Key: string | null, config: Config): Promise<{ html: string | null; text: string | null }> {
+  if (!s3Key) return { html: null, text: null };
+  try {
+    const s3 = new S3Client({ region: config.awsRegion });
+    const result = await s3.send(new GetObjectCommand({
+      Bucket: config.s3Bucket,
+      Key: s3Key,
+    }));
+    const raw = await result.Body?.transformToByteArray();
+    if (!raw) return { html: null, text: null };
+    const parsed = await simpleParser(Buffer.from(raw));
+    return {
+      html: parsed.html || null,
+      text: parsed.text || null,
+    };
+  } catch (err) {
+    console.error("Failed to fetch/parse email:", err);
+    return { html: null, text: null };
+  }
 }
 
 function CampaignBadge({ status }: { status: string }) {
@@ -2321,6 +2356,38 @@ export function adminRoutes(db: Db, config: Config) {
         .all();
     }
 
+    // Count replies per message
+    const replyCounts = new Map<number, number>();
+    if (messages.length > 0) {
+      const msgIds = messages.map((m) => m.id);
+      const counts = db
+        .select({
+          inboundMessageId: schema.replies.inboundMessageId,
+          count: sql<number>`count(*)`,
+        })
+        .from(schema.replies)
+        .where(inArray(schema.replies.inboundMessageId, msgIds))
+        .groupBy(schema.replies.inboundMessageId)
+        .all();
+      for (const row of counts) {
+        replyCounts.set(row.inboundMessageId, row.count);
+      }
+    }
+
+    // Campaign lookup for linked campaigns
+    const campaignMap = new Map<number, string>();
+    const campaignIds = [...new Set(messages.filter((m) => m.campaignId).map((m) => m.campaignId!))];
+    if (campaignIds.length > 0) {
+      const campaigns = db
+        .select({ id: schema.campaigns.id, subject: schema.campaigns.subject })
+        .from(schema.campaigns)
+        .where(inArray(schema.campaigns.id, campaignIds))
+        .all();
+      for (const cam of campaigns) {
+        campaignMap.set(cam.id, cam.subject);
+      }
+    }
+
     return c.html(
       <AdminLayout title="Inbound" user={user}>
         <h1 class="text-2xl font-bold mt-0 mb-4">Inbound Messages</h1>
@@ -2330,27 +2397,29 @@ export function adminRoutes(db: Db, config: Config) {
               <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">From</th>
               <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Subject</th>
               <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Date</th>
-              <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">SPF</th>
-              <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">DKIM</th>
-              <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">DMARC</th>
+              <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Replies</th>
+              <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Campaign</th>
+              <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Auth</th>
             </tr>
           </thead>
           <tbody>
             {messages.map((msg) => (
               <tr class={msg.readAt ? "" : "font-semibold"}>
-                <td class="px-4 py-3 border-b border-gray-100">{msg.source}</td>
+                <td class="px-4 py-3 border-b border-gray-100">{parseAddrs(msg.fromAddrs).join(", ")}</td>
                 <td class="px-4 py-3 border-b border-gray-100">
                   <a href={`/admin/inbound/${msg.id}`} class="text-blue-600 hover:text-blue-800">{msg.subject}</a>
                 </td>
                 <td class="px-4 py-3 border-b border-gray-100">{fmtDateTime(msg.timestamp)}</td>
+                <td class="px-4 py-3 border-b border-gray-100">{replyCounts.get(msg.id) ?? 0}</td>
                 <td class="px-4 py-3 border-b border-gray-100">
-                  <Verdict value={msg.spfVerdict} />
+                  {msg.campaignId && campaignMap.has(msg.campaignId) ? (
+                    <a href={`/admin/campaigns/${msg.campaignId}`} class="text-blue-600 hover:text-blue-800 text-xs">{campaignMap.get(msg.campaignId)}</a>
+                  ) : (
+                    <span class="text-gray-400">{"\u2014"}</span>
+                  )}
                 </td>
                 <td class="px-4 py-3 border-b border-gray-100">
-                  <Verdict value={msg.dkimVerdict} />
-                </td>
-                <td class="px-4 py-3 border-b border-gray-100">
-                  <Verdict value={msg.dmarcVerdict} />
+                  <VerdictChips spf={msg.spfVerdict} dkim={msg.dkimVerdict} dmarc={msg.dmarcVerdict} />
                 </td>
               </tr>
             ))}
@@ -2360,7 +2429,7 @@ export function adminRoutes(db: Db, config: Config) {
     );
   });
 
-  app.get("/inbound/:id", (c) => {
+  app.get("/inbound/:id", async (c) => {
     const user = c.get("user") as User;
     const id = Number(c.req.param("id"));
     const msg = db.select().from(schema.inboundMessages).where(eq(schema.inboundMessages.id, id)).get();
@@ -2378,66 +2447,110 @@ export function adminRoutes(db: Db, config: Config) {
       .select()
       .from(schema.replies)
       .where(eq(schema.replies.inboundMessageId, id))
-      .orderBy(desc(schema.replies.sentAt))
       .all();
+
+    // Fetch and parse email body from S3
+    const emailBody = await fetchEmailBody(msg.s3Key, config);
+
+    // Linked campaign
+    const campaign = msg.campaignId
+      ? db.select().from(schema.campaigns).where(eq(schema.campaigns.id, msg.campaignId)).get()
+      : null;
+
+    // Build chronological thread
+    type ThreadItem =
+      | { type: "inbound"; msg: typeof msg; body: { html: string | null; text: string | null } }
+      | { type: "reply"; reply: typeof msgReplies[number] };
+
+    const thread: ThreadItem[] = [];
+    thread.push({ type: "inbound", msg, body: emailBody });
+    for (const r of msgReplies) {
+      thread.push({ type: "reply", reply: r });
+    }
+    thread.sort((a, b) => {
+      const ta = a.type === "inbound" ? a.msg.timestamp : a.reply.sentAt;
+      const tb = b.type === "inbound" ? b.msg.timestamp : b.reply.sentAt;
+      return ta.localeCompare(tb);
+    });
 
     return c.html(
       <AdminLayout title={`Inbound: ${msg.subject}`} user={user}>
-        <h1 class="text-2xl font-bold mt-0 mb-4">{msg.subject}</h1>
-        <div class="bg-white border border-gray-200 rounded-lg p-5 mb-6">
-          <dl>
-            <dt class="font-semibold text-xs uppercase text-gray-500 first:mt-0">From</dt>
-            <dd class="mt-1 ml-0">{msg.fromAddrs}</dd>
-            <dt class="font-semibold text-xs uppercase text-gray-500 mt-3">To</dt>
-            <dd class="mt-1 ml-0">{msg.toAddrs}</dd>
-            <dt class="font-semibold text-xs uppercase text-gray-500 mt-3">Subject</dt>
-            <dd class="mt-1 ml-0">{msg.subject}</dd>
-            <dt class="font-semibold text-xs uppercase text-gray-500 mt-3">Date</dt>
-            <dd class="mt-1 ml-0">{fmtDateTime(msg.timestamp)}</dd>
-            <dt class="font-semibold text-xs uppercase text-gray-500 mt-3">Verdicts</dt>
-            <dd class="mt-1 ml-0">
-              SPF: <Verdict value={msg.spfVerdict} /> &nbsp;
-              DKIM: <Verdict value={msg.dkimVerdict} /> &nbsp;
-              DMARC: <Verdict value={msg.dmarcVerdict} />
-            </dd>
-          </dl>
-          {msg.s3Key && (
-            <p class="mt-4">
-              <a href={`/admin/inbound/${id}/raw`} class="inline-block px-4 py-2 bg-gray-500 text-white text-sm font-medium rounded-md hover:bg-gray-600 cursor-pointer border-none no-underline">
-                Download Raw .eml
-              </a>
-            </p>
-          )}
-        </div>
-
-        <h2 class="text-xl font-semibold mt-6 mb-3">Replies</h2>
-        {msgReplies.length > 0 ? (
-          <table class="w-full bg-white rounded-lg overflow-hidden mb-6 text-sm">
-            <thead>
-              <tr>
-                <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">From</th>
-                <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">To</th>
-                <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Subject</th>
-                <th class="bg-gray-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200">Sent At</th>
-              </tr>
-            </thead>
-            <tbody>
-              {msgReplies.map((r) => (
-                <tr>
-                  <td class="px-4 py-3 border-b border-gray-100">{r.fromAddr}</td>
-                  <td class="px-4 py-3 border-b border-gray-100">{r.toAddr}</td>
-                  <td class="px-4 py-3 border-b border-gray-100">{r.subject}</td>
-                  <td class="px-4 py-3 border-b border-gray-100">{fmtDateTime(r.sentAt)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        ) : (
-          <p>No replies yet.</p>
+        <h1 class="text-2xl font-bold mt-0 mb-1">{msg.subject}</h1>
+        {campaign && (
+          <p class="text-sm text-gray-500 mb-4">
+            Campaign: <a href={`/admin/campaigns/${campaign.id}`} class="text-blue-600 hover:text-blue-800">{campaign.subject}</a>
+          </p>
         )}
 
-        <div class="bg-white border border-gray-200 rounded-lg p-5 mb-6">
-          <h2 class="text-xl font-semibold mt-0 mb-3">Send Reply</h2>
+        {/* Action toolbar */}
+        <div class="flex gap-2 mb-4">
+          <form method="post" action={`/admin/inbound/${id}/toggle-read`}>
+            <button type="submit" class="inline-block px-3 py-1.5 bg-gray-100 text-gray-700 text-xs font-medium rounded-md hover:bg-gray-200 cursor-pointer border border-gray-300">
+              Mark as {msg.readAt ? "Unread" : "Read"}
+            </button>
+          </form>
+          <form method="post" action={`/admin/inbound/${id}/delete`} onsubmit="return confirm('Delete this inbound message and its replies? This cannot be undone.')">
+            <button type="submit" class="inline-block px-3 py-1.5 bg-red-50 text-red-600 text-xs font-medium rounded-md hover:bg-red-100 cursor-pointer border border-red-200">
+              Delete
+            </button>
+          </form>
+        </div>
+
+        {/* Thread */}
+        {thread.map((item) => {
+          if (item.type === "inbound") {
+            const m = item.msg;
+            const body = item.body;
+            return (
+              <div class="bg-white border border-gray-200 rounded-lg p-5 mb-4">
+                <div class="flex items-baseline justify-between mb-3">
+                  <div>
+                    <span class="font-medium text-sm">{parseAddrs(m.fromAddrs).join(", ")}</span>
+                    <span class="text-gray-400 text-xs ml-2">{"\u2192"} {parseAddrs(m.toAddrs).join(", ")}</span>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <span class="text-xs text-gray-400">{fmtDateTime(m.timestamp)}</span>
+                    <VerdictChips spf={m.spfVerdict} dkim={m.dkimVerdict} dmarc={m.dmarcVerdict} />
+                  </div>
+                </div>
+                {body.html ? (
+                  <iframe
+                    srcdoc={body.html}
+                    class="w-full border-0 rounded"
+                    style="min-height: 200px;"
+                    sandbox="allow-same-origin"
+                  />
+                ) : body.text ? (
+                  <pre class="text-sm text-gray-700 whitespace-pre-wrap font-sans leading-relaxed">{body.text}</pre>
+                ) : (
+                  <p class="text-gray-400 text-sm italic">Email body not available</p>
+                )}
+                {m.s3Key && (
+                  <a href={`/admin/inbound/${m.id}/raw`} class="text-xs text-gray-400 hover:text-gray-600 mt-2 inline-block">Download raw .eml</a>
+                )}
+              </div>
+            );
+          } else {
+            const r = item.reply;
+            return (
+              <div class="bg-blue-50 border border-blue-200 rounded-lg p-5 mb-4">
+                <div class="flex items-baseline justify-between mb-3">
+                  <div>
+                    <span class="font-medium text-sm text-blue-800">{r.fromAddr}</span>
+                    <span class="text-blue-400 text-xs ml-1">(You)</span>
+                    <span class="text-blue-400 text-xs ml-2">{"\u2192"} {r.toAddr}</span>
+                  </div>
+                  <span class="text-xs text-gray-400">{fmtDateTime(r.sentAt)}</span>
+                </div>
+                <pre class="text-sm text-gray-700 whitespace-pre-wrap font-sans leading-relaxed">{r.body}</pre>
+              </div>
+            );
+          }
+        })}
+
+        {/* Reply form */}
+        <div class="bg-gray-50 border border-gray-200 rounded-lg p-5 mt-2">
+          <h3 class="text-sm font-semibold text-gray-700 mt-0 mb-3">Reply</h3>
           <form method="post" action={`/admin/inbound/${id}/reply`}>
             <div class="mb-4">
               <label for="fromAddr" class="block text-sm font-medium text-gray-700 mb-1">From</label>
@@ -2446,7 +2559,7 @@ export function adminRoutes(db: Db, config: Config) {
                 id="fromAddr"
                 name="fromAddr"
                 required
-                value={msg.toAddrs.includes(",") ? msg.toAddrs.split(",")[0]!.trim() : msg.toAddrs}
+                value={parseAddrs(msg.toAddrs)[0] ?? ""}
                 class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
@@ -2477,20 +2590,6 @@ export function adminRoutes(db: Db, config: Config) {
               <textarea id="replyBody" name="body" required placeholder="Your reply…" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 min-h-[200px] resize-y focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
             </div>
             <button type="submit" class="inline-block px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none no-underline">Send Reply</button>
-          </form>
-        </div>
-
-        <hr class="my-8" />
-        <div class="flex gap-2">
-          <form method="post" action={`/admin/inbound/${id}/toggle-read`}>
-            <button type="submit" class="inline-block px-4 py-2 bg-gray-500 text-white text-sm font-medium rounded-md hover:bg-gray-600 cursor-pointer border-none no-underline">
-              Mark as {msg.readAt ? "Unread" : "Read"}
-            </button>
-          </form>
-          <form method="post" action={`/admin/inbound/${id}/delete`} onsubmit="return confirm('Delete this inbound message and its replies? This cannot be undone.')">
-            <button type="submit" class="inline-block px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-md hover:bg-red-700 cursor-pointer border-none no-underline">
-              Delete
-            </button>
           </form>
         </div>
       </AdminLayout>,
