@@ -144,8 +144,8 @@ export function adminRoutes(db: Db, config: Config) {
     if (campaign.audienceType === "all") return "All subscribers";
     if (campaign.audienceType === "tag") return `Tag: ${tags.get(campaign.audienceId!) ?? "Unknown"}`;
     if (campaign.audienceType === "subscribers") {
-      const data = campaign.audienceData ? JSON.parse(campaign.audienceData) : {};
-      return `${data.subscriberIds?.length ?? 0} specific`;
+      const ids = campaign.audienceData ? JSON.parse(campaign.audienceData) as number[] : [];
+      return `${ids.length} specific`;
     }
     return "Unknown";
   }
@@ -1692,7 +1692,7 @@ export function adminRoutes(db: Db, config: Config) {
     } else if (audienceMode === "specific") {
       const ids = String(body["subscriberIds"] ?? "").split(",").map(Number).filter(Boolean);
       if (ids.length === 0) return c.redirect("/admin/campaigns/new");
-      audienceData = JSON.stringify({ subscriberIds: ids });
+      audienceData = JSON.stringify(ids);
     }
 
     if (!fromAddress || !subject || !bodyMarkdown) {
@@ -1781,8 +1781,8 @@ export function adminRoutes(db: Db, config: Config) {
         )
         .all();
     } else if (campaign.audienceType === "subscribers" && campaign.audienceData) {
-      const data = JSON.parse(campaign.audienceData) as { subscriberIds?: number[] };
-      previewSubscribers = data.subscriberIds?.length
+      const ids = JSON.parse(campaign.audienceData) as number[];
+      previewSubscribers = ids.length
         ? db
             .selectDistinct({
               id: schema.subscribers.id,
@@ -1792,7 +1792,7 @@ export function adminRoutes(db: Db, config: Config) {
             .innerJoin(schema.subscriberLists, eq(schema.subscriberLists.subscriberId, schema.subscribers.id))
             .where(
               and(
-                inArray(schema.subscribers.id, data.subscriberIds),
+                inArray(schema.subscribers.id, ids),
                 eq(schema.subscribers.status, "active"),
                 eq(schema.subscriberLists.status, "confirmed"),
               ),
@@ -1988,8 +1988,7 @@ export function adminRoutes(db: Db, config: Config) {
     let currentTagId = campaign.audienceType === "tag" ? campaign.audienceId : null;
     let currentSubscriberIds: number[] = [];
     if (campaign.audienceType === "subscribers" && campaign.audienceData) {
-      const data = JSON.parse(campaign.audienceData) as { subscriberIds?: number[] };
-      currentSubscriberIds = data.subscriberIds ?? [];
+      currentSubscriberIds = JSON.parse(campaign.audienceData) as number[];
     }
 
     return c.html(
@@ -2193,7 +2192,7 @@ export function adminRoutes(db: Db, config: Config) {
       if (tagId) audienceId = tagId;
     } else if (audienceMode === "specific") {
       const ids = String(body["subscriberIds"] ?? "").split(",").map(Number).filter(Boolean);
-      if (ids.length > 0) audienceData = JSON.stringify({ subscriberIds: ids });
+      if (ids.length > 0) audienceData = JSON.stringify(ids);
     }
 
     if (!fromAddress || !subject || !bodyMarkdown) {

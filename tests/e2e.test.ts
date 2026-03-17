@@ -785,6 +785,32 @@ describe("Specific-subscribers campaign send", () => {
     const sentSubscriberIds = sends.map((s) => s.subscriberId).sort();
     expect(sentSubscriberIds).toEqual([sub1.id, sub3.id].sort());
   });
+
+  test("audienceData must be a flat array, not a wrapped object", async () => {
+    const db = createTestDb();
+    const list = seedList(db, { slug: "newsletter", fromDomain: "example.com" });
+    const sub1 = createSubscriber(db, "a@example.com", "A", null, ["newsletter"]);
+    confirmSubscriber(db, sub1.unsubscribeToken);
+
+    // This is the OLD broken format that the admin UI was producing
+    const brokenCampaign = db
+      .insert(schema.campaigns)
+      .values({
+        audienceType: "subscribers",
+        audienceData: JSON.stringify({ subscriberIds: [sub1.id] }),
+        subject: "Broken",
+        bodyMarkdown: "test",
+        fromAddress: "test@example.com",
+        status: "draft",
+      })
+      .returning()
+      .get();
+
+    sesMock.on(SendEmailCommand).resolves({ MessageId: "msg" });
+
+    // This should throw because JSON.parse returns an object, not an array
+    await expect(sendCampaign(db, testConfig, brokenCampaign.id)).rejects.toThrow();
+  });
 });
 
 // ---------------------------------------------------------------------------
