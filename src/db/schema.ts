@@ -89,6 +89,7 @@ export const campaigns = sqliteTable("campaigns", {
   bodyMarkdown: text("body_markdown").notNull(),
   templateSlug: text("template_slug").notNull().default("newsletter"),
   fromAddress: text("from_address").notNull(),
+  fromName: text("from_name"),
   audienceType: text("audience_type", {
     enum: ["list", "tag", "all", "subscribers"],
   }).notNull(),

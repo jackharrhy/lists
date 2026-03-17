@@ -220,16 +220,17 @@ export async function sendCampaign(
     }
 
     // Derive per-campaign values depending on whether there's a list
-    const listName = list ? list.name : "Newsletter";
-    const replyTo = list
-      ? `${list.slug}@reply.${list.fromDomain}`
-      : `noreply@reply.${config.fromDomain}`;
-    const fromWithName = list
-      ? `"${list.name}" <${campaign.fromAddress}>`
-      : campaign.fromAddress;
     const emailFromDomain = list
       ? list.fromDomain
       : (campaign.fromAddress.split("@")[1] ?? config.fromDomain);
+    const fromLocalPart = campaign.fromAddress.split("@")[0] ?? "noreply";
+    const listName = list ? list.name : (campaign.fromName ?? fromLocalPart);
+    const replyTo = list
+      ? `${list.slug}@reply.${list.fromDomain}`
+      : `${fromLocalPart}@reply.${emailFromDomain}`;
+    // Display name: explicit fromName > list name > local part of fromAddress
+    const displayName = campaign.fromName ?? list?.name ?? fromLocalPart;
+    const fromWithName = `"${displayName}" <${campaign.fromAddress}>`;
 
     for (const subscriber of subscribers) {
       if (alreadySent.has(subscriber.id)) continue;

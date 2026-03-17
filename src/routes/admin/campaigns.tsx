@@ -339,6 +339,15 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
                   />
                 </FormGroup>
                 <FormGroup>
+                  <Label for="fromName">From Name (optional)</Label>
+                  <Input
+                    type="text"
+                    id="fromName"
+                    name="fromName"
+                    placeholder="e.g. Silicon Harbour (auto-fills from address)"
+                  />
+                </FormGroup>
+                <FormGroup>
                   <Label for="subject">Subject</Label>
                   <Input type="text" id="subject" name="subject" required placeholder="Campaign subject" />
                 </FormGroup>
@@ -390,7 +399,7 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
               if (target) target.classList.remove('hidden');
             });
 
-            // From address auto-fill: only for list mode
+            // From address auto-fill + fromName auto-fill
             var lastDefault = '';
             var listSelect = document.getElementById('listId');
             if (listSelect) {
@@ -400,6 +409,22 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
                 var input = document.getElementById('fromAddress');
                 if (!input.value || input.value === lastDefault) input.value = addr;
                 lastDefault = addr;
+                // auto-fill fromName from local part if empty
+                var nameInput = document.getElementById('fromName');
+                if (nameInput && !nameInput.value && addr) {
+                  nameInput.value = addr.split('@')[0] || '';
+                }
+              });
+            }
+
+            // fromName auto-fill from fromAddress local part when typed
+            var fromAddrInput = document.getElementById('fromAddress');
+            if (fromAddrInput) {
+              fromAddrInput.addEventListener('blur', function() {
+                var nameInput = document.getElementById('fromName');
+                if (nameInput && !nameInput.value && this.value) {
+                  nameInput.value = this.value.split('@')[0] || '';
+                }
               });
             }
 
@@ -490,6 +515,7 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
     const user = c.get("user") as User;
     const body = await c.req.parseBody();
     const fromAddress = String(body["fromAddress"] ?? "").trim();
+    const fromName = String(body["fromName"] ?? "").trim() || null;
     const subject = String(body["subject"] ?? "").trim();
     const bodyMarkdown = String(body["bodyMarkdown"] ?? "");
 
@@ -537,7 +563,7 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
 
     const result = db
       .insert(schema.campaigns)
-      .values({ audienceType, audienceId, audienceData, fromAddress, subject, bodyMarkdown, scheduledAt, batchSize, batchInterval, status })
+      .values({ audienceType, audienceId, audienceData, fromAddress, fromName, subject, bodyMarkdown, scheduledAt, batchSize, batchInterval, status })
       .returning({ id: schema.campaigns.id })
       .get();
 
@@ -887,6 +913,16 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
                   />
                 </FormGroup>
                 <FormGroup>
+                  <Label for="fromName">From Name (optional)</Label>
+                  <Input
+                    type="text"
+                    id="fromName"
+                    name="fromName"
+                    value={campaign.fromName ?? ""}
+                    placeholder="e.g. Silicon Harbour"
+                  />
+                </FormGroup>
+                <FormGroup>
                   <Label for="subject">Subject</Label>
                   <Input type="text" id="subject" name="subject" required value={campaign.subject} placeholder="Campaign subject" />
                 </FormGroup>
@@ -1038,6 +1074,7 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
 
     const body = await c.req.parseBody();
     const fromAddress = String(body["fromAddress"] ?? "").trim();
+    const fromName = String(body["fromName"] ?? "").trim() || null;
     const subject = String(body["subject"] ?? "").trim();
     const bodyMarkdown = String(body["bodyMarkdown"] ?? "");
 
@@ -1073,7 +1110,7 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
     const status = scheduledAt ? "scheduled" : "draft";
 
     db.update(schema.campaigns)
-      .set({ audienceType, audienceId, audienceData, fromAddress, subject, bodyMarkdown, scheduledAt, batchSize, batchInterval, status })
+      .set({ audienceType, audienceId, audienceData, fromAddress, fromName, subject, bodyMarkdown, scheduledAt, batchSize, batchInterval, status })
       .where(eq(schema.campaigns.id, id))
       .run();
 
