@@ -25,7 +25,12 @@ function Layout({ children }: { children: any }) {
         <link rel="stylesheet" href="/static/styles.css" />
       </head>
       <body class="font-sans text-gray-900 bg-gray-50 m-0 p-0">
-        <div class="max-w-lg mx-auto px-6 py-12">{children}</div>
+        <div class="max-w-lg mx-auto px-6 py-12">
+          {children}
+          <footer class="border-t border-gray-100 mt-12 pt-4 text-xs text-gray-400">
+            <a href="/design" class="text-gray-400 hover:text-gray-600">design</a>
+          </footer>
+        </div>
       </body>
     </html>
   );
