@@ -930,3 +930,282 @@ describe("POST /campaigns/preview", () => {
     expect(html).toContain("World");
   });
 });
+
+// ---------------------------------------------------------------------------
+// 13. Poller stores rfc822MessageId
+// ---------------------------------------------------------------------------
+describe("Poller stores rfc822MessageId", () => {
+  test("inserts rfc822MessageId from SQS payload into DB", () => {
+    const db = createTestDb();
+    seedList(db, { slug: "newsletter", fromDomain: "example.com" });
+
+    const payload = {
+      messageId: "rfc822-test-001",
+      rfc822MessageId: "<CAF4Ud9Q123@mail.gmail.com>",
+      timestamp: new Date().toISOString(),
+      source: "sender@gmail.com",
+      from: ["sender@gmail.com"],
+      to: ["newsletter@reply.example.com"],
+      subject: "Test with RFC822 ID",
+      spamVerdict: "PASS",
+      virusVerdict: "PASS",
+      spfVerdict: "PASS",
+      dkimVerdict: "PASS",
+      dmarcVerdict: "PASS",
+      action: {
+        type: "S3",
+        bucketName: "test-bucket",
+        objectKeyPrefix: "inbound/",
+        objectKey: "inbound/rfc822-test-001",
+      },
+    };
+
+    const s3Key = payload.action.objectKey || payload.action.objectKeyPrefix + payload.messageId;
+
+    db.insert(schema.inboundMessages)
+      .values({
+        messageId: payload.messageId,
+        rfc822MessageId: payload.rfc822MessageId ?? null,
+        timestamp: payload.timestamp,
+        source: payload.source,
+        fromAddrs: JSON.stringify(payload.from),
+        toAddrs: JSON.stringify(payload.to),
+        subject: payload.subject,
+        spamVerdict: payload.spamVerdict,
+        virusVerdict: payload.virusVerdict,
+        spfVerdict: payload.spfVerdict,
+        dkimVerdict: payload.dkimVerdict,
+        dmarcVerdict: payload.dmarcVerdict,
+        s3Key,
+      })
+      .onConflictDoNothing({ target: schema.inboundMessages.messageId })
+      .run();
+
+    const inbound = db
+      .select()
+      .from(schema.inboundMessages)
+      .where(eq(schema.inboundMessages.messageId, "rfc822-test-001"))
+      .get();
+
+    expect(inbound).toBeDefined();
+    expect(inbound!.rfc822MessageId).toBe("<CAF4Ud9Q123@mail.gmail.com>");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 14. Poller handles missing rfc822MessageId (old Lambda)
+// ---------------------------------------------------------------------------
+describe("Poller handles missing rfc822MessageId", () => {
+  test("stores null when payload has no rfc822MessageId field", () => {
+    const db = createTestDb();
+    seedList(db, { slug: "newsletter", fromDomain: "example.com" });
+
+    const payload = {
+      messageId: "rfc822-missing-001",
+      // no rfc822MessageId field
+      timestamp: new Date().toISOString(),
+      source: "sender@gmail.com",
+      from: ["sender@gmail.com"],
+      to: ["newsletter@reply.example.com"],
+      subject: "Test without RFC822 ID",
+      spamVerdict: "PASS",
+      virusVerdict: "PASS",
+      spfVerdict: "PASS",
+      dkimVerdict: "PASS",
+      dmarcVerdict: "PASS",
+      action: {
+        type: "S3",
+        bucketName: "test-bucket",
+        objectKeyPrefix: "inbound/",
+        objectKey: "inbound/rfc822-missing-001",
+      },
+    } as {
+      messageId: string;
+      rfc822MessageId?: string;
+      timestamp: string;
+      source: string;
+      from: string[];
+      to: string[];
+      subject: string;
+      spamVerdict: string;
+      virusVerdict: string;
+      spfVerdict: string;
+      dkimVerdict: string;
+      dmarcVerdict: string;
+      action: { type: string; bucketName: string; objectKeyPrefix: string; objectKey: string };
+    };
+
+    const s3Key = payload.action.objectKey || payload.action.objectKeyPrefix + payload.messageId;
+
+    db.insert(schema.inboundMessages)
+      .values({
+        messageId: payload.messageId,
+        rfc822MessageId: payload.rfc822MessageId ?? null,
+        timestamp: payload.timestamp,
+        source: payload.source,
+        fromAddrs: JSON.stringify(payload.from),
+        toAddrs: JSON.stringify(payload.to),
+        subject: payload.subject,
+        spamVerdict: payload.spamVerdict,
+        virusVerdict: payload.virusVerdict,
+        spfVerdict: payload.spfVerdict,
+        dkimVerdict: payload.dkimVerdict,
+        dmarcVerdict: payload.dmarcVerdict,
+        s3Key,
+      })
+      .onConflictDoNothing({ target: schema.inboundMessages.messageId })
+      .run();
+
+    const inbound = db
+      .select()
+      .from(schema.inboundMessages)
+      .where(eq(schema.inboundMessages.messageId, "rfc822-missing-001"))
+      .get();
+
+    expect(inbound).toBeDefined();
+    expect(inbound!.rfc822MessageId).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 15. Reply uses RFC 822 Message-ID for threading headers
+// ---------------------------------------------------------------------------
+describe("Reply uses RFC 822 Message-ID for threading headers", () => {
+  test("sets In-Reply-To and References headers from rfc822MessageId", async () => {
+    const db = createTestDb();
+    seedList(db, { slug: "newsletter", fromDomain: "example.com" });
+
+    const { user, sessionToken } = createOwnerAndSession(db);
+
+    // Insert an inbound message with a known rfc822MessageId
+    const inbound = db
+      .insert(schema.inboundMessages)
+      .values({
+        messageId: "thread-test-001",
+        rfc822MessageId: "<original-msg-id@gmail.com>",
+        timestamp: new Date().toISOString(),
+        source: "sender@gmail.com",
+        fromAddrs: JSON.stringify(["sender@gmail.com"]),
+        toAddrs: JSON.stringify(["newsletter@reply.example.com"]),
+        subject: "Original Subject",
+        spamVerdict: "PASS",
+        virusVerdict: "PASS",
+        spfVerdict: "PASS",
+        dkimVerdict: "PASS",
+        dmarcVerdict: "PASS",
+        s3Key: "inbound/thread-test-001",
+      })
+      .returning()
+      .get();
+
+    sesMock.on(SendEmailCommand).resolves({ MessageId: "ses-reply-msg-id" });
+
+    const app = new Hono();
+    app.route("/admin", adminRoutes(db, testConfig));
+
+    const formBody = new URLSearchParams({
+      fromAddr: "admin@example.com",
+      toAddr: "sender@gmail.com",
+      subject: "Re: Original Subject",
+      body: "Thanks for your email!",
+    });
+
+    const res = await app.request(`/admin/inbound/${inbound.id}/reply`, {
+      method: "POST",
+      headers: {
+        Cookie: `session=${sessionToken}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: formBody.toString(),
+    });
+
+    // Should redirect after success
+    expect(res.status).toBe(302);
+
+    // SES should have been called once
+    const sesCalls = sesMock.commandCalls(SendEmailCommand);
+    expect(sesCalls).toHaveLength(1);
+
+    // Extract and decode the raw email
+    const rawData = sesCalls[0].args[0].input.Content?.Raw?.Data;
+    expect(rawData).toBeDefined();
+    const rawEmail = new TextDecoder().decode(rawData as Uint8Array);
+
+    // Should contain threading headers with the RFC 822 Message-ID
+    expect(rawEmail).toContain("In-Reply-To: <original-msg-id@gmail.com>");
+    expect(rawEmail).toContain("References: <original-msg-id@gmail.com>");
+
+    // Should NOT use the SES internal messageId in In-Reply-To
+    expect(rawEmail).not.toContain("In-Reply-To: ses-reply-msg-id");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 16. Reply omits threading headers when rfc822MessageId is null
+// ---------------------------------------------------------------------------
+describe("Reply omits threading headers when rfc822MessageId is null", () => {
+  test("does not include In-Reply-To or References when rfc822MessageId is null", async () => {
+    const db = createTestDb();
+    seedList(db, { slug: "newsletter", fromDomain: "example.com" });
+
+    const { user, sessionToken } = createOwnerAndSession(db);
+
+    // Insert an inbound message with NO rfc822MessageId
+    const inbound = db
+      .insert(schema.inboundMessages)
+      .values({
+        messageId: "no-thread-test-001",
+        rfc822MessageId: null,
+        timestamp: new Date().toISOString(),
+        source: "sender@gmail.com",
+        fromAddrs: JSON.stringify(["sender@gmail.com"]),
+        toAddrs: JSON.stringify(["newsletter@reply.example.com"]),
+        subject: "No Thread Subject",
+        spamVerdict: "PASS",
+        virusVerdict: "PASS",
+        spfVerdict: "PASS",
+        dkimVerdict: "PASS",
+        dmarcVerdict: "PASS",
+        s3Key: "inbound/no-thread-test-001",
+      })
+      .returning()
+      .get();
+
+    sesMock.on(SendEmailCommand).resolves({ MessageId: "ses-noreply-msg-id" });
+
+    const app = new Hono();
+    app.route("/admin", adminRoutes(db, testConfig));
+
+    const formBody = new URLSearchParams({
+      fromAddr: "admin@example.com",
+      toAddr: "sender@gmail.com",
+      subject: "Re: No Thread Subject",
+      body: "Thanks for your email!",
+    });
+
+    const res = await app.request(`/admin/inbound/${inbound.id}/reply`, {
+      method: "POST",
+      headers: {
+        Cookie: `session=${sessionToken}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: formBody.toString(),
+    });
+
+    // Should redirect after success
+    expect(res.status).toBe(302);
+
+    // SES should have been called once
+    const sesCalls = sesMock.commandCalls(SendEmailCommand);
+    expect(sesCalls).toHaveLength(1);
+
+    // Extract and decode the raw email
+    const rawData = sesCalls[0].args[0].input.Content?.Raw?.Data;
+    expect(rawData).toBeDefined();
+    const rawEmail = new TextDecoder().decode(rawData as Uint8Array);
+
+    // Should NOT contain threading headers at all
+    expect(rawEmail).not.toContain("In-Reply-To:");
+    expect(rawEmail).not.toContain("References:");
+  });
+});

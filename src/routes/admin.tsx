@@ -2598,7 +2598,7 @@ export function adminRoutes(db: Db, config: Config) {
         subject,
         body: replyBody,
         sesMessageId: result.MessageId ?? null,
-        inReplyTo,
+        inReplyTo: rfc822Id,
       })
       .run();
 
