@@ -124,6 +124,7 @@ export const campaignSends = sqliteTable("campaign_sends", {
 export const inboundMessages = sqliteTable("inbound_messages", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   messageId: text("message_id").unique().notNull(),
+  rfc822MessageId: text("rfc822_message_id"),
   timestamp: text("timestamp").notNull(),
   source: text("source").notNull(),
   fromAddrs: text("from_addrs").notNull(),

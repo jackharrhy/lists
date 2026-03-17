@@ -2560,7 +2560,7 @@ export function adminRoutes(db: Db, config: Config) {
       return c.redirect(`/admin/inbound/${id}`);
     }
 
-    const inReplyTo = msg.messageId;
+    const rfc822Id = msg.rfc822MessageId;
     const fromDomain = fromAddr.split("@")[1] ?? config.fromDomain;
     const messageId = `<${crypto.randomUUID()}@${fromDomain}>`;
     const rawLines = [
@@ -2570,8 +2570,7 @@ export function adminRoutes(db: Db, config: Config) {
       `MIME-Version: 1.0`,
       `Message-ID: ${messageId}`,
       `Date: ${new Date().toUTCString()}`,
-      `In-Reply-To: <${inReplyTo}>`,
-      `References: <${inReplyTo}>`,
+      ...(rfc822Id ? [`In-Reply-To: ${rfc822Id}`, `References: ${rfc822Id}`] : []),
       `Content-Type: text/plain; charset=UTF-8`,
       `Content-Transfer-Encoding: 7bit`,
       ``,

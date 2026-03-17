@@ -11,6 +11,7 @@ import { logEvent } from "./events";
 
 type SQSPayload = {
   messageId: string;
+  rfc822MessageId?: string;
   timestamp: string;
   source: string;
   from: string[];
@@ -90,6 +91,7 @@ export async function startPoller(db: Db, config: Config) {
           db.insert(schema.inboundMessages)
             .values({
               messageId: payload.messageId,
+              rfc822MessageId: payload.rfc822MessageId ?? null,
               timestamp: payload.timestamp,
               source: payload.source,
               fromAddrs: JSON.stringify(payload.from),
