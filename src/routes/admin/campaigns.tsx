@@ -329,24 +329,43 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
                 </div>
 
                 <FormGroup>
-                  <Label for="fromAddress">From Address</Label>
-                  <Input
-                    type="email"
-                    id="fromAddress"
-                    name="fromAddress"
-                    required
-                    placeholder={`newsletter@${config.fromDomain}`}
-                  />
+                  <Label for="fromPersona">From</Label>
+                  <Select id="fromPersona" name="fromPersona">
+                    <option value="">Custom…</option>
+                    {allLists.map((list) => (
+                      <option
+                        value={String(list.id)}
+                        data-from-address={list.fromAddress || ""}
+                        data-from-name={list.name}
+                        data-from-domain={list.fromDomain}
+                        data-slug={list.slug}
+                      >
+                        {list.name} ({list.fromDomain})
+                      </option>
+                    ))}
+                  </Select>
                 </FormGroup>
-                <FormGroup>
-                  <Label for="fromName">From Name (optional)</Label>
-                  <Input
-                    type="text"
-                    id="fromName"
-                    name="fromName"
-                    placeholder="e.g. Silicon Harbour (auto-fills from address)"
-                  />
-                </FormGroup>
+                <div id="fromCustomFields">
+                  <FormGroup>
+                    <Label for="fromAddress">From Address</Label>
+                    <Input
+                      type="email"
+                      id="fromAddress"
+                      name="fromAddress"
+                      required
+                      placeholder={`newsletter@${config.fromDomain}`}
+                    />
+                  </FormGroup>
+                  <FormGroup>
+                    <Label for="fromName">From Name (optional)</Label>
+                    <Input
+                      type="text"
+                      id="fromName"
+                      name="fromName"
+                      placeholder="e.g. Silicon Harbour"
+                    />
+                  </FormGroup>
+                </div>
                 <FormGroup>
                   <Label for="subject">Subject</Label>
                   <Input type="text" id="subject" name="subject" required placeholder="Campaign subject" />
@@ -424,6 +443,26 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
                 var nameInput = document.getElementById('fromName');
                 if (nameInput && !nameInput.value && this.value) {
                   nameInput.value = this.value.split('@')[0] || '';
+                }
+              });
+            }
+
+            // From persona selector
+            var fromPersona = document.getElementById('fromPersona');
+            var fromCustom = document.getElementById('fromCustomFields');
+            if (fromPersona) {
+              fromPersona.addEventListener('change', function() {
+                var opt = this.options[this.selectedIndex];
+                if (!opt.value) {
+                  // Custom -- show fields, clear required attr handled by visibility
+                  fromCustom.style.display = '';
+                  document.getElementById('fromAddress').required = true;
+                } else {
+                  // Fill from list persona data
+                  document.getElementById('fromAddress').value = opt.dataset.fromAddress || (opt.dataset.slug + '@' + opt.dataset.fromDomain);
+                  document.getElementById('fromAddress').required = false;
+                  document.getElementById('fromName').value = opt.dataset.fromName || '';
+                  fromCustom.style.display = 'none';
                 }
               });
             }
@@ -902,26 +941,45 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
                 </div>
 
                 <FormGroup>
-                  <Label for="fromAddress">From Address</Label>
-                  <Input
-                    type="email"
-                    id="fromAddress"
-                    name="fromAddress"
-                    required
-                    value={campaign.fromAddress}
-                    placeholder={`newsletter@${config.fromDomain}`}
-                  />
+                  <Label for="fromPersona">From</Label>
+                  <Select id="fromPersona" name="fromPersona">
+                    <option value="">Custom…</option>
+                    {allLists.map((list) => (
+                      <option
+                        value={String(list.id)}
+                        data-from-address={list.fromAddress || ""}
+                        data-from-name={list.name}
+                        data-from-domain={list.fromDomain}
+                        data-slug={list.slug}
+                      >
+                        {list.name} ({list.fromDomain})
+                      </option>
+                    ))}
+                  </Select>
                 </FormGroup>
-                <FormGroup>
-                  <Label for="fromName">From Name (optional)</Label>
-                  <Input
-                    type="text"
-                    id="fromName"
-                    name="fromName"
-                    value={campaign.fromName ?? ""}
-                    placeholder="e.g. Silicon Harbour"
-                  />
-                </FormGroup>
+                <div id="fromCustomFields">
+                  <FormGroup>
+                    <Label for="fromAddress">From Address</Label>
+                    <Input
+                      type="email"
+                      id="fromAddress"
+                      name="fromAddress"
+                      required
+                      value={campaign.fromAddress}
+                      placeholder={`newsletter@${config.fromDomain}`}
+                    />
+                  </FormGroup>
+                  <FormGroup>
+                    <Label for="fromName">From Name (optional)</Label>
+                    <Input
+                      type="text"
+                      id="fromName"
+                      name="fromName"
+                      value={campaign.fromName ?? ""}
+                      placeholder="e.g. Silicon Harbour"
+                    />
+                  </FormGroup>
+                </div>
                 <FormGroup>
                   <Label for="subject">Subject</Label>
                   <Input type="text" id="subject" name="subject" required value={campaign.subject} placeholder="Campaign subject" />
@@ -978,6 +1036,35 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
               var target = document.querySelector('[data-audience="' + this.value + '"]');
               if (target) target.classList.remove('hidden');
             });
+
+             // From persona selector (edit form)
+            var fromPersona = document.getElementById('fromPersona');
+            var fromCustom = document.getElementById('fromCustomFields');
+            if (fromPersona) {
+              fromPersona.addEventListener('change', function() {
+                var opt = this.options[this.selectedIndex];
+                if (!opt.value) {
+                  fromCustom.style.display = '';
+                  document.getElementById('fromAddress').required = true;
+                } else {
+                  document.getElementById('fromAddress').value = opt.dataset.fromAddress || (opt.dataset.slug + '@' + opt.dataset.fromDomain);
+                  document.getElementById('fromAddress').required = false;
+                  document.getElementById('fromName').value = opt.dataset.fromName || '';
+                  fromCustom.style.display = 'none';
+                }
+              });
+            }
+
+            // fromName auto-fill from fromAddress local part
+            var fromAddrInput = document.getElementById('fromAddress');
+            if (fromAddrInput) {
+              fromAddrInput.addEventListener('blur', function() {
+                var nameInput = document.getElementById('fromName');
+                if (nameInput && !nameInput.value && this.value) {
+                  nameInput.value = this.value.split('@')[0] || '';
+                }
+              });
+            }
 
             // Subscriber picker
             var selected = new Set(${JSON.stringify(currentSubscriberIds)});
