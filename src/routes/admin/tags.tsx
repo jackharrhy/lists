@@ -4,12 +4,13 @@ import type { Db } from "../../db";
 import { schema } from "../../db";
 import type { Config } from "../../config";
 import { logEvent } from "../../services/events";
-import { AdminLayout, displayName, fmtDate, type User } from "./layout";
+import { AdminLayout, displayName, fmtDate, setFlash, getFlash, type User } from "./layout";
 import { Button, LinkButton, Input, Label, FormGroup, Table, Th, Td, Card, PageHeader } from "./ui";
 
 export function mountTagRoutes(app: Hono, db: Db, config: Config) {
   app.get("/tags", (c) => {
     const user = c.get("user") as User;
+    const flash = getFlash(c);
     const allTags = db.select().from(schema.tags).orderBy(desc(schema.tags.createdAt)).all();
 
     const tagCounts = new Map<number, number>();
@@ -23,7 +24,7 @@ export function mountTagRoutes(app: Hono, db: Db, config: Config) {
     }
 
     return c.html(
-      <AdminLayout title="Tags" user={user}>
+      <AdminLayout title="Tags" user={user} flash={flash}>
         <PageHeader title="Tags">
           <LinkButton href="/admin/tags/new">New Tag</LinkButton>
         </PageHeader>
@@ -51,8 +52,9 @@ export function mountTagRoutes(app: Hono, db: Db, config: Config) {
 
   app.get("/tags/new", (c) => {
     const user = c.get("user") as User;
+    const flash = getFlash(c);
     return c.html(
-      <AdminLayout title="New Tag" user={user}>
+      <AdminLayout title="New Tag" user={user} flash={flash}>
         <h1 class="text-2xl font-bold mt-0 mb-4">New Tag</h1>
         <Card>
           <form method="post" action="/admin/tags/new">
@@ -80,11 +82,13 @@ export function mountTagRoutes(app: Hono, db: Db, config: Config) {
 
     logEvent(db, { type: "admin.tag_created", detail: name, userId: user.id });
 
+    setFlash(c, "Tag created.");
     return c.redirect("/admin/tags");
   });
 
   app.get("/tags/:id", (c) => {
     const user = c.get("user") as User;
+    const flash = getFlash(c);
     const id = Number(c.req.param("id"));
     const tag = db.select().from(schema.tags).where(eq(schema.tags.id, id)).get();
     if (!tag) return c.notFound();
@@ -109,7 +113,7 @@ export function mountTagRoutes(app: Hono, db: Db, config: Config) {
       .all();
 
     return c.html(
-      <AdminLayout title={tag.name} user={user}>
+      <AdminLayout title={tag.name} user={user} flash={flash}>
         <h1 class="text-2xl font-bold mt-0 mb-4">{tag.name}</h1>
         <dl class="mb-6">
           <dt class="font-semibold text-xs uppercase text-gray-500">Created</dt>
@@ -163,6 +167,7 @@ export function mountTagRoutes(app: Hono, db: Db, config: Config) {
       .where(eq(schema.tags.id, id))
       .run();
 
+    setFlash(c, "Tag deleted.");
     return c.redirect("/admin/tags");
   });
 }

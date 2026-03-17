@@ -5,12 +5,13 @@ import { schema } from "../../db";
 import type { Config } from "../../config";
 import { requireRole, requireListAccess, getAccessibleListIds } from "../../auth";
 import { logEvent } from "../../services/events";
-import { AdminLayout, displayName, fmtDate, fmtDateTime, CampaignBadge, type User } from "./layout";
+import { AdminLayout, displayName, fmtDate, fmtDateTime, CampaignBadge, setFlash, getFlash, type User } from "./layout";
 import { Button, LinkButton, Input, Label, FormGroup, Table, Th, Td, Card, PageHeader } from "./ui";
 
 export function mountListRoutes(app: Hono, db: Db, config: Config) {
   app.get("/lists", (c) => {
     const user = c.get("user") as User;
+    const flash = getFlash(c);
     const listAccess = getAccessibleListIds(db, user);
     const isAdmin = user.role === "owner" || user.role === "admin";
 
@@ -40,7 +41,7 @@ export function mountListRoutes(app: Hono, db: Db, config: Config) {
     }
 
     return c.html(
-      <AdminLayout title="Lists" user={user}>
+      <AdminLayout title="Lists" user={user} flash={flash}>
         <PageHeader title="Lists">
           {isAdmin && <LinkButton href="/admin/lists/new">New List</LinkButton>}
         </PageHeader>
@@ -70,8 +71,9 @@ export function mountListRoutes(app: Hono, db: Db, config: Config) {
 
   app.get("/lists/new", requireRole("owner", "admin"), (c) => {
     const user = c.get("user") as User;
+    const flash = getFlash(c);
     return c.html(
-      <AdminLayout title="New List" user={user}>
+      <AdminLayout title="New List" user={user} flash={flash}>
         <h1 class="text-2xl font-bold mt-0 mb-4">New List</h1>
         <Card>
           <form method="post" action="/admin/lists/new">
@@ -122,11 +124,13 @@ export function mountListRoutes(app: Hono, db: Db, config: Config) {
 
     logEvent(db, { type: "admin.list_created", detail: `${name} (${slug})`, userId: user.id });
 
+    setFlash(c, "List created.");
     return c.redirect("/admin/lists");
   });
 
   app.get("/lists/:id", requireListAccess(db, (c) => Number(c.req.param("id"))), (c) => {
     const user = c.get("user") as User;
+    const flash = getFlash(c);
     const id = Number(c.req.param("id"));
     const list = db.select().from(schema.lists).where(eq(schema.lists.id, id)).get();
     if (!list) return c.notFound();
@@ -176,7 +180,7 @@ export function mountListRoutes(app: Hono, db: Db, config: Config) {
       .all();
 
     return c.html(
-      <AdminLayout title={list.name} user={user}>
+      <AdminLayout title={list.name} user={user} flash={flash}>
         <h1 class="text-2xl font-bold mt-0 mb-4">{list.name}</h1>
 
         <form method="post" action={`/admin/lists/${id}/edit`}>
@@ -306,6 +310,7 @@ export function mountListRoutes(app: Hono, db: Db, config: Config) {
 
     logEvent(db, { type: "admin.list_edited", detail: `${name} (${slug})`, userId: user.id });
 
+    setFlash(c, "List saved.");
     return c.redirect(`/admin/lists/${id}`);
   });
 
@@ -331,6 +336,7 @@ export function mountListRoutes(app: Hono, db: Db, config: Config) {
     // delete list
     db.delete(schema.lists).where(eq(schema.lists.id, id)).run();
 
+    setFlash(c, "List deleted.");
     return c.redirect("/admin/lists");
   });
 }

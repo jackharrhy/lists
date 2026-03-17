@@ -1,4 +1,28 @@
+import { getCookie, setCookie, deleteCookie } from "hono/cookie";
+import type { Context } from "hono";
 import { schema } from "../../db";
+
+// ---------------------------------------------------------------------------
+// Flash helpers
+// ---------------------------------------------------------------------------
+
+export function setFlash(c: Context, message: string) {
+  setCookie(c, "flash", encodeURIComponent(message), {
+    path: "/",
+    httpOnly: true,
+    maxAge: 10,
+    sameSite: "Lax",
+  });
+}
+
+export function getFlash(c: Context): string | undefined {
+  const val = getCookie(c, "flash");
+  if (val) {
+    deleteCookie(c, "flash", { path: "/" });
+    return decodeURIComponent(val);
+  }
+  return undefined;
+}
 
 // ---------------------------------------------------------------------------
 // Layout & components
@@ -70,7 +94,15 @@ export function AdminLayout({
           </div>
         </nav>
         <div class="max-w-5xl mx-auto px-6 py-4">
-          {flash && <div class="bg-green-100 border border-green-300 text-green-800 px-4 py-3 rounded-md mb-4 text-sm">{flash}</div>}
+          {flash && (
+            <>
+              <div id="flash-msg" class="bg-green-100 border border-green-300 text-green-800 px-4 py-3 rounded-md mb-4 text-sm flex items-center justify-between">
+                <span>{flash}</span>
+                <button onclick="document.getElementById('flash-msg').remove()" type="button" class="bg-transparent border-none cursor-pointer text-green-600 hover:text-green-800 text-lg leading-none p-0 ml-2">&times;</button>
+              </div>
+              <script dangerouslySetInnerHTML={{ __html: `setTimeout(function(){var el=document.getElementById('flash-msg');if(el)el.remove();},3000);` }} />
+            </>
+          )}
           {children}
         </div>
       </body>

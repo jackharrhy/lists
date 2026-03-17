@@ -11,7 +11,7 @@ import { renderNewsletter } from "../../../emails/render";
 import { buildUnsubscribeUrl, buildPreferencesUrl } from "../../compliance";
 import { logEvent } from "../../services/events";
 import { getConfirmedSubscribers } from "../../services/subscriber";
-import { AdminLayout, fmtDate, fmtDateTime, CampaignBadge, describeAudience, type User } from "./layout";
+import { AdminLayout, fmtDate, fmtDateTime, CampaignBadge, describeAudience, setFlash, getFlash, type User } from "./layout";
 import { Button, LinkButton, Input, Select, Textarea, Label, FormGroup, Table, Th, Td, Card, PageHeader } from "./ui";
 
 const CAMPAIGNS_PAGE_SIZE = 25;
@@ -98,6 +98,7 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
   // Campaigns
   app.get("/campaigns", (c) => {
     const user = c.get("user") as User;
+    const flash = getFlash(c);
     const listAccess = getAccessibleListIds(db, user);
 
     // Query params
@@ -183,7 +184,7 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
     ];
 
     return c.html(
-      <AdminLayout title="Campaigns" user={user}>
+      <AdminLayout title="Campaigns" user={user} flash={flash}>
         <PageHeader title="Campaigns">
           <LinkButton href="/admin/campaigns/new">New Campaign</LinkButton>
         </PageHeader>
@@ -267,6 +268,7 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
 
   app.get("/campaigns/new", (c) => {
     const user = c.get("user") as User;
+    const flash = getFlash(c);
     const listAccess = getAccessibleListIds(db, user);
 
     let allLists: (typeof schema.lists.$inferSelect)[];
@@ -282,7 +284,7 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
     const allSubscribers = db.select().from(schema.subscribers).where(eq(schema.subscribers.status, "active")).all();
 
     return c.html(
-      <AdminLayout title="New Campaign" user={user}>
+      <AdminLayout title="New Campaign" user={user} flash={flash}>
         <h1 class="text-2xl font-bold mt-0 mb-4">New Campaign</h1>
         <div class="grid grid-cols-2 gap-6">
           <div>
@@ -613,11 +615,13 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
       userId: user.id,
     });
 
+    setFlash(c, "Campaign created.");
     return c.redirect(`/admin/campaigns/${result.id}`);
   });
 
   app.get("/campaigns/:id", async (c) => {
     const user = c.get("user") as User;
+    const flash = getFlash(c);
     const id = Number(c.req.param("id"));
     const campaign = db.select().from(schema.campaigns).where(eq(schema.campaigns.id, id)).get();
     if (!campaign) return c.notFound();
@@ -711,7 +715,7 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
     }
 
     return c.html(
-      <AdminLayout title={campaign.subject} user={user}>
+      <AdminLayout title={campaign.subject} user={user} flash={flash}>
         <h1 class="text-2xl font-bold mt-0 mb-4">{campaign.subject}</h1>
         <div class="flex gap-4 items-center mb-4">
           <CampaignBadge status={campaign.status} />
@@ -864,6 +868,7 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
 
   app.get("/campaigns/:id/edit", (c) => {
     const user = c.get("user") as User;
+    const flash = getFlash(c);
     const id = Number(c.req.param("id"));
     const campaign = db.select().from(schema.campaigns).where(eq(schema.campaigns.id, id)).get();
     if (!campaign) return c.notFound();
@@ -894,7 +899,7 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
     }
 
     return c.html(
-      <AdminLayout title={`Edit: ${campaign.subject}`} user={user}>
+      <AdminLayout title={`Edit: ${campaign.subject}`} user={user} flash={flash}>
         <h1 class="text-2xl font-bold mt-0 mb-4">Edit Campaign</h1>
         <div class="grid grid-cols-2 gap-6">
           <div>
@@ -1208,6 +1213,7 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
       userId: user.id,
     });
 
+    setFlash(c, "Campaign saved.");
     return c.redirect(`/admin/campaigns/${id}`);
   });
 
@@ -1218,6 +1224,7 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
     } catch (err) {
       // error is recorded in campaign.lastError by sender
     }
+    setFlash(c, "Campaign is sending.");
     return c.redirect(`/admin/campaigns/${id}`);
   });
 
@@ -1228,6 +1235,7 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
     } catch (err) {
       // error is recorded in campaign.lastError by sender
     }
+    setFlash(c, "Campaign retrying.");
     return c.redirect(`/admin/campaigns/${id}`);
   });
 
@@ -1237,6 +1245,7 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
       .set({ status: "draft", lastError: null })
       .where(eq(schema.campaigns.id, id))
       .run();
+    setFlash(c, "Campaign reset to draft.");
     return c.redirect(`/admin/campaigns/${id}`);
   });
 
@@ -1246,6 +1255,7 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
       .set({ status: "draft", scheduledAt: null })
       .where(eq(schema.campaigns.id, id))
       .run();
+    setFlash(c, "Campaign unscheduled.");
     return c.redirect(`/admin/campaigns/${id}`);
   });
 
@@ -1274,6 +1284,7 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
     db.delete(schema.campaigns)
       .where(eq(schema.campaigns.id, id))
       .run();
+    setFlash(c, "Campaign deleted.");
     return c.redirect("/admin/campaigns");
   });
 }

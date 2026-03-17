@@ -5,16 +5,17 @@ import { schema } from "../../db";
 import type { Config } from "../../config";
 import { requireRole } from "../../auth";
 import { logEvent } from "../../services/events";
-import { AdminLayout, fmtDate, fmtDateTime, type User } from "./layout";
+import { AdminLayout, fmtDate, fmtDateTime, setFlash, getFlash, type User } from "./layout";
 import { Button, LinkButton, Input, Select, Label, FormGroup, Table, Th, Td, Card, PageHeader } from "./ui";
 
 export function mountUserRoutes(app: Hono, db: Db, config: Config) {
   app.get("/users/new", requireRole("owner", "admin"), (c) => {
     const user = c.get("user") as User;
+    const flash = getFlash(c);
     const allLists = db.select().from(schema.lists).all();
 
     return c.html(
-      <AdminLayout title="Invite User" user={user}>
+      <AdminLayout title="Invite User" user={user} flash={flash}>
         <h1 class="text-2xl font-bold mt-0 mb-4">Invite User</h1>
         <Card>
           <form method="post" action="/admin/users/new">
@@ -92,11 +93,13 @@ export function mountUserRoutes(app: Hono, db: Db, config: Config) {
       userId: user.id,
     });
 
+    setFlash(c, "User invited.");
     return c.redirect("/admin/users");
   });
 
   app.get("/users/:id", requireRole("owner", "admin"), (c) => {
     const currentUser = c.get("user") as User;
+    const flash = getFlash(c);
     const id = Number(c.req.param("id"));
     const targetUser = db.select().from(schema.users).where(eq(schema.users.id, id)).get();
     if (!targetUser) return c.notFound();
@@ -110,7 +113,7 @@ export function mountUserRoutes(app: Hono, db: Db, config: Config) {
     const assignedListIds = new Set(assignedLists.map((ul) => ul.listId));
 
     return c.html(
-      <AdminLayout title={targetUser.email} user={currentUser}>
+      <AdminLayout title={targetUser.email} user={currentUser} flash={flash}>
         <h1 class="text-2xl font-bold mt-0 mb-4">{targetUser.name ?? targetUser.email}</h1>
         <Card>
           <form method="post" action={`/admin/users/${id}/edit`}>
@@ -198,6 +201,7 @@ export function mountUserRoutes(app: Hono, db: Db, config: Config) {
       userId: currentUser.id,
     });
 
+    setFlash(c, "User updated.");
     return c.redirect(`/admin/users/${id}`);
   });
 
@@ -225,11 +229,13 @@ export function mountUserRoutes(app: Hono, db: Db, config: Config) {
     // Delete user
     db.delete(schema.users).where(eq(schema.users.id, id)).run();
 
+    setFlash(c, "User removed.");
     return c.redirect("/admin/users");
   });
 
   app.get("/users", requireRole("owner", "admin"), (c) => {
     const user = c.get("user") as User;
+    const flash = getFlash(c);
     const allUsers = db
       .select()
       .from(schema.users)
@@ -237,7 +243,7 @@ export function mountUserRoutes(app: Hono, db: Db, config: Config) {
       .all();
 
     return c.html(
-      <AdminLayout title="Users" user={user}>
+      <AdminLayout title="Users" user={user} flash={flash}>
         <PageHeader title="Users">
           <LinkButton href="/admin/users/new">Invite User</LinkButton>
         </PageHeader>

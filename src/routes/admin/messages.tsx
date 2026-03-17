@@ -8,7 +8,7 @@ import { schema } from "../../db";
 import type { Config } from "../../config";
 import { getAccessibleListIds } from "../../auth";
 import { logEvent } from "../../services/events";
-import { AdminLayout, extractEmail, fmtDateTime, VerdictChips, type User } from "./layout";
+import { AdminLayout, extractEmail, fmtDateTime, VerdictChips, setFlash, getFlash, type User } from "./layout";
 import { Button, Input, LinkButton, Select, Textarea, Label, FormGroup, Table, Th, Td, PageHeader } from "./ui";
 
 const PAGE_SIZE = 50;
@@ -16,6 +16,7 @@ const PAGE_SIZE = 50;
 export function mountMessageRoutes(app: Hono, db: Db, config: Config) {
   app.get("/inbound", (c) => {
     const user = c.get("user") as User;
+    const flash = getFlash(c);
     const listAccess = getAccessibleListIds(db, user);
 
     // Query params
@@ -177,7 +178,7 @@ export function mountMessageRoutes(app: Hono, db: Db, config: Config) {
     }
 
     return c.html(
-      <AdminLayout title="Inbound" user={user}>
+      <AdminLayout title="Inbound" user={user} flash={flash}>
         <PageHeader title="Inbound Messages">
           <span class="text-xs text-gray-400">{totalCount} thread{totalCount !== 1 ? "s" : ""}</span>
         </PageHeader>
@@ -282,6 +283,7 @@ export function mountMessageRoutes(app: Hono, db: Db, config: Config) {
 
   app.get("/inbound/:id", async (c) => {
     const user = c.get("user") as User;
+    const flash = getFlash(c);
     const id = Number(c.req.param("id"));
     const msg = db.select().from(schema.messages).where(eq(schema.messages.id, id)).get();
     if (!msg) return c.notFound();
@@ -319,7 +321,7 @@ export function mountMessageRoutes(app: Hono, db: Db, config: Config) {
     }
 
     return c.html(
-      <AdminLayout title={`Inbound: ${msg.subject}`} user={user}>
+      <AdminLayout title={`Inbound: ${msg.subject}`} user={user} flash={flash}>
         <h1 class="text-2xl font-bold mt-0 mb-1">{msg.subject}</h1>
         {campaign && (
           <p class="text-sm text-gray-500 mb-4">
@@ -464,6 +466,7 @@ export function mountMessageRoutes(app: Hono, db: Db, config: Config) {
         .where(eq(schema.messages.threadId, msg.threadId))
         .run();
     }
+    setFlash(c, "Message deleted.");
     return c.redirect("/admin/inbound");
   });
 
@@ -551,6 +554,7 @@ export function mountMessageRoutes(app: Hono, db: Db, config: Config) {
       userId: user.id,
     });
 
+    setFlash(c, "Reply sent.");
     return c.redirect(`/admin/inbound/${id}`);
   });
 }

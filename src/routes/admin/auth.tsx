@@ -5,9 +5,11 @@ import type { Db } from "../../db";
 import { schema } from "../../db";
 import type { Config } from "../../config";
 import { createSession, destroySession } from "../../auth";
+import { setFlash, getFlash } from "./layout";
 
 export function mountAuthRoutes(app: Hono, db: Db, config: Config) {
   app.get("/login", (c) => {
+    const flash = getFlash(c);
     return c.html(
       <html lang="en">
         <head>
@@ -19,6 +21,9 @@ export function mountAuthRoutes(app: Hono, db: Db, config: Config) {
         <body class="font-sans flex items-center justify-center min-h-screen m-0 bg-gray-50">
           <div class="bg-white p-8 rounded-lg border border-gray-200 w-80">
             <h1 class="m-0 mb-4 text-xl text-center font-bold">Lists Admin</h1>
+            {flash && (
+              <div class="bg-green-100 border border-green-300 text-green-800 px-3 py-2 rounded-md mb-4 text-sm text-center">{flash}</div>
+            )}
             <form method="post" action="/admin/login">
               <input
                 type="email"
@@ -117,6 +122,7 @@ export function mountAuthRoutes(app: Hono, db: Db, config: Config) {
       destroySession(token);
     }
     deleteCookie(c, "session", { path: "/" });
+    setFlash(c, "Signed out.");
     return c.redirect("/admin/login");
   });
 }

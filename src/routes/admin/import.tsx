@@ -6,7 +6,7 @@ import type { Config } from "../../config";
 import { getAccessibleListIds } from "../../auth";
 import { createSubscriber, confirmSubscriber } from "../../services/subscriber";
 import { logEvent } from "../../services/events";
-import { AdminLayout, type User } from "./layout";
+import { AdminLayout, getFlash, type User } from "./layout";
 import { Button, Input, Label, FormGroup, Table, Th, Td, Card } from "./ui";
 
 function parseCSV(text: string): string[][] {
@@ -35,8 +35,9 @@ function parseCSV(text: string): string[][] {
 export function mountImportRoutes(app: Hono, db: Db, config: Config) {
   app.get("/import", (c) => {
     const user = c.get("user") as User;
+    const flash = getFlash(c);
     return c.html(
-      <AdminLayout title="Import Subscribers" user={user}>
+      <AdminLayout title="Import Subscribers" user={user} flash={flash}>
         <h1 class="text-2xl font-bold mt-0 mb-4">Import Subscribers</h1>
         <Card>
           <form method="post" action="/admin/import/upload" enctype="multipart/form-data">

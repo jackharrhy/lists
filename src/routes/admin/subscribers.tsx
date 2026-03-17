@@ -9,7 +9,7 @@ import { createSubscriber, confirmSubscriber } from "../../services/subscriber";
 import { renderConfirmation } from "../../../emails/render";
 import { buildConfirmUrl } from "../../compliance";
 import { logEvent } from "../../services/events";
-import { AdminLayout, displayName, fmtDate, fmtDateTime, type User } from "./layout";
+import { AdminLayout, displayName, fmtDate, fmtDateTime, setFlash, getFlash, type User } from "./layout";
 import { Button, LinkButton, Input, Select, Label, FormGroup, Table, Th, Td, Card, PageHeader } from "./ui";
 
 const PAGE_SIZE = 50;
@@ -17,6 +17,7 @@ const PAGE_SIZE = 50;
 export function mountSubscriberRoutes(app: Hono, db: Db, config: Config) {
   app.get("/subscribers", (c) => {
     const user = c.get("user") as User;
+    const flash = getFlash(c);
     const listAccess = getAccessibleListIds(db, user);
 
     // Query params
@@ -123,7 +124,7 @@ export function mountSubscriberRoutes(app: Hono, db: Db, config: Config) {
     }
 
     return c.html(
-      <AdminLayout title="Subscribers" user={user}>
+      <AdminLayout title="Subscribers" user={user} flash={flash}>
         <PageHeader title="Subscribers">
           <LinkButton href="/admin/subscribers/new">Add Subscriber</LinkButton>
         </PageHeader>
@@ -214,6 +215,7 @@ export function mountSubscriberRoutes(app: Hono, db: Db, config: Config) {
 
   app.get("/subscribers/new", (c) => {
     const user = c.get("user") as User;
+    const flash = getFlash(c);
     const listAccess = getAccessibleListIds(db, user);
 
     let allLists: (typeof schema.lists.$inferSelect)[];
@@ -226,7 +228,7 @@ export function mountSubscriberRoutes(app: Hono, db: Db, config: Config) {
     }
 
     return c.html(
-      <AdminLayout title="Add Subscriber" user={user}>
+      <AdminLayout title="Add Subscriber" user={user} flash={flash}>
         <h1 class="text-2xl font-bold mt-0 mb-4">Add Subscriber</h1>
         <Card>
           <form method="post" action="/admin/subscribers/new">
@@ -293,11 +295,13 @@ export function mountSubscriberRoutes(app: Hono, db: Db, config: Config) {
       userId: user.id,
     });
 
+    setFlash(c, "Subscriber added.");
     return c.redirect("/admin/subscribers");
   });
 
   app.get("/subscribers/:id", (c) => {
     const user = c.get("user") as User;
+    const flash = getFlash(c);
     const id = Number(c.req.param("id"));
     const sub = db.select().from(schema.subscribers).where(eq(schema.subscribers.id, id)).get();
     if (!sub) return c.notFound();
@@ -358,7 +362,7 @@ export function mountSubscriberRoutes(app: Hono, db: Db, config: Config) {
     const availableTags = allTags.filter((t) => !subTagIds.has(t.id));
 
     return c.html(
-      <AdminLayout title={sub.email} user={user}>
+      <AdminLayout title={sub.email} user={user} flash={flash}>
         <h1 class="text-2xl font-bold mt-0 mb-4">{sub.email}</h1>
 
         <form method="post" action={`/admin/subscribers/${id}/edit`}>
@@ -585,6 +589,7 @@ export function mountSubscriberRoutes(app: Hono, db: Db, config: Config) {
       userId: user.id,
     });
 
+    setFlash(c, "Subscriber updated.");
     return c.redirect(`/admin/subscribers/${id}`);
   });
 
@@ -616,6 +621,7 @@ export function mountSubscriberRoutes(app: Hono, db: Db, config: Config) {
     db.delete(schema.subscribers)
       .where(eq(schema.subscribers.id, id))
       .run();
+    setFlash(c, "Subscriber deleted.");
     return c.redirect("/admin/subscribers");
   });
 
@@ -643,7 +649,9 @@ export function mountSubscriberRoutes(app: Hono, db: Db, config: Config) {
       .all();
 
     // nothing to confirm
-    if (unconfirmedSubLists.length === 0) return c.redirect(`/admin/subscribers/${id}`);
+    if (unconfirmedSubLists.length === 0) {
+      return c.redirect(`/admin/subscribers/${id}`);
+    }
 
     const sendingDomain = domain ?? unconfirmedSubLists[0]!.fromDomain ?? config.fromDomain;
 
@@ -676,6 +684,7 @@ export function mountSubscriberRoutes(app: Hono, db: Db, config: Config) {
       userId: user.id,
     });
 
+    setFlash(c, "Confirmation email sent.");
     return c.redirect(`/admin/subscribers/${id}`);
   });
 
@@ -689,6 +698,7 @@ export function mountSubscriberRoutes(app: Hono, db: Db, config: Config) {
       .values({ subscriberId: subId, listId, status: listStatus })
       .onConflictDoNothing()
       .run();
+    setFlash(c, "Added to list.");
     return c.redirect(`/admin/subscribers/${subId}`);
   });
 
@@ -707,6 +717,7 @@ export function mountSubscriberRoutes(app: Hono, db: Db, config: Config) {
         ),
       )
       .run();
+    setFlash(c, "Status updated.");
     return c.redirect(`/admin/subscribers/${subId}`);
   });
 
@@ -721,6 +732,7 @@ export function mountSubscriberRoutes(app: Hono, db: Db, config: Config) {
         ),
       )
       .run();
+    setFlash(c, "Removed from list.");
     return c.redirect(`/admin/subscribers/${subId}`);
   });
 
