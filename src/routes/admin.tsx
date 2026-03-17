@@ -2443,28 +2443,72 @@ export function adminRoutes(db: Db, config: Config) {
         .run();
     }
 
-    const msgReplies = db
-      .select()
-      .from(schema.replies)
-      .where(eq(schema.replies.inboundMessageId, id))
-      .all();
+    // Find the root message by walking up the parentMessageId chain
+    let rootMsg = msg;
+    while (rootMsg.parentMessageId) {
+      const parent = db.select().from(schema.inboundMessages).where(eq(schema.inboundMessages.id, rootMsg.parentMessageId)).get();
+      if (!parent) break;
+      rootMsg = parent;
+    }
 
-    // Fetch and parse email body from S3
-    const emailBody = await fetchEmailBody(msg.s3Key, config);
+    // Collect all inbound messages in this thread (root + all descendants)
+    function collectThread(parentId: number): (typeof msg)[] {
+      const children = db.select().from(schema.inboundMessages).where(eq(schema.inboundMessages.parentMessageId, parentId)).all();
+      const result: (typeof msg)[] = [];
+      for (const child of children) {
+        result.push(child);
+        result.push(...collectThread(child.id));
+      }
+      return result;
+    }
 
-    // Linked campaign
-    const campaign = msg.campaignId
-      ? db.select().from(schema.campaigns).where(eq(schema.campaigns.id, msg.campaignId)).get()
+    const allInboundInThread = [rootMsg, ...collectThread(rootMsg.id)];
+    // Deduplicate (in case rootMsg === msg)
+    const seenIds = new Set<number>();
+    const threadMessages = allInboundInThread.filter((m) => {
+      if (seenIds.has(m.id)) return false;
+      seenIds.add(m.id);
+      return true;
+    });
+
+    // Get all replies for all messages in the thread
+    const allInboundIds = threadMessages.map((m) => m.id);
+    const allReplies = allInboundIds.length > 0
+      ? db.select().from(schema.replies).where(inArray(schema.replies.inboundMessageId, allInboundIds)).all()
+      : [];
+
+    // Fetch email bodies for all inbound messages in thread
+    const emailBodies = new Map<number, { html: string | null; text: string | null }>();
+    for (const m of threadMessages) {
+      emailBodies.set(m.id, await fetchEmailBody(m.s3Key, config));
+    }
+
+    // Linked campaign (from root or any message)
+    const campaignId = threadMessages.find((m) => m.campaignId)?.campaignId;
+    const campaign = campaignId
+      ? db.select().from(schema.campaigns).where(eq(schema.campaigns.id, campaignId)).get()
       : null;
+
+    // Mark all unread messages in thread as read
+    for (const m of threadMessages) {
+      if (!m.readAt) {
+        db.update(schema.inboundMessages)
+          .set({ readAt: new Date().toISOString() })
+          .where(eq(schema.inboundMessages.id, m.id))
+          .run();
+      }
+    }
 
     // Build chronological thread
     type ThreadItem =
       | { type: "inbound"; msg: typeof msg; body: { html: string | null; text: string | null } }
-      | { type: "reply"; reply: typeof msgReplies[number] };
+      | { type: "reply"; reply: typeof allReplies[number] };
 
     const thread: ThreadItem[] = [];
-    thread.push({ type: "inbound", msg, body: emailBody });
-    for (const r of msgReplies) {
+    for (const m of threadMessages) {
+      thread.push({ type: "inbound", msg: m, body: emailBodies.get(m.id) ?? { html: null, text: null } });
+    }
+    for (const r of allReplies) {
       thread.push({ type: "reply", reply: r });
     }
     thread.sort((a, b) => {

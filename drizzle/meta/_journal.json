@@ -85,6 +85,13 @@
       "when": 1773900000000,
       "tag": "0011_add-rfc822-message-id",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1773950000000,
+      "tag": "0012_add-thread-parent",
+      "breakpoints": true
     }
   ]
 }

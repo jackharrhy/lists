@@ -12,6 +12,8 @@ import { logEvent } from "./events";
 type SQSPayload = {
   messageId: string;
   rfc822MessageId?: string;
+  inReplyTo?: string;
+  references?: string[];
   timestamp: string;
   source: string;
   from: string[];
@@ -88,10 +90,44 @@ export async function startPoller(db: Db, config: Config) {
             }
           }
 
+          // thread linking: check if this is a reply to one of our sent replies
+          let parentMessageId: number | null = null;
+          const inReplyTo = payload.inReplyTo;
+          if (inReplyTo) {
+            // strip angle brackets for matching: <abc@ses> -> abc@ses
+            const cleanId = inReplyTo.replace(/^<|>$/g, "");
+            // check if inReplyTo matches any of our sent replies' SES message ID
+            const parentReply = db
+              .select({ inboundMessageId: schema.replies.inboundMessageId })
+              .from(schema.replies)
+              .where(eq(schema.replies.sesMessageId, cleanId))
+              .get();
+            if (parentReply) {
+              parentMessageId = parentReply.inboundMessageId;
+            }
+          }
+          // fallback: check References array
+          if (!parentMessageId && payload.references) {
+            for (const ref of payload.references) {
+              const cleanRef = ref.replace(/^<|>$/g, "");
+              const parentReply = db
+                .select({ inboundMessageId: schema.replies.inboundMessageId })
+                .from(schema.replies)
+                .where(eq(schema.replies.sesMessageId, cleanRef))
+                .get();
+              if (parentReply) {
+                parentMessageId = parentReply.inboundMessageId;
+                break;
+              }
+            }
+          }
+
           db.insert(schema.inboundMessages)
             .values({
               messageId: payload.messageId,
               rfc822MessageId: payload.rfc822MessageId ?? null,
+              inReplyTo: inReplyTo ?? null,
+              parentMessageId,
               timestamp: payload.timestamp,
               source: payload.source,
               fromAddrs: JSON.stringify(payload.from),
