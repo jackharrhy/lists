@@ -2326,21 +2326,44 @@ export function adminRoutes(db: Db, config: Config) {
         .all();
     }
 
-    // Count outbound replies per thread
+    // Group by thread: pick the earliest inbound message per thread as the representative
+    const threadMap = new Map<number, typeof inboundMessages[number]>();
+    for (const msg of inboundMessages) {
+      const existing = threadMap.get(msg.threadId);
+      if (!existing || msg.createdAt < existing.createdAt) {
+        threadMap.set(msg.threadId, msg);
+      }
+    }
+    const threads = [...threadMap.values()].sort((a, b) => {
+      // Sort by most recent activity in thread (check all inbound messages)
+      const latestA = inboundMessages.filter((m) => m.threadId === a.threadId).reduce((max, m) => m.createdAt > max ? m.createdAt : max, a.createdAt);
+      const latestB = inboundMessages.filter((m) => m.threadId === b.threadId).reduce((max, m) => m.createdAt > max ? m.createdAt : max, b.createdAt);
+      return latestB.localeCompare(latestA);
+    });
+
+    // Count total messages (inbound + outbound) per thread minus 1 (the root)
     const replyCounts = new Map<number, number>();
-    if (inboundMessages.length > 0) {
-      const threadIds = [...new Set(inboundMessages.map((m) => m.threadId))];
+    if (threads.length > 0) {
+      const threadIds = threads.map((t) => t.threadId);
       const counts = db
         .select({
           threadId: schema.messages.threadId,
           count: sql<number>`count(*)`,
         })
         .from(schema.messages)
-        .where(and(inArray(schema.messages.threadId, threadIds), eq(schema.messages.direction, "outbound")))
+        .where(inArray(schema.messages.threadId, threadIds))
         .groupBy(schema.messages.threadId)
         .all();
       for (const row of counts) {
-        replyCounts.set(row.threadId, row.count);
+        replyCounts.set(row.threadId, Math.max(0, row.count - 1));
+      }
+    }
+
+    // Check if any message in a thread is unread
+    const threadHasUnread = new Map<number, boolean>();
+    for (const msg of inboundMessages) {
+      if (!msg.readAt) {
+        threadHasUnread.set(msg.threadId, true);
       }
     }
 
@@ -2355,6 +2378,13 @@ export function adminRoutes(db: Db, config: Config) {
         .all();
       for (const cam of campaigns) {
         campaignMap.set(cam.id, cam.subject);
+      }
+    }
+    // Find campaign for each thread (any message in the thread may have it)
+    const threadCampaignMap = new Map<number, number>();
+    for (const msg of inboundMessages) {
+      if (msg.campaignId && !threadCampaignMap.has(msg.threadId)) {
+        threadCampaignMap.set(msg.threadId, msg.campaignId);
       }
     }
 
@@ -2373,8 +2403,8 @@ export function adminRoutes(db: Db, config: Config) {
             </tr>
           </thead>
           <tbody>
-            {inboundMessages.map((msg) => (
-              <tr class={msg.readAt ? "" : "font-semibold"}>
+            {threads.map((msg) => (
+              <tr class={threadHasUnread.get(msg.threadId) ? "font-semibold" : ""}>
                 <td class="px-4 py-3 border-b border-gray-100">{msg.fromAddr}</td>
                 <td class="px-4 py-3 border-b border-gray-100">
                   <a href={`/admin/inbound/${msg.id}`} class="text-blue-600 hover:text-blue-800">{msg.subject}</a>
@@ -2382,11 +2412,14 @@ export function adminRoutes(db: Db, config: Config) {
                 <td class="px-4 py-3 border-b border-gray-100">{fmtDateTime(msg.createdAt)}</td>
                 <td class="px-4 py-3 border-b border-gray-100">{replyCounts.get(msg.threadId) ?? 0}</td>
                 <td class="px-4 py-3 border-b border-gray-100">
-                  {msg.campaignId && campaignMap.has(msg.campaignId) ? (
-                    <a href={`/admin/campaigns/${msg.campaignId}`} class="text-blue-600 hover:text-blue-800 text-xs">{campaignMap.get(msg.campaignId)}</a>
-                  ) : (
-                    <span class="text-gray-400">{"\u2014"}</span>
-                  )}
+                  {(() => {
+                    const camId = threadCampaignMap.get(msg.threadId) ?? msg.campaignId;
+                    return camId && campaignMap.has(camId) ? (
+                      <a href={`/admin/campaigns/${camId}`} class="text-blue-600 hover:text-blue-800 text-xs">{campaignMap.get(camId)}</a>
+                    ) : (
+                      <span class="text-gray-400">{"\u2014"}</span>
+                    );
+                  })()}
                 </td>
                 <td class="px-4 py-3 border-b border-gray-100">
                   <VerdictChips spf={msg.spfVerdict} dkim={msg.dkimVerdict} dmarc={msg.dmarcVerdict} />
