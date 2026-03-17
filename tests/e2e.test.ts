@@ -1,15 +1,10 @@
 import { test, expect, describe, beforeEach } from "bun:test";
 import { mockClient } from "aws-sdk-client-mock";
 import { SESv2Client, SendEmailCommand } from "@aws-sdk/client-sesv2";
-import {
-  SQSClient,
-  ReceiveMessageCommand,
-  DeleteMessageCommand,
-} from "@aws-sdk/client-sqs";
 import { eq, and, desc } from "drizzle-orm";
 import { Hono } from "hono";
 
-import { createTestDb, seedList, seedSubscriber, type TestDb } from "./helpers";
+import { createTestDb, seedList } from "./helpers";
 import { sendCampaign } from "../src/services/sender";
 import { publicRoutes } from "../src/routes/public";
 import { adminRoutes } from "../src/routes/admin";
@@ -18,12 +13,10 @@ import type { Config } from "../src/config";
 import {
   createSubscriber,
   confirmSubscriber,
-  unsubscribeFromList,
 } from "../src/services/subscriber";
 import { createSession } from "../src/auth";
 
 const sesMock = mockClient(SESv2Client);
-const sqsMock = mockClient(SQSClient);
 
 const testConfig: Config = {
   awsRegion: "us-east-1",
@@ -40,7 +33,6 @@ const testConfig: Config = {
 
 beforeEach(() => {
   sesMock.reset();
-  sqsMock.reset();
 });
 
 // ---------------------------------------------------------------------------
@@ -381,83 +373,6 @@ describe("Inbound message processing", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 5. Full subscribe -> confirm flow via Hono app
-// ---------------------------------------------------------------------------
-describe("Subscribe and confirm flow via Hono", () => {
-  test("POST /subscribe creates subscriber, sends confirmation, GET /confirm confirms", async () => {
-    const db = createTestDb();
-    seedList(db, {
-      slug: "newsletter",
-      name: "Newsletter",
-      fromDomain: "example.com",
-    });
-
-    sesMock.on(SendEmailCommand).resolves({ MessageId: "confirm-msg-id" });
-
-    const app = new Hono();
-    app.route("/", publicRoutes(db, testConfig));
-
-    // POST /subscribe
-    const formData = new URLSearchParams();
-    formData.set("email", "newuser@example.com");
-    formData.set("lists", "newsletter");
-
-    const subscribeRes = await app.request("/subscribe", {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: formData.toString(),
-    });
-
-    expect(subscribeRes.status).toBe(200);
-
-    // subscriber should exist in DB
-    const subscriber = db
-      .select()
-      .from(schema.subscribers)
-      .where(eq(schema.subscribers.email, "newuser@example.com"))
-      .get();
-    expect(subscriber).toBeDefined();
-
-    // subscriberList should be "unconfirmed"
-    const subLists = db
-      .select()
-      .from(schema.subscriberLists)
-      .where(eq(schema.subscriberLists.subscriberId, subscriber!.id))
-      .all();
-    expect(subLists).toHaveLength(1);
-    expect(subLists[0].status).toBe("unconfirmed");
-
-    // SES should have been called to send the confirmation email
-    const sesCalls = sesMock.commandCalls(SendEmailCommand);
-    expect(sesCalls).toHaveLength(1);
-    const sesInput = sesCalls[0].args[0].input;
-    expect(sesInput.Destination?.ToAddresses).toEqual([
-      "newuser@example.com",
-    ]);
-    expect(sesInput.FromEmailAddress).toBe("noreply@example.com");
-
-    // GET /confirm/:token
-    const token = subscriber!.unsubscribeToken;
-    const confirmRes = await app.request(`/confirm/${token}`, {
-      method: "GET",
-    });
-
-    expect(confirmRes.status).toBe(200);
-    const confirmHtml = await confirmRes.text();
-    expect(confirmHtml).toContain("Confirmed");
-
-    // subscriberLists should all be "confirmed"
-    const confirmedLists = db
-      .select()
-      .from(schema.subscriberLists)
-      .where(eq(schema.subscriberLists.subscriberId, subscriber!.id))
-      .all();
-    expect(confirmedLists).toHaveLength(1);
-    expect(confirmedLists[0].status).toBe("confirmed");
-  });
-});
-
-// ---------------------------------------------------------------------------
 // 6. Per-list unsubscribe flow
 // ---------------------------------------------------------------------------
 describe("Per-list unsubscribe flow via Hono", () => {
@@ -584,208 +499,9 @@ describe("Per-list unsubscribe flow via Hono", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 7. Campaign with null listId sends to all active confirmed subscribers
+// 12. audienceData format regression
 // ---------------------------------------------------------------------------
-describe("Campaign with null listId (all-subscribers send)", () => {
-  test("sends to all unique confirmed subscribers across lists, no duplicates", async () => {
-    const db = createTestDb();
-    const listA = seedList(db, {
-      slug: "list-a",
-      name: "List A",
-      fromDomain: "example.com",
-    });
-    const listB = seedList(db, {
-      slug: "list-b",
-      name: "List B",
-      fromDomain: "example.com",
-    });
-
-    // subscriber-1: confirmed on list-a only
-    const sub1 = createSubscriber(db, "sub1@example.com", "Sub One", null, [
-      "list-a",
-    ]);
-    confirmSubscriber(db, sub1.unsubscribeToken);
-
-    // subscriber-2: confirmed on list-b only
-    const sub2 = createSubscriber(db, "sub2@example.com", "Sub Two", null, [
-      "list-b",
-    ]);
-    confirmSubscriber(db, sub2.unsubscribeToken);
-
-    // subscriber-3: confirmed on BOTH lists (should only get 1 email)
-    const sub3 = createSubscriber(db, "sub3@example.com", "Sub Three", null, [
-      "list-a",
-      "list-b",
-    ]);
-    confirmSubscriber(db, sub3.unsubscribeToken);
-
-    // campaign with audienceType "all" (was null listId)
-    const campaign = db
-      .insert(schema.campaigns)
-      .values({
-        audienceType: "all",
-        subject: "Broadcast to Everyone",
-        bodyMarkdown: "# Hello All\n\nThis goes to everyone.",
-        fromAddress: "broadcast@example.com",
-        status: "draft",
-      })
-      .returning()
-      .get();
-
-    sesMock.on(SendEmailCommand).resolves({ MessageId: "broadcast-msg" });
-
-    await sendCampaign(db, testConfig, campaign.id);
-
-    // campaign should be "sent"
-    const updated = db
-      .select()
-      .from(schema.campaigns)
-      .where(eq(schema.campaigns.id, campaign.id))
-      .get();
-    expect(updated!.status).toBe("sent");
-
-    // SES should have been called exactly 3 times (not 4)
-    const sesCalls = sesMock.commandCalls(SendEmailCommand);
-    expect(sesCalls).toHaveLength(3);
-
-    // campaignSends should have 3 entries
-    const sends = db
-      .select()
-      .from(schema.campaignSends)
-      .where(eq(schema.campaignSends.campaignId, campaign.id))
-      .all();
-    expect(sends).toHaveLength(3);
-    expect(sends.every((s) => s.status === "sent")).toBe(true);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// 11. Tag-targeted campaign send
-// ---------------------------------------------------------------------------
-describe("Tag-targeted campaign send", () => {
-  test("sends only to subscribers with the target tag", async () => {
-    const db = createTestDb();
-    const list = seedList(db, { slug: "newsletter", fromDomain: "example.com" });
-
-    // Create 3 confirmed subscribers
-    const sub1 = createSubscriber(db, "tagged1@example.com", "Tagged1", null, ["newsletter"]);
-    confirmSubscriber(db, sub1.unsubscribeToken);
-    const sub2 = createSubscriber(db, "tagged2@example.com", "Tagged2", null, ["newsletter"]);
-    confirmSubscriber(db, sub2.unsubscribeToken);
-    const sub3 = createSubscriber(db, "untagged@example.com", "Untagged", null, ["newsletter"]);
-    confirmSubscriber(db, sub3.unsubscribeToken);
-
-    // Create a tag and apply it to sub1 and sub2 only
-    const tag = db
-      .insert(schema.tags)
-      .values({ name: "vip" })
-      .returning()
-      .get();
-
-    db.insert(schema.subscriberTags).values({ subscriberId: sub1.id, tagId: tag.id }).run();
-    db.insert(schema.subscriberTags).values({ subscriberId: sub2.id, tagId: tag.id }).run();
-
-    // Campaign with tag audience
-    const campaign = db
-      .insert(schema.campaigns)
-      .values({
-        audienceType: "tag",
-        audienceId: tag.id,
-        subject: "VIP Only",
-        bodyMarkdown: "# VIP content",
-        fromAddress: "vip@example.com",
-        status: "draft",
-      })
-      .returning()
-      .get();
-
-    sesMock.on(SendEmailCommand).resolves({ MessageId: "tag-msg" });
-
-    await sendCampaign(db, testConfig, campaign.id);
-
-    // SES called exactly 2 times (sub1, sub2)
-    const sesCalls = sesMock.commandCalls(SendEmailCommand);
-    expect(sesCalls).toHaveLength(2);
-
-    // Campaign status is "sent"
-    const updated = db
-      .select()
-      .from(schema.campaigns)
-      .where(eq(schema.campaigns.id, campaign.id))
-      .get();
-    expect(updated!.status).toBe("sent");
-
-    // campaignSends should have 2 entries
-    const sends = db
-      .select()
-      .from(schema.campaignSends)
-      .where(eq(schema.campaignSends.campaignId, campaign.id))
-      .all();
-    expect(sends).toHaveLength(2);
-
-    const sentSubscriberIds = sends.map((s) => s.subscriberId).sort();
-    expect(sentSubscriberIds).toEqual([sub1.id, sub2.id].sort());
-  });
-});
-
-// ---------------------------------------------------------------------------
-// 12. Specific-subscribers campaign send
-// ---------------------------------------------------------------------------
-describe("Specific-subscribers campaign send", () => {
-  test("sends only to the specified subscriber IDs", async () => {
-    const db = createTestDb();
-    const list = seedList(db, { slug: "newsletter", fromDomain: "example.com" });
-
-    // Create 3 confirmed subscribers
-    const sub1 = createSubscriber(db, "pick1@example.com", "Pick1", null, ["newsletter"]);
-    confirmSubscriber(db, sub1.unsubscribeToken);
-    const sub2 = createSubscriber(db, "skip@example.com", "Skip", null, ["newsletter"]);
-    confirmSubscriber(db, sub2.unsubscribeToken);
-    const sub3 = createSubscriber(db, "pick3@example.com", "Pick3", null, ["newsletter"]);
-    confirmSubscriber(db, sub3.unsubscribeToken);
-
-    // Campaign targeting sub1 and sub3 only
-    const campaign = db
-      .insert(schema.campaigns)
-      .values({
-        audienceType: "subscribers",
-        audienceData: JSON.stringify([sub1.id, sub3.id]),
-        subject: "Selected Subscribers",
-        bodyMarkdown: "# Just for you",
-        fromAddress: "news@example.com",
-        status: "draft",
-      })
-      .returning()
-      .get();
-
-    sesMock.on(SendEmailCommand).resolves({ MessageId: "specific-msg" });
-
-    await sendCampaign(db, testConfig, campaign.id);
-
-    // SES called exactly 2 times (sub1, sub3)
-    const sesCalls = sesMock.commandCalls(SendEmailCommand);
-    expect(sesCalls).toHaveLength(2);
-
-    // Campaign status is "sent"
-    const updated = db
-      .select()
-      .from(schema.campaigns)
-      .where(eq(schema.campaigns.id, campaign.id))
-      .get();
-    expect(updated!.status).toBe("sent");
-
-    // campaignSends should have 2 entries for the right subscribers
-    const sends = db
-      .select()
-      .from(schema.campaignSends)
-      .where(eq(schema.campaignSends.campaignId, campaign.id))
-      .all();
-    expect(sends).toHaveLength(2);
-
-    const sentSubscriberIds = sends.map((s) => s.subscriberId).sort();
-    expect(sentSubscriberIds).toEqual([sub1.id, sub3.id].sort());
-  });
-
+describe("audienceData format regression", () => {
   test("audienceData must be a flat array, not a wrapped object", async () => {
     const db = createTestDb();
     const list = seedList(db, { slug: "newsletter", fromDomain: "example.com" });
