@@ -4,7 +4,7 @@ import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { SESv2Client, SendEmailCommand } from "@aws-sdk/client-sesv2";
-import { simpleParser } from "mailparser";
+
 import { marked } from "marked";
 import type { Db } from "../db";
 import { schema } from "../db";
@@ -85,9 +85,7 @@ function AdminLayout({
   );
 }
 
-function parseAddrs(json: string): string[] {
-  try { return JSON.parse(json); } catch { return [json]; }
-}
+
 
 function VerdictChips({ spf, dkim, dmarc }: { spf?: string | null; dkim?: string | null; dmarc?: string | null }) {
   const chip = (label: string, value?: string | null) => {
@@ -108,26 +106,7 @@ function VerdictChips({ spf, dkim, dmarc }: { spf?: string | null; dkim?: string
   );
 }
 
-async function fetchEmailBody(s3Key: string | null, config: Config): Promise<{ html: string | null; text: string | null }> {
-  if (!s3Key) return { html: null, text: null };
-  try {
-    const s3 = new S3Client({ region: config.awsRegion });
-    const result = await s3.send(new GetObjectCommand({
-      Bucket: config.s3Bucket,
-      Key: s3Key,
-    }));
-    const raw = await result.Body?.transformToByteArray();
-    if (!raw) return { html: null, text: null };
-    const parsed = await simpleParser(Buffer.from(raw));
-    return {
-      html: parsed.html || null,
-      text: parsed.text || null,
-    };
-  } catch (err) {
-    console.error("Failed to fetch/parse email:", err);
-    return { html: null, text: null };
-  }
-}
+
 
 function CampaignBadge({ status }: { status: string }) {
   const base = "inline-block px-2.5 py-0.5 rounded-full text-xs font-medium";
@@ -160,13 +139,14 @@ function fmtDateTime(d: string | null): string {
 export function adminRoutes(db: Db, config: Config) {
   const app = new Hono();
 
-  function describeAudience(campaign: { listId: number | null; audience: string | null }, lists: Map<number, string>, tags: Map<number, string>): string {
-    if (campaign.listId) return lists.get(campaign.listId) ?? "Unknown list";
-    if (!campaign.audience) return "All";
-    const aud = JSON.parse(campaign.audience);
-    if (aud.type === "all") return "All subscribers";
-    if (aud.type === "tag") return `Tag: ${tags.get(aud.tagId) ?? "Unknown"}`;
-    if (aud.type === "subscribers") return `${aud.subscriberIds.length} specific`;
+  function describeAudience(campaign: { audienceType: string; audienceId: number | null; audienceData: string | null }, lists: Map<number, string>, tags: Map<number, string>): string {
+    if (campaign.audienceType === "list") return lists.get(campaign.audienceId!) ?? "Unknown list";
+    if (campaign.audienceType === "all") return "All subscribers";
+    if (campaign.audienceType === "tag") return `Tag: ${tags.get(campaign.audienceId!) ?? "Unknown"}`;
+    if (campaign.audienceType === "subscribers") {
+      const data = campaign.audienceData ? JSON.parse(campaign.audienceData) : {};
+      return `${data.subscriberIds?.length ?? 0} specific`;
+    }
     return "Unknown";
   }
 
@@ -297,8 +277,8 @@ export function adminRoutes(db: Db, config: Config) {
     if (!campaign) return c.notFound();
 
     let listName = "Newsletter";
-    if (campaign.listId) {
-      const list = db.select().from(schema.lists).where(eq(schema.lists.id, campaign.listId)).get();
+    if (campaign.audienceType === "list" && campaign.audienceId) {
+      const list = db.select().from(schema.lists).where(eq(schema.lists.id, campaign.audienceId)).get();
       if (list) {
         listName = list.name;
       }
@@ -316,7 +296,7 @@ export function adminRoutes(db: Db, config: Config) {
     if (subscriberId) {
       const sub = db.select().from(schema.subscribers).where(eq(schema.subscribers.id, Number(subscriberId))).get();
       if (sub) {
-        unsubscribeUrl = buildUnsubscribeUrl(config.baseUrl, sub.unsubscribeToken, campaign.listId ?? undefined);
+        unsubscribeUrl = buildUnsubscribeUrl(config.baseUrl, sub.unsubscribeToken, (campaign.audienceType === "list" ? campaign.audienceId : undefined) ?? undefined);
         preferencesUrl = buildPreferencesUrl(config.baseUrl, sub.unsubscribeToken);
         subData = { firstName: sub.firstName, lastName: sub.lastName, email: sub.email };
       }
@@ -415,13 +395,13 @@ export function adminRoutes(db: Db, config: Config) {
       campaignCount = db
         .select({ count: sql<number>`count(*)` })
         .from(schema.campaigns)
-        .where(inArray(schema.campaigns.listId, listAccess))
+        .where(and(eq(schema.campaigns.audienceType, "list"), inArray(schema.campaigns.audienceId, listAccess)))
         .get()!.count;
 
       recentCampaigns = db
         .select()
         .from(schema.campaigns)
-        .where(inArray(schema.campaigns.listId, listAccess))
+        .where(and(eq(schema.campaigns.audienceType, "list"), inArray(schema.campaigns.audienceId, listAccess)))
         .orderBy(desc(schema.campaigns.createdAt))
         .limit(5)
         .all();
@@ -1256,7 +1236,7 @@ export function adminRoutes(db: Db, config: Config) {
     const listCampaigns = db
       .select()
       .from(schema.campaigns)
-      .where(eq(schema.campaigns.listId, id))
+      .where(and(eq(schema.campaigns.audienceType, "list"), eq(schema.campaigns.audienceId, id)))
       .orderBy(desc(schema.campaigns.createdAt))
       .all();
 
@@ -1408,11 +1388,11 @@ export function adminRoutes(db: Db, config: Config) {
       .where(eq(schema.subscriberLists.listId, id))
       .run();
     // delete campaigns and their sends
-    const campaigns = db.select().from(schema.campaigns).where(eq(schema.campaigns.listId, id)).all();
+    const campaigns = db.select().from(schema.campaigns).where(and(eq(schema.campaigns.audienceType, "list"), eq(schema.campaigns.audienceId, id))).all();
     for (const cam of campaigns) {
       db.delete(schema.campaignSends).where(eq(schema.campaignSends.campaignId, cam.id)).run();
     }
-    db.delete(schema.campaigns).where(eq(schema.campaigns.listId, id)).run();
+    db.delete(schema.campaigns).where(and(eq(schema.campaigns.audienceType, "list"), eq(schema.campaigns.audienceId, id))).run();
     // delete user_lists references
     db.delete(schema.userLists).where(eq(schema.userLists.listId, id)).run();
     // delete list
@@ -1439,7 +1419,7 @@ export function adminRoutes(db: Db, config: Config) {
       allCampaigns = db
         .select()
         .from(schema.campaigns)
-        .where(inArray(schema.campaigns.listId, listAccess))
+        .where(and(eq(schema.campaigns.audienceType, "list"), inArray(schema.campaigns.audienceId, listAccess)))
         .orderBy(desc(schema.campaigns.createdAt))
         .all();
     }
@@ -1697,23 +1677,22 @@ export function adminRoutes(db: Db, config: Config) {
     const bodyMarkdown = String(body["bodyMarkdown"] ?? "");
 
     const audienceMode = String(body["audienceMode"] ?? "list");
-    let listId: number | null = null;
-    let audience: string | null = null;
+    let audienceType: string = audienceMode === "specific" ? "subscribers" : audienceMode;
+    let audienceId: number | null = null;
+    let audienceData: string | null = null;
 
     if (audienceMode === "list") {
       const rawListId = body["listId"];
       if (!rawListId) return c.redirect("/admin/campaigns/new");
-      listId = Number(rawListId);
-    } else if (audienceMode === "all") {
-      audience = JSON.stringify({ type: "all" });
+      audienceId = Number(rawListId);
     } else if (audienceMode === "tag") {
       const tagId = Number(body["tagId"]);
       if (!tagId) return c.redirect("/admin/campaigns/new");
-      audience = JSON.stringify({ type: "tag", tagId });
+      audienceId = tagId;
     } else if (audienceMode === "specific") {
       const ids = String(body["subscriberIds"] ?? "").split(",").map(Number).filter(Boolean);
       if (ids.length === 0) return c.redirect("/admin/campaigns/new");
-      audience = JSON.stringify({ type: "subscribers", subscriberIds: ids });
+      audienceData = JSON.stringify({ subscriberIds: ids });
     }
 
     if (!fromAddress || !subject || !bodyMarkdown) {
@@ -1721,16 +1700,16 @@ export function adminRoutes(db: Db, config: Config) {
     }
 
     // Verify user has access to this list (admins can send to "all")
-    if (listId !== null) {
+    if (audienceType === "list" && audienceId !== null) {
       const listAccess = getAccessibleListIds(db, user);
-      if (listAccess !== "all" && !listAccess.includes(listId)) {
+      if (listAccess !== "all" && !listAccess.includes(audienceId)) {
         return c.text("Forbidden", 403);
       }
     }
 
     const result = db
       .insert(schema.campaigns)
-      .values({ listId, audience, fromAddress, subject, bodyMarkdown })
+      .values({ audienceType, audienceId, audienceData, fromAddress, subject, bodyMarkdown })
       .returning({ id: schema.campaigns.id })
       .get();
 
@@ -1750,14 +1729,14 @@ export function adminRoutes(db: Db, config: Config) {
     const campaign = db.select().from(schema.campaigns).where(eq(schema.campaigns.id, id)).get();
     if (!campaign) return c.notFound();
 
-    // Check list access (null listId = "all subscribers", accessible to admins/owners)
+    // Check list access (non-list audienceType = accessible to admins/owners)
     const listAccess = getAccessibleListIds(db, user);
-    if (campaign.listId !== null && listAccess !== "all" && !listAccess.includes(campaign.listId)) {
+    if (campaign.audienceType === "list" && campaign.audienceId !== null && listAccess !== "all" && !listAccess.includes(campaign.audienceId)) {
       return c.text("Forbidden", 403);
     }
 
-    const list = campaign.listId
-      ? db.select().from(schema.lists).where(eq(schema.lists.id, campaign.listId)).get()
+    const list = (campaign.audienceType === "list" && campaign.audienceId)
+      ? db.select().from(schema.lists).where(eq(schema.lists.id, campaign.audienceId)).get()
       : null;
 
     // Build lookup maps for audience description
@@ -1775,68 +1754,53 @@ export function adminRoutes(db: Db, config: Config) {
 
     const inboundReplies = db
       .select()
-      .from(schema.inboundMessages)
-      .where(eq(schema.inboundMessages.campaignId, id))
-      .orderBy(desc(schema.inboundMessages.createdAt))
+      .from(schema.messages)
+      .where(and(eq(schema.messages.campaignId, id), eq(schema.messages.direction, "inbound")))
+      .orderBy(desc(schema.messages.createdAt))
       .all();
 
     // Get subscribers for preview picker based on audience
     let previewSubscribers: { id: number; email: string }[];
-    if (campaign.listId) {
-      previewSubscribers = getConfirmedSubscribers(db, campaign.listId);
-    } else if (campaign.audience) {
-      const aud = JSON.parse(campaign.audience) as { type: string; tagId?: number; subscriberIds?: number[] };
-      if (aud.type === "tag" && aud.tagId) {
-        previewSubscribers = db
-          .selectDistinct({
-            id: schema.subscribers.id,
-            email: schema.subscribers.email,
-          })
-          .from(schema.subscribers)
-          .innerJoin(schema.subscriberTags, eq(schema.subscriberTags.subscriberId, schema.subscribers.id))
-          .innerJoin(schema.subscriberLists, eq(schema.subscriberLists.subscriberId, schema.subscribers.id))
-          .where(
-            and(
-              eq(schema.subscriberTags.tagId, aud.tagId),
-              eq(schema.subscribers.status, "active"),
-              eq(schema.subscriberLists.status, "confirmed"),
-            ),
-          )
-          .all();
-      } else if (aud.type === "subscribers" && aud.subscriberIds) {
-        previewSubscribers = db
-          .selectDistinct({
-            id: schema.subscribers.id,
-            email: schema.subscribers.email,
-          })
-          .from(schema.subscribers)
-          .innerJoin(schema.subscriberLists, eq(schema.subscriberLists.subscriberId, schema.subscribers.id))
-          .where(
-            and(
-              inArray(schema.subscribers.id, aud.subscriberIds),
-              eq(schema.subscribers.status, "active"),
-              eq(schema.subscriberLists.status, "confirmed"),
-            ),
-          )
-          .all();
-      } else {
-        // "all" type or unknown — get all active confirmed
-        previewSubscribers = db
-          .selectDistinct({
-            id: schema.subscribers.id,
-            email: schema.subscribers.email,
-          })
-          .from(schema.subscribers)
-          .innerJoin(schema.subscriberLists, eq(schema.subscriberLists.subscriberId, schema.subscribers.id))
-          .where(
-            and(
-              eq(schema.subscribers.status, "active"),
-              eq(schema.subscriberLists.status, "confirmed"),
-            ),
-          )
-          .all();
-      }
+    if (campaign.audienceType === "list" && campaign.audienceId) {
+      previewSubscribers = getConfirmedSubscribers(db, campaign.audienceId);
+    } else if (campaign.audienceType === "tag" && campaign.audienceId) {
+      previewSubscribers = db
+        .selectDistinct({
+          id: schema.subscribers.id,
+          email: schema.subscribers.email,
+        })
+        .from(schema.subscribers)
+        .innerJoin(schema.subscriberTags, eq(schema.subscriberTags.subscriberId, schema.subscribers.id))
+        .innerJoin(schema.subscriberLists, eq(schema.subscriberLists.subscriberId, schema.subscribers.id))
+        .where(
+          and(
+            eq(schema.subscriberTags.tagId, campaign.audienceId),
+            eq(schema.subscribers.status, "active"),
+            eq(schema.subscriberLists.status, "confirmed"),
+          ),
+        )
+        .all();
+    } else if (campaign.audienceType === "subscribers" && campaign.audienceData) {
+      const data = JSON.parse(campaign.audienceData) as { subscriberIds?: number[] };
+      previewSubscribers = data.subscriberIds?.length
+        ? db
+            .selectDistinct({
+              id: schema.subscribers.id,
+              email: schema.subscribers.email,
+            })
+            .from(schema.subscribers)
+            .innerJoin(schema.subscriberLists, eq(schema.subscriberLists.subscriberId, schema.subscribers.id))
+            .where(
+              and(
+                inArray(schema.subscribers.id, data.subscriberIds),
+                eq(schema.subscribers.status, "active"),
+                eq(schema.subscriberLists.status, "confirmed"),
+              ),
+            )
+            .all()
+        : [];
     } else {
+      // "all" type or unknown — get all active confirmed
       previewSubscribers = db
         .selectDistinct({
           id: schema.subscribers.id,
@@ -1975,7 +1939,7 @@ export function adminRoutes(db: Db, config: Config) {
               <tbody>
                 {inboundReplies.map((r) => (
                   <tr>
-                    <td class="px-4 py-3 border-b border-gray-100">{r.source}</td>
+                    <td class="px-4 py-3 border-b border-gray-100">{r.fromAddr}</td>
                     <td class="px-4 py-3 border-b border-gray-100">{r.subject}</td>
                     <td class="px-4 py-3 border-b border-gray-100">{fmtDateTime(r.createdAt)}</td>
                     <td class="px-4 py-3 border-b border-gray-100"><a href={`/admin/inbound/${r.id}`} class="text-blue-600 hover:text-blue-800">View</a></td>
@@ -2019,17 +1983,13 @@ export function adminRoutes(db: Db, config: Config) {
     const allSubscribers = db.select().from(schema.subscribers).where(eq(schema.subscribers.status, "active")).all();
 
     // Determine current audience mode and values
-    let currentAudienceMode = "list";
-    let currentListId = campaign.listId;
-    let currentTagId: number | null = null;
+    let currentAudienceMode = campaign.audienceType === "subscribers" ? "specific" : campaign.audienceType;
+    let currentListId = campaign.audienceType === "list" ? campaign.audienceId : null;
+    let currentTagId = campaign.audienceType === "tag" ? campaign.audienceId : null;
     let currentSubscriberIds: number[] = [];
-    if (campaign.listId) {
-      currentAudienceMode = "list";
-    } else if (campaign.audience) {
-      const aud = JSON.parse(campaign.audience) as { type: string; tagId?: number; subscriberIds?: number[] };
-      if (aud.type === "all") currentAudienceMode = "all";
-      else if (aud.type === "tag") { currentAudienceMode = "tag"; currentTagId = aud.tagId ?? null; }
-      else if (aud.type === "subscribers") { currentAudienceMode = "specific"; currentSubscriberIds = aud.subscriberIds ?? []; }
+    if (campaign.audienceType === "subscribers" && campaign.audienceData) {
+      const data = JSON.parse(campaign.audienceData) as { subscriberIds?: number[] };
+      currentSubscriberIds = data.subscriberIds ?? [];
     }
 
     return c.html(
@@ -2221,20 +2181,19 @@ export function adminRoutes(db: Db, config: Config) {
     const bodyMarkdown = String(body["bodyMarkdown"] ?? "");
 
     const audienceMode = String(body["audienceMode"] ?? "list");
-    let listId: number | null = null;
-    let audience: string | null = null;
+    let audienceType: string = audienceMode === "specific" ? "subscribers" : audienceMode;
+    let audienceId: number | null = null;
+    let audienceData: string | null = null;
 
     if (audienceMode === "list") {
       const rawListId = body["listId"];
-      if (rawListId) listId = Number(rawListId);
-    } else if (audienceMode === "all") {
-      audience = JSON.stringify({ type: "all" });
+      if (rawListId) audienceId = Number(rawListId);
     } else if (audienceMode === "tag") {
       const tagId = Number(body["tagId"]);
-      if (tagId) audience = JSON.stringify({ type: "tag", tagId });
+      if (tagId) audienceId = tagId;
     } else if (audienceMode === "specific") {
       const ids = String(body["subscriberIds"] ?? "").split(",").map(Number).filter(Boolean);
-      if (ids.length > 0) audience = JSON.stringify({ type: "subscribers", subscriberIds: ids });
+      if (ids.length > 0) audienceData = JSON.stringify({ subscriberIds: ids });
     }
 
     if (!fromAddress || !subject || !bodyMarkdown) {
@@ -2242,7 +2201,7 @@ export function adminRoutes(db: Db, config: Config) {
     }
 
     db.update(schema.campaigns)
-      .set({ listId, audience, fromAddress, subject, bodyMarkdown })
+      .set({ audienceType, audienceId, audienceData, fromAddress, subject, bodyMarkdown })
       .where(eq(schema.campaigns.id, id))
       .run();
 
@@ -2297,10 +2256,10 @@ export function adminRoutes(db: Db, config: Config) {
       userId: user.id,
     });
 
-    // clear linked inbound messages (unlink, don't delete)
-    db.update(schema.inboundMessages)
+    // clear linked messages (unlink, don't delete)
+    db.update(schema.messages)
       .set({ campaignId: null })
-      .where(eq(schema.inboundMessages.campaignId, id))
+      .where(eq(schema.messages.campaignId, id))
       .run();
     // delete sends
     db.delete(schema.campaignSends)
@@ -2318,65 +2277,72 @@ export function adminRoutes(db: Db, config: Config) {
     const user = c.get("user") as User;
     const listAccess = getAccessibleListIds(db, user);
 
-    let messages: (typeof schema.inboundMessages.$inferSelect)[];
+    let inboundMessages: (typeof schema.messages.$inferSelect)[];
     if (listAccess === "all") {
-      messages = db
+      inboundMessages = db
         .select()
-        .from(schema.inboundMessages)
-        .orderBy(desc(schema.inboundMessages.createdAt))
+        .from(schema.messages)
+        .where(eq(schema.messages.direction, "inbound"))
+        .orderBy(desc(schema.messages.createdAt))
         .limit(100)
         .all();
     } else if (listAccess.length === 0) {
-      messages = [];
+      inboundMessages = [];
     } else {
-      messages = db
+      inboundMessages = db
         .select({
-          id: schema.inboundMessages.id,
-          messageId: schema.inboundMessages.messageId,
-          timestamp: schema.inboundMessages.timestamp,
-          source: schema.inboundMessages.source,
-          fromAddrs: schema.inboundMessages.fromAddrs,
-          toAddrs: schema.inboundMessages.toAddrs,
-          subject: schema.inboundMessages.subject,
-          spamVerdict: schema.inboundMessages.spamVerdict,
-          virusVerdict: schema.inboundMessages.virusVerdict,
-          spfVerdict: schema.inboundMessages.spfVerdict,
-          dkimVerdict: schema.inboundMessages.dkimVerdict,
-          dmarcVerdict: schema.inboundMessages.dmarcVerdict,
-          s3Key: schema.inboundMessages.s3Key,
-          campaignId: schema.inboundMessages.campaignId,
-          readAt: schema.inboundMessages.readAt,
-          createdAt: schema.inboundMessages.createdAt,
+          id: schema.messages.id,
+          threadId: schema.messages.threadId,
+          parentId: schema.messages.parentId,
+          direction: schema.messages.direction,
+          rfc822MessageId: schema.messages.rfc822MessageId,
+          inReplyTo: schema.messages.inReplyTo,
+          fromAddr: schema.messages.fromAddr,
+          toAddr: schema.messages.toAddr,
+          subject: schema.messages.subject,
+          bodyText: schema.messages.bodyText,
+          bodyHtml: schema.messages.bodyHtml,
+          sesMessageId: schema.messages.sesMessageId,
+          s3Key: schema.messages.s3Key,
+          spamVerdict: schema.messages.spamVerdict,
+          virusVerdict: schema.messages.virusVerdict,
+          spfVerdict: schema.messages.spfVerdict,
+          dkimVerdict: schema.messages.dkimVerdict,
+          dmarcVerdict: schema.messages.dmarcVerdict,
+          campaignId: schema.messages.campaignId,
+          readAt: schema.messages.readAt,
+          sentAt: schema.messages.sentAt,
+          createdAt: schema.messages.createdAt,
         })
-        .from(schema.inboundMessages)
-        .innerJoin(schema.campaigns, eq(schema.inboundMessages.campaignId, schema.campaigns.id))
-        .where(inArray(schema.campaigns.listId, listAccess))
-        .orderBy(desc(schema.inboundMessages.createdAt))
+        .from(schema.messages)
+        .innerJoin(schema.campaigns, eq(schema.messages.campaignId, schema.campaigns.id))
+        .where(and(eq(schema.messages.direction, "inbound"), eq(schema.campaigns.audienceType, "list"), inArray(schema.campaigns.audienceId, listAccess)))
+        .orderBy(desc(schema.messages.createdAt))
         .limit(100)
         .all();
     }
 
-    // Count replies per message
+    // Count outbound replies per thread
     const replyCounts = new Map<number, number>();
-    if (messages.length > 0) {
-      const msgIds = messages.map((m) => m.id);
+    if (inboundMessages.length > 0) {
+      const threadIds = [...new Set(inboundMessages.map((m) => m.threadId))];
       const counts = db
         .select({
-          inboundMessageId: schema.replies.inboundMessageId,
+          threadId: schema.messages.threadId,
           count: sql<number>`count(*)`,
         })
-        .from(schema.replies)
-        .where(inArray(schema.replies.inboundMessageId, msgIds))
-        .groupBy(schema.replies.inboundMessageId)
+        .from(schema.messages)
+        .where(and(inArray(schema.messages.threadId, threadIds), eq(schema.messages.direction, "outbound")))
+        .groupBy(schema.messages.threadId)
         .all();
       for (const row of counts) {
-        replyCounts.set(row.inboundMessageId, row.count);
+        replyCounts.set(row.threadId, row.count);
       }
     }
 
     // Campaign lookup for linked campaigns
     const campaignMap = new Map<number, string>();
-    const campaignIds = [...new Set(messages.filter((m) => m.campaignId).map((m) => m.campaignId!))];
+    const campaignIds = [...new Set(inboundMessages.filter((m) => m.campaignId).map((m) => m.campaignId!))];
     if (campaignIds.length > 0) {
       const campaigns = db
         .select({ id: schema.campaigns.id, subject: schema.campaigns.subject })
@@ -2403,14 +2369,14 @@ export function adminRoutes(db: Db, config: Config) {
             </tr>
           </thead>
           <tbody>
-            {messages.map((msg) => (
+            {inboundMessages.map((msg) => (
               <tr class={msg.readAt ? "" : "font-semibold"}>
-                <td class="px-4 py-3 border-b border-gray-100">{parseAddrs(msg.fromAddrs).join(", ")}</td>
+                <td class="px-4 py-3 border-b border-gray-100">{msg.fromAddr}</td>
                 <td class="px-4 py-3 border-b border-gray-100">
                   <a href={`/admin/inbound/${msg.id}`} class="text-blue-600 hover:text-blue-800">{msg.subject}</a>
                 </td>
-                <td class="px-4 py-3 border-b border-gray-100">{fmtDateTime(msg.timestamp)}</td>
-                <td class="px-4 py-3 border-b border-gray-100">{replyCounts.get(msg.id) ?? 0}</td>
+                <td class="px-4 py-3 border-b border-gray-100">{fmtDateTime(msg.createdAt)}</td>
+                <td class="px-4 py-3 border-b border-gray-100">{replyCounts.get(msg.threadId) ?? 0}</td>
                 <td class="px-4 py-3 border-b border-gray-100">
                   {msg.campaignId && campaignMap.has(msg.campaignId) ? (
                     <a href={`/admin/campaigns/${msg.campaignId}`} class="text-blue-600 hover:text-blue-800 text-xs">{campaignMap.get(msg.campaignId)}</a>
@@ -2432,90 +2398,40 @@ export function adminRoutes(db: Db, config: Config) {
   app.get("/inbound/:id", async (c) => {
     const user = c.get("user") as User;
     const id = Number(c.req.param("id"));
-    const msg = db.select().from(schema.inboundMessages).where(eq(schema.inboundMessages.id, id)).get();
+    const msg = db.select().from(schema.messages).where(eq(schema.messages.id, id)).get();
     if (!msg) return c.notFound();
 
     // auto-mark as read
     if (!msg.readAt) {
-      db.update(schema.inboundMessages)
+      db.update(schema.messages)
         .set({ readAt: new Date().toISOString() })
-        .where(eq(schema.inboundMessages.id, id))
+        .where(eq(schema.messages.id, id))
         .run();
     }
 
-    // Find the root message by walking up the parentMessageId chain
-    let rootMsg = msg;
-    while (rootMsg.parentMessageId) {
-      const parent = db.select().from(schema.inboundMessages).where(eq(schema.inboundMessages.id, rootMsg.parentMessageId)).get();
-      if (!parent) break;
-      rootMsg = parent;
-    }
+    // Get all messages in this thread
+    const threadMessages = db
+      .select()
+      .from(schema.messages)
+      .where(eq(schema.messages.threadId, msg.threadId))
+      .orderBy(schema.messages.createdAt)
+      .all();
 
-    // Collect all inbound messages in this thread (root + all descendants)
-    function collectThread(parentId: number): (typeof msg)[] {
-      const children = db.select().from(schema.inboundMessages).where(eq(schema.inboundMessages.parentMessageId, parentId)).all();
-      const result: (typeof msg)[] = [];
-      for (const child of children) {
-        result.push(child);
-        result.push(...collectThread(child.id));
-      }
-      return result;
-    }
-
-    const allInboundInThread = [rootMsg, ...collectThread(rootMsg.id)];
-    // Deduplicate (in case rootMsg === msg)
-    const seenIds = new Set<number>();
-    const threadMessages = allInboundInThread.filter((m) => {
-      if (seenIds.has(m.id)) return false;
-      seenIds.add(m.id);
-      return true;
-    });
-
-    // Get all replies for all messages in the thread
-    const allInboundIds = threadMessages.map((m) => m.id);
-    const allReplies = allInboundIds.length > 0
-      ? db.select().from(schema.replies).where(inArray(schema.replies.inboundMessageId, allInboundIds)).all()
-      : [];
-
-    // Fetch email bodies for all inbound messages in thread
-    const emailBodies = new Map<number, { html: string | null; text: string | null }>();
-    for (const m of threadMessages) {
-      emailBodies.set(m.id, await fetchEmailBody(m.s3Key, config));
-    }
-
-    // Linked campaign (from root or any message)
+    // Linked campaign (from any message in thread)
     const campaignId = threadMessages.find((m) => m.campaignId)?.campaignId;
     const campaign = campaignId
       ? db.select().from(schema.campaigns).where(eq(schema.campaigns.id, campaignId)).get()
       : null;
 
-    // Mark all unread messages in thread as read
+    // Mark all unread inbound messages in thread as read
     for (const m of threadMessages) {
-      if (!m.readAt) {
-        db.update(schema.inboundMessages)
+      if (!m.readAt && m.direction === "inbound") {
+        db.update(schema.messages)
           .set({ readAt: new Date().toISOString() })
-          .where(eq(schema.inboundMessages.id, m.id))
+          .where(eq(schema.messages.id, m.id))
           .run();
       }
     }
-
-    // Build chronological thread
-    type ThreadItem =
-      | { type: "inbound"; msg: typeof msg; body: { html: string | null; text: string | null } }
-      | { type: "reply"; reply: typeof allReplies[number] };
-
-    const thread: ThreadItem[] = [];
-    for (const m of threadMessages) {
-      thread.push({ type: "inbound", msg: m, body: emailBodies.get(m.id) ?? { html: null, text: null } });
-    }
-    for (const r of allReplies) {
-      thread.push({ type: "reply", reply: r });
-    }
-    thread.sort((a, b) => {
-      const ta = a.type === "inbound" ? a.msg.timestamp : a.reply.sentAt;
-      const tb = b.type === "inbound" ? b.msg.timestamp : b.reply.sentAt;
-      return ta.localeCompare(tb);
-    });
 
     return c.html(
       <AdminLayout title={`Inbound: ${msg.subject}`} user={user}>
@@ -2533,7 +2449,7 @@ export function adminRoutes(db: Db, config: Config) {
               Mark as {msg.readAt ? "Unread" : "Read"}
             </button>
           </form>
-          <form method="post" action={`/admin/inbound/${id}/delete`} onsubmit="return confirm('Delete this inbound message and its replies? This cannot be undone.')">
+          <form method="post" action={`/admin/inbound/${id}/delete`} onsubmit="return confirm('Delete this message thread? This cannot be undone.')">
             <button type="submit" class="inline-block px-3 py-1.5 bg-red-50 text-red-600 text-xs font-medium rounded-md hover:bg-red-100 cursor-pointer border border-red-200">
               Delete
             </button>
@@ -2541,31 +2457,29 @@ export function adminRoutes(db: Db, config: Config) {
         </div>
 
         {/* Thread */}
-        {thread.map((item) => {
-          if (item.type === "inbound") {
-            const m = item.msg;
-            const body = item.body;
+        {threadMessages.map((m) => {
+          if (m.direction === "inbound") {
             return (
               <div class="bg-white border border-gray-200 rounded-lg p-5 mb-4">
                 <div class="flex items-baseline justify-between mb-3">
                   <div>
-                    <span class="font-medium text-sm">{parseAddrs(m.fromAddrs).join(", ")}</span>
-                    <span class="text-gray-400 text-xs ml-2">{"\u2192"} {parseAddrs(m.toAddrs).join(", ")}</span>
+                    <span class="font-medium text-sm">{m.fromAddr}</span>
+                    <span class="text-gray-400 text-xs ml-2">{"\u2192"} {m.toAddr}</span>
                   </div>
                   <div class="flex items-center gap-2">
-                    <span class="text-xs text-gray-400">{fmtDateTime(m.timestamp)}</span>
+                    <span class="text-xs text-gray-400">{fmtDateTime(m.createdAt)}</span>
                     <VerdictChips spf={m.spfVerdict} dkim={m.dkimVerdict} dmarc={m.dmarcVerdict} />
                   </div>
                 </div>
-                {body.html ? (
+                {m.bodyHtml ? (
                   <iframe
-                    srcdoc={body.html}
+                    srcdoc={m.bodyHtml}
                     class="w-full border-0 rounded"
                     style="min-height: 200px;"
                     sandbox="allow-same-origin"
                   />
-                ) : body.text ? (
-                  <pre class="text-sm text-gray-700 whitespace-pre-wrap font-sans leading-relaxed">{body.text}</pre>
+                ) : m.bodyText ? (
+                  <pre class="text-sm text-gray-700 whitespace-pre-wrap font-sans leading-relaxed">{m.bodyText}</pre>
                 ) : (
                   <p class="text-gray-400 text-sm italic">Email body not available</p>
                 )}
@@ -2575,18 +2489,17 @@ export function adminRoutes(db: Db, config: Config) {
               </div>
             );
           } else {
-            const r = item.reply;
             return (
               <div class="bg-blue-50 border border-blue-200 rounded-lg p-5 mb-4">
                 <div class="flex items-baseline justify-between mb-3">
                   <div>
-                    <span class="font-medium text-sm text-blue-800">{r.fromAddr}</span>
+                    <span class="font-medium text-sm text-blue-800">{m.fromAddr}</span>
                     <span class="text-blue-400 text-xs ml-1">(You)</span>
-                    <span class="text-blue-400 text-xs ml-2">{"\u2192"} {r.toAddr}</span>
+                    <span class="text-blue-400 text-xs ml-2">{"\u2192"} {m.toAddr}</span>
                   </div>
-                  <span class="text-xs text-gray-400">{fmtDateTime(r.sentAt)}</span>
+                  <span class="text-xs text-gray-400">{fmtDateTime(m.sentAt ?? m.createdAt)}</span>
                 </div>
-                <pre class="text-sm text-gray-700 whitespace-pre-wrap font-sans leading-relaxed">{r.body}</pre>
+                <pre class="text-sm text-gray-700 whitespace-pre-wrap font-sans leading-relaxed">{m.bodyText ?? ""}</pre>
               </div>
             );
           }
@@ -2603,7 +2516,7 @@ export function adminRoutes(db: Db, config: Config) {
                 id="fromAddr"
                 name="fromAddr"
                 required
-                value={parseAddrs(msg.toAddrs)[0] ?? ""}
+                value={msg.toAddr}
                 class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
@@ -2614,7 +2527,7 @@ export function adminRoutes(db: Db, config: Config) {
                 id="toAddr"
                 name="toAddr"
                 required
-                value={msg.source}
+                value={msg.fromAddr}
                 class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
@@ -2642,11 +2555,11 @@ export function adminRoutes(db: Db, config: Config) {
 
   app.post("/inbound/:id/toggle-read", (c) => {
     const id = Number(c.req.param("id"));
-    const msg = db.select().from(schema.inboundMessages).where(eq(schema.inboundMessages.id, id)).get();
+    const msg = db.select().from(schema.messages).where(eq(schema.messages.id, id)).get();
     if (!msg) return c.notFound();
-    db.update(schema.inboundMessages)
+    db.update(schema.messages)
       .set({ readAt: msg.readAt ? null : new Date().toISOString() })
-      .where(eq(schema.inboundMessages.id, id))
+      .where(eq(schema.messages.id, id))
       .run();
     return c.redirect(`/admin/inbound/${id}`);
   });
@@ -2654,28 +2567,27 @@ export function adminRoutes(db: Db, config: Config) {
   app.post("/inbound/:id/delete", (c) => {
     const user = c.get("user") as User;
     const id = Number(c.req.param("id"));
-    const msg = db.select().from(schema.inboundMessages).where(eq(schema.inboundMessages.id, id)).get();
+    const msg = db.select().from(schema.messages).where(eq(schema.messages.id, id)).get();
 
     logEvent(db, {
       type: "admin.inbound_deleted",
       detail: msg?.subject ?? `id=${id}`,
-      inboundMessageId: id,
+      messageId: id,
       userId: user.id,
     });
 
-    // delete replies first (FK)
-    db.delete(schema.replies)
-      .where(eq(schema.replies.inboundMessageId, id))
-      .run();
-    db.delete(schema.inboundMessages)
-      .where(eq(schema.inboundMessages.id, id))
-      .run();
+    // delete all messages in the thread
+    if (msg) {
+      db.delete(schema.messages)
+        .where(eq(schema.messages.threadId, msg.threadId))
+        .run();
+    }
     return c.redirect("/admin/inbound");
   });
 
   app.get("/inbound/:id/raw", async (c) => {
     const id = Number(c.req.param("id"));
-    const msg = db.select().from(schema.inboundMessages).where(eq(schema.inboundMessages.id, id)).get();
+    const msg = db.select().from(schema.messages).where(eq(schema.messages.id, id)).get();
     if (!msg || !msg.s3Key) return c.notFound();
 
     const s3 = new S3Client({ region: config.awsRegion });
@@ -2690,7 +2602,7 @@ export function adminRoutes(db: Db, config: Config) {
   app.post("/inbound/:id/reply", async (c) => {
     const user = c.get("user") as User;
     const id = Number(c.req.param("id"));
-    const msg = db.select().from(schema.inboundMessages).where(eq(schema.inboundMessages.id, id)).get();
+    const msg = db.select().from(schema.messages).where(eq(schema.messages.id, id)).get();
     if (!msg) return c.notFound();
 
     const body = await c.req.parseBody();
@@ -2703,17 +2615,17 @@ export function adminRoutes(db: Db, config: Config) {
       return c.redirect(`/admin/inbound/${id}`);
     }
 
-    const rfc822Id = msg.rfc822MessageId;
+    const inReplyToId = msg.rfc822MessageId;
     const fromDomain = fromAddr.split("@")[1] ?? config.fromDomain;
-    const messageId = `<${crypto.randomUUID()}@${fromDomain}>`;
+    const rfc822MessageId = `<${crypto.randomUUID()}@${fromDomain}>`;
     const rawLines = [
       `From: ${fromAddr}`,
       `To: ${toAddr}`,
       `Subject: ${subject}`,
       `MIME-Version: 1.0`,
-      `Message-ID: ${messageId}`,
+      `Message-ID: ${rfc822MessageId}`,
       `Date: ${new Date().toUTCString()}`,
-      ...(rfc822Id ? [`In-Reply-To: ${rfc822Id}`, `References: ${rfc822Id}`] : []),
+      ...(inReplyToId ? [`In-Reply-To: ${inReplyToId}`, `References: ${inReplyToId}`] : []),
       `Content-Type: text/plain; charset=UTF-8`,
       `Content-Transfer-Encoding: 7bit`,
       ``,
@@ -2733,22 +2645,26 @@ export function adminRoutes(db: Db, config: Config) {
       }),
     );
 
-    db.insert(schema.replies)
+    db.insert(schema.messages)
       .values({
-        inboundMessageId: id,
+        direction: "outbound",
+        threadId: msg.threadId,
+        parentId: id,
         fromAddr,
         toAddr,
         subject,
-        body: replyBody,
+        bodyText: replyBody,
+        rfc822MessageId,
         sesMessageId: result.MessageId ?? null,
-        inReplyTo: rfc822Id,
+        inReplyTo: inReplyToId,
+        sentAt: new Date().toISOString(),
       })
       .run();
 
     logEvent(db, {
       type: "admin.reply_sent",
       detail: toAddr,
-      inboundMessageId: id,
+      messageId: id,
       userId: user.id,
     });
 
@@ -2769,7 +2685,7 @@ export function adminRoutes(db: Db, config: Config) {
       userId: number | null;
       subscriberId: number | null;
       campaignId: number | null;
-      inboundMessageId: number | null;
+      messageId: number | null;
       createdAt: string;
       userName: string | null;
     }[];
@@ -2784,7 +2700,7 @@ export function adminRoutes(db: Db, config: Config) {
           userId: schema.events.userId,
           subscriberId: schema.events.subscriberId,
           campaignId: schema.events.campaignId,
-          inboundMessageId: schema.events.inboundMessageId,
+          messageId: schema.events.messageId,
           createdAt: schema.events.createdAt,
           userName: schema.users.name,
         })
@@ -2808,14 +2724,14 @@ export function adminRoutes(db: Db, config: Config) {
           userId: schema.events.userId,
           subscriberId: schema.events.subscriberId,
           campaignId: schema.events.campaignId,
-          inboundMessageId: schema.events.inboundMessageId,
+          messageId: schema.events.messageId,
           createdAt: schema.events.createdAt,
           userName: schema.users.name,
         })
         .from(schema.events)
         .leftJoin(schema.users, eq(schema.events.userId, schema.users.id))
         .innerJoin(schema.campaigns, eq(schema.events.campaignId, schema.campaigns.id))
-        .where(inArray(schema.campaigns.listId, listAccess))
+        .where(and(eq(schema.campaigns.audienceType, "list"), inArray(schema.campaigns.audienceId, listAccess)))
         .orderBy(desc(schema.events.createdAt))
         .limit(200)
         .all();
@@ -2829,7 +2745,7 @@ export function adminRoutes(db: Db, config: Config) {
           userId: schema.events.userId,
           subscriberId: schema.events.subscriberId,
           campaignId: schema.events.campaignId,
-          inboundMessageId: schema.events.inboundMessageId,
+          messageId: schema.events.messageId,
           createdAt: schema.events.createdAt,
           userName: schema.users.name,
         })
@@ -2875,7 +2791,7 @@ export function adminRoutes(db: Db, config: Config) {
     function eventLink(e: typeof recentEvents[number]): string | null {
       if (e.subscriberId) return `/admin/subscribers/${e.subscriberId}`;
       if (e.campaignId) return `/admin/campaigns/${e.campaignId}`;
-      if (e.inboundMessageId) return `/admin/inbound/${e.inboundMessageId}`;
+      if (e.messageId) return `/admin/inbound/${e.messageId}`;
       return null;
     }
 
