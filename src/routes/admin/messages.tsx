@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { eq, desc, sql, and, inArray } from "drizzle-orm";
+import { eq, desc, sql, and, inArray, like, isNull, isNotNull } from "drizzle-orm";
 import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { SESv2Client, SendEmailCommand } from "@aws-sdk/client-sesv2";
@@ -9,77 +9,106 @@ import type { Config } from "../../config";
 import { getAccessibleListIds } from "../../auth";
 import { logEvent } from "../../services/events";
 import { AdminLayout, extractEmail, fmtDateTime, VerdictChips, type User } from "./layout";
-import { Button, Input, Textarea, Label, FormGroup, Table, Th, Td } from "./ui";
+import { Button, Input, LinkButton, Select, Textarea, Label, FormGroup, Table, Th, Td, PageHeader } from "./ui";
+
+const PAGE_SIZE = 50;
 
 export function mountMessageRoutes(app: Hono, db: Db, config: Config) {
   app.get("/inbound", (c) => {
     const user = c.get("user") as User;
     const listAccess = getAccessibleListIds(db, user);
 
-    let inboundMessages: (typeof schema.messages.$inferSelect)[];
-    if (listAccess === "all") {
-      inboundMessages = db
-        .select()
-        .from(schema.messages)
-        .where(eq(schema.messages.direction, "inbound"))
-        .orderBy(desc(schema.messages.createdAt))
-        .limit(100)
-        .all();
-    } else if (listAccess.length === 0) {
-      inboundMessages = [];
-    } else {
-      inboundMessages = db
-        .select({
-          id: schema.messages.id,
-          threadId: schema.messages.threadId,
-          parentId: schema.messages.parentId,
-          direction: schema.messages.direction,
-          rfc822MessageId: schema.messages.rfc822MessageId,
-          inReplyTo: schema.messages.inReplyTo,
-          fromAddr: schema.messages.fromAddr,
-          toAddr: schema.messages.toAddr,
-          subject: schema.messages.subject,
-          bodyText: schema.messages.bodyText,
-          bodyHtml: schema.messages.bodyHtml,
-          sesMessageId: schema.messages.sesMessageId,
-          s3Key: schema.messages.s3Key,
-          spamVerdict: schema.messages.spamVerdict,
-          virusVerdict: schema.messages.virusVerdict,
-          spfVerdict: schema.messages.spfVerdict,
-          dkimVerdict: schema.messages.dkimVerdict,
-          dmarcVerdict: schema.messages.dmarcVerdict,
-          campaignId: schema.messages.campaignId,
-          readAt: schema.messages.readAt,
-          sentAt: schema.messages.sentAt,
-          createdAt: schema.messages.createdAt,
-        })
-        .from(schema.messages)
-        .innerJoin(schema.campaigns, eq(schema.messages.campaignId, schema.campaigns.id))
-        .where(and(eq(schema.messages.direction, "inbound"), eq(schema.campaigns.audienceType, "list"), inArray(schema.campaigns.audienceId, listAccess)))
-        .orderBy(desc(schema.messages.createdAt))
-        .limit(100)
-        .all();
+    // Query params
+    const page = Math.max(1, parseInt(c.req.query("page") ?? "1", 10) || 1);
+    const offset = (page - 1) * PAGE_SIZE;
+    const filterSearch = c.req.query("search") ?? "";
+    const filterRead = c.req.query("read") ?? "";
+    const filterCampaign = c.req.query("campaign") ?? "";
+
+    // Build filter conditions for thread root messages
+    // Thread roots: parentId IS NULL AND direction = "inbound"
+    const baseConditions = [
+      eq(schema.messages.direction, "inbound"),
+      isNull(schema.messages.parentId),
+    ];
+
+    if (filterSearch) {
+      baseConditions.push(
+        sql`(${like(schema.messages.subject, `%${filterSearch}%`)} OR ${like(schema.messages.fromAddr, `%${filterSearch}%`)})`,
+      );
+    }
+    if (filterRead === "unread") {
+      baseConditions.push(isNull(schema.messages.readAt));
+    } else if (filterRead === "read") {
+      baseConditions.push(isNotNull(schema.messages.readAt));
+    }
+    if (filterCampaign) {
+      const camId = parseInt(filterCampaign, 10);
+      if (!isNaN(camId)) baseConditions.push(eq(schema.messages.campaignId, camId));
     }
 
-    // Group by thread: pick the earliest inbound message per thread as the representative
-    const threadMap = new Map<number, typeof inboundMessages[number]>();
-    for (const msg of inboundMessages) {
-      const existing = threadMap.get(msg.threadId);
-      if (!existing || msg.createdAt < existing.createdAt) {
-        threadMap.set(msg.threadId, msg);
+    // Fetch thread root messages with pagination
+    let rootMessages: (typeof schema.messages.$inferSelect)[];
+    let totalCount = 0;
+
+    if (listAccess === "all") {
+      const countResult = db
+        .select({ count: sql<number>`count(*)` })
+        .from(schema.messages)
+        .where(and(...baseConditions))
+        .get();
+      totalCount = countResult?.count ?? 0;
+
+      rootMessages = db
+        .select()
+        .from(schema.messages)
+        .where(and(...baseConditions))
+        .orderBy(desc(schema.messages.createdAt))
+        .limit(PAGE_SIZE)
+        .offset(offset)
+        .all();
+    } else if (listAccess.length === 0) {
+      rootMessages = [];
+      totalCount = 0;
+    } else {
+      // Members: scope to campaigns on their lists
+      // We check if the thread root has a campaignId linked to one of their lists,
+      // OR if any message in the thread does. For simplicity, filter root messages
+      // that have a campaignId on an accessible list.
+      const accessibleCampaignIds = db
+        .select({ id: schema.campaigns.id })
+        .from(schema.campaigns)
+        .where(and(eq(schema.campaigns.audienceType, "list"), inArray(schema.campaigns.audienceId, listAccess)))
+        .all()
+        .map((r) => r.id);
+
+      if (accessibleCampaignIds.length === 0) {
+        rootMessages = [];
+        totalCount = 0;
+      } else {
+        const memberConditions = [...baseConditions, inArray(schema.messages.campaignId, accessibleCampaignIds)];
+        const countResult = db
+          .select({ count: sql<number>`count(*)` })
+          .from(schema.messages)
+          .where(and(...memberConditions))
+          .get();
+        totalCount = countResult?.count ?? 0;
+
+        rootMessages = db
+          .select()
+          .from(schema.messages)
+          .where(and(...memberConditions))
+          .orderBy(desc(schema.messages.createdAt))
+          .limit(PAGE_SIZE)
+          .offset(offset)
+          .all();
       }
     }
-    const threads = [...threadMap.values()].sort((a, b) => {
-      // Sort by most recent activity in thread (check all inbound messages)
-      const latestA = inboundMessages.filter((m) => m.threadId === a.threadId).reduce((max, m) => m.createdAt > max ? m.createdAt : max, a.createdAt);
-      const latestB = inboundMessages.filter((m) => m.threadId === b.threadId).reduce((max, m) => m.createdAt > max ? m.createdAt : max, b.createdAt);
-      return latestB.localeCompare(latestA);
-    });
 
     // Count total messages (inbound + outbound) per thread minus 1 (the root)
     const replyCounts = new Map<number, number>();
-    if (threads.length > 0) {
-      const threadIds = threads.map((t) => t.threadId);
+    if (rootMessages.length > 0) {
+      const threadIds = rootMessages.map((m) => m.threadId);
       const counts = db
         .select({
           threadId: schema.messages.threadId,
@@ -94,17 +123,27 @@ export function mountMessageRoutes(app: Hono, db: Db, config: Config) {
       }
     }
 
-    // Check if any message in a thread is unread
+    // Check if any inbound message in a thread is unread
     const threadHasUnread = new Map<number, boolean>();
-    for (const msg of inboundMessages) {
-      if (!msg.readAt) {
-        threadHasUnread.set(msg.threadId, true);
+    if (rootMessages.length > 0) {
+      const threadIds = rootMessages.map((m) => m.threadId);
+      const unreadMsgs = db
+        .select({ threadId: schema.messages.threadId })
+        .from(schema.messages)
+        .where(and(
+          inArray(schema.messages.threadId, threadIds),
+          eq(schema.messages.direction, "inbound"),
+          isNull(schema.messages.readAt),
+        ))
+        .all();
+      for (const row of unreadMsgs) {
+        threadHasUnread.set(row.threadId, true);
       }
     }
 
     // Campaign lookup for linked campaigns
     const campaignMap = new Map<number, string>();
-    const campaignIds = [...new Set(inboundMessages.filter((m) => m.campaignId).map((m) => m.campaignId!))];
+    const campaignIds = [...new Set(rootMessages.filter((m) => m.campaignId).map((m) => m.campaignId!))];
     if (campaignIds.length > 0) {
       const campaigns = db
         .select({ id: schema.campaigns.id, subject: schema.campaigns.subject })
@@ -115,17 +154,74 @@ export function mountMessageRoutes(app: Hono, db: Db, config: Config) {
         campaignMap.set(cam.id, cam.subject);
       }
     }
-    // Find campaign for each thread (any message in the thread may have it)
-    const threadCampaignMap = new Map<number, number>();
-    for (const msg of inboundMessages) {
-      if (msg.campaignId && !threadCampaignMap.has(msg.threadId)) {
-        threadCampaignMap.set(msg.threadId, msg.campaignId);
-      }
+
+    // All campaigns for filter dropdown
+    const allCampaigns = db
+      .select({ id: schema.campaigns.id, subject: schema.campaigns.subject })
+      .from(schema.campaigns)
+      .orderBy(desc(schema.campaigns.createdAt))
+      .limit(100)
+      .all();
+
+    const hasMore = page * PAGE_SIZE < totalCount;
+
+    function buildUrl(params: Record<string, string | number>) {
+      const q = new URLSearchParams({
+        ...(filterSearch ? { search: filterSearch } : {}),
+        ...(filterRead ? { read: filterRead } : {}),
+        ...(filterCampaign ? { campaign: filterCampaign } : {}),
+        page: String(page),
+        ...params,
+      });
+      return `/admin/inbound?${q.toString()}`;
     }
 
     return c.html(
       <AdminLayout title="Inbound" user={user}>
-        <h1 class="text-2xl font-bold mt-0 mb-4">Inbound Messages</h1>
+        <PageHeader title="Inbound Messages">
+          <span class="text-xs text-gray-400">{totalCount} thread{totalCount !== 1 ? "s" : ""}</span>
+        </PageHeader>
+
+        {/* Filters */}
+        <form method="get" action="/admin/inbound" class="flex items-end gap-3 mb-6 flex-wrap">
+          <div>
+            <label class="block text-xs font-medium text-gray-500 mb-1">Search</label>
+            <Input
+              type="text"
+              name="search"
+              value={filterSearch}
+              placeholder="Subject or from…"
+              class="w-48 mb-0"
+            />
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-500 mb-1">Read status</label>
+            <Select name="read" size="sm">
+              <option value="" selected={!filterRead}>All</option>
+              <option value="unread" selected={filterRead === "unread"}>Unread</option>
+              <option value="read" selected={filterRead === "read"}>Read</option>
+            </Select>
+          </div>
+          {allCampaigns.length > 0 && (
+            <div>
+              <label class="block text-xs font-medium text-gray-500 mb-1">Campaign</label>
+              <Select name="campaign" size="sm">
+                <option value="" selected={!filterCampaign}>All</option>
+                {allCampaigns.map((cam) => (
+                  <option value={String(cam.id)} selected={filterCampaign === String(cam.id)}>
+                    {cam.subject.slice(0, 40)}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          )}
+          <input type="hidden" name="page" value="1" />
+          <Button type="submit" size="sm">Filter</Button>
+          {(filterSearch || filterRead || filterCampaign) && (
+            <a href="/admin/inbound" class="text-sm text-gray-500 hover:text-gray-700 no-underline">Clear</a>
+          )}
+        </form>
+
         <Table>
           <thead>
             <tr>
@@ -138,7 +234,7 @@ export function mountMessageRoutes(app: Hono, db: Db, config: Config) {
             </tr>
           </thead>
           <tbody>
-            {threads.map((msg) => (
+            {rootMessages.map((msg) => (
               <tr class={threadHasUnread.get(msg.threadId) ? "font-semibold" : ""}>
                 <Td>{msg.fromAddr}</Td>
                 <Td>
@@ -148,7 +244,7 @@ export function mountMessageRoutes(app: Hono, db: Db, config: Config) {
                 <Td>{replyCounts.get(msg.threadId) ?? 0}</Td>
                 <Td>
                   {(() => {
-                    const camId = threadCampaignMap.get(msg.threadId) ?? msg.campaignId;
+                    const camId = msg.campaignId;
                     return camId && campaignMap.has(camId) ? (
                       <a href={`/admin/campaigns/${camId}`} class="text-blue-600 hover:text-blue-800 text-xs">{campaignMap.get(camId)}</a>
                     ) : (
@@ -161,8 +257,31 @@ export function mountMessageRoutes(app: Hono, db: Db, config: Config) {
                 </Td>
               </tr>
             ))}
+            {rootMessages.length === 0 && (
+              <tr>
+                <Td class="text-gray-400 text-sm py-4" {...{ colspan: "6" }}>No messages match the current filters.</Td>
+              </tr>
+            )}
           </tbody>
         </Table>
+
+        {/* Pagination */}
+        {(page > 1 || hasMore) && (
+          <div class="flex items-center justify-between mt-6 pt-4 border-t border-gray-100">
+            <div>
+              {page > 1
+                ? <LinkButton href={buildUrl({ page: page - 1 })} variant="secondary" size="sm">← Previous</LinkButton>
+                : <span />
+              }
+            </div>
+            <span class="text-xs text-gray-400">
+              Showing {PAGE_SIZE * (page - 1) + 1}–{PAGE_SIZE * (page - 1) + rootMessages.length} of {totalCount}
+            </span>
+            <div>
+              {hasMore && <LinkButton href={buildUrl({ page: page + 1 })} variant="secondary" size="sm">Next →</LinkButton>}
+            </div>
+          </div>
+        )}
       </AdminLayout>,
     );
   });

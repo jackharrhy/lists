@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { eq, desc, and, inArray } from "drizzle-orm";
+import { eq, desc, and, inArray, like, sql } from "drizzle-orm";
 import { marked } from "marked";
 import type { Db } from "../../db";
 import { schema } from "../../db";
@@ -13,6 +13,8 @@ import { logEvent } from "../../services/events";
 import { getConfirmedSubscribers } from "../../services/subscriber";
 import { AdminLayout, fmtDate, fmtDateTime, CampaignBadge, describeAudience, type User } from "./layout";
 import { Button, LinkButton, Input, Select, Textarea, Label, FormGroup, Table, Th, Td, Card, PageHeader } from "./ui";
+
+const CAMPAIGNS_PAGE_SIZE = 25;
 
 export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
   // ---- Preview endpoints (raw HTML, no AdminLayout) -----------------------
@@ -98,23 +100,62 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
     const user = c.get("user") as User;
     const listAccess = getAccessibleListIds(db, user);
 
-    let allCampaigns: (typeof schema.campaigns.$inferSelect)[];
+    // Query params
+    const page = Math.max(1, parseInt(c.req.query("page") ?? "1", 10) || 1);
+    const offset = (page - 1) * CAMPAIGNS_PAGE_SIZE;
+    const filterStatus = c.req.query("status") ?? "";
+    const filterSearch = c.req.query("search") ?? "";
+
+    // Build where conditions
+    const filterConditions = [];
+    if (filterStatus && ["draft", "sending", "sent", "failed"].includes(filterStatus)) {
+      filterConditions.push(eq(schema.campaigns.status, filterStatus as any));
+    }
+    if (filterSearch) {
+      filterConditions.push(like(schema.campaigns.subject, `%${filterSearch}%`));
+    }
+
+    let campaigns: (typeof schema.campaigns.$inferSelect)[];
+    let total = 0;
+
     if (listAccess === "all") {
-      allCampaigns = db
-        .select()
+      const conditions = filterConditions.length > 0 ? and(...filterConditions) : undefined;
+      const countRow = db
+        .select({ count: sql<number>`count(*)` })
         .from(schema.campaigns)
-        .orderBy(desc(schema.campaigns.createdAt))
+        .where(conditions)
+        .get()!;
+      total = countRow.count;
+
+      const q = db.select().from(schema.campaigns).orderBy(desc(schema.campaigns.createdAt));
+      campaigns = (conditions ? q.where(conditions) : q)
+        .limit(CAMPAIGNS_PAGE_SIZE)
+        .offset(offset)
         .all();
     } else if (listAccess.length === 0) {
-      allCampaigns = [];
+      campaigns = [];
+      total = 0;
     } else {
-      allCampaigns = db
+      const accessCond = and(eq(schema.campaigns.audienceType, "list"), inArray(schema.campaigns.audienceId, listAccess));
+      const conditions = filterConditions.length > 0 ? and(accessCond, ...filterConditions) : accessCond;
+      const countRow = db
+        .select({ count: sql<number>`count(*)` })
+        .from(schema.campaigns)
+        .where(conditions)
+        .get()!;
+      total = countRow.count;
+
+      campaigns = db
         .select()
         .from(schema.campaigns)
-        .where(and(eq(schema.campaigns.audienceType, "list"), inArray(schema.campaigns.audienceId, listAccess)))
+        .where(conditions)
         .orderBy(desc(schema.campaigns.createdAt))
+        .limit(CAMPAIGNS_PAGE_SIZE)
+        .offset(offset)
         .all();
     }
+
+    const totalPages = Math.max(1, Math.ceil(total / CAMPAIGNS_PAGE_SIZE));
 
     // Build lookup maps for list and tag names
     const allLists = db.select().from(schema.lists).all();
@@ -122,11 +163,57 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
     const allTags = db.select().from(schema.tags).all();
     const tagNameMap = new Map(allTags.map((t) => [t.id, t.name]));
 
+    function buildUrl(params: Record<string, string | number>) {
+      const q = new URLSearchParams({
+        ...(filterStatus ? { status: filterStatus } : {}),
+        ...(filterSearch ? { search: filterSearch } : {}),
+        page: String(page),
+        ...params,
+      });
+      return `/admin/campaigns?${q.toString()}`;
+    }
+
+    const CAMPAIGN_STATUSES = [
+      { value: "", label: "All" },
+      { value: "draft", label: "Draft" },
+      { value: "sending", label: "Sending" },
+      { value: "sent", label: "Sent" },
+      { value: "failed", label: "Failed" },
+    ];
+
     return c.html(
       <AdminLayout title="Campaigns" user={user}>
         <PageHeader title="Campaigns">
           <LinkButton href="/admin/campaigns/new">New Campaign</LinkButton>
         </PageHeader>
+
+        {/* Filters */}
+        <form method="get" action="/admin/campaigns" class="flex items-end gap-3 mb-6 flex-wrap">
+          <div>
+            <label class="block text-xs font-medium text-gray-500 mb-1">Status</label>
+            <Select name="status" size="sm">
+              {CAMPAIGN_STATUSES.map((s) => (
+                <option value={s.value} selected={filterStatus === s.value}>{s.label}</option>
+              ))}
+            </Select>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-500 mb-1">Search</label>
+            <input
+              type="text"
+              name="search"
+              value={filterSearch}
+              placeholder="Subject…"
+              class="px-2 py-1.5 text-sm border border-gray-300 rounded-md font-[inherit] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            />
+          </div>
+          <input type="hidden" name="page" value="1" />
+          <Button type="submit" size="sm">Filter</Button>
+          {(filterStatus || filterSearch) && (
+            <a href="/admin/campaigns" class="text-sm text-gray-500 hover:text-gray-700 no-underline">Clear</a>
+          )}
+        </form>
+
         <Table>
           <thead>
             <tr>
@@ -138,7 +225,7 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
             </tr>
           </thead>
           <tbody>
-            {allCampaigns.map((cam) => (
+            {campaigns.map((cam) => (
               <tr>
                 <Td>
                   <a href={`/admin/campaigns/${cam.id}`} class="text-blue-600 hover:text-blue-800">{cam.subject}</a>
@@ -151,8 +238,31 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
                 <Td>{fmtDate(cam.createdAt)}</Td>
               </tr>
             ))}
+            {campaigns.length === 0 && (
+              <tr>
+                <Td class="text-gray-400" colspan="5">No campaigns found.</Td>
+              </tr>
+            )}
           </tbody>
         </Table>
+
+        {/* Pagination */}
+        {(page > 1 || total > CAMPAIGNS_PAGE_SIZE) && (
+          <div class="flex items-center justify-between mt-2 pt-4 border-t border-gray-100">
+            <div>
+              {page > 1
+                ? <LinkButton href={buildUrl({ page: page - 1 })} variant="secondary" size="sm">← Previous</LinkButton>
+                : <span />
+              }
+            </div>
+            <span class="text-xs text-gray-400">
+              {total} campaign{total !== 1 ? "s" : ""} &middot; page {page} of {totalPages}
+            </span>
+            <div>
+              {page < totalPages && <LinkButton href={buildUrl({ page: page + 1 })} variant="secondary" size="sm">Next →</LinkButton>}
+            </div>
+          </div>
+        )}
       </AdminLayout>,
     );
   });

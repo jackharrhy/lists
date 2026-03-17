@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { eq, desc, and, inArray } from "drizzle-orm";
+import { eq, desc, and, inArray, like, sql } from "drizzle-orm";
 import { SESv2Client, SendEmailCommand } from "@aws-sdk/client-sesv2";
 import type { Db } from "../../db";
 import { schema } from "../../db";
@@ -12,36 +12,114 @@ import { logEvent } from "../../services/events";
 import { AdminLayout, displayName, fmtDate, fmtDateTime, type User } from "./layout";
 import { Button, LinkButton, Input, Select, Label, FormGroup, Table, Th, Td, Card, PageHeader } from "./ui";
 
+const PAGE_SIZE = 50;
+
 export function mountSubscriberRoutes(app: Hono, db: Db, config: Config) {
-   app.get("/subscribers", (c) => {
+  app.get("/subscribers", (c) => {
     const user = c.get("user") as User;
     const listAccess = getAccessibleListIds(db, user);
 
-    let allSubscribers: (typeof schema.subscribers.$inferSelect)[];
+    // Query params
+    const page = Math.max(1, parseInt(c.req.query("page") ?? "1", 10) || 1);
+    const offset = (page - 1) * PAGE_SIZE;
+    const filterSearch = c.req.query("search") ?? "";
+    const filterStatus = c.req.query("status") ?? "";
+    const filterConfirmed = c.req.query("confirmed") ?? "";
+
+    // Build where conditions
+    const conditions: any[] = [];
+    if (filterSearch) {
+      const pattern = `%${filterSearch}%`;
+      conditions.push(sql`(${like(schema.subscribers.email, pattern)} OR ${like(schema.subscribers.firstName, pattern)} OR ${like(schema.subscribers.lastName, pattern)})`);
+    }
+    if (filterStatus === "active" || filterStatus === "blocklisted") {
+      conditions.push(eq(schema.subscribers.status, filterStatus));
+    }
+
+    // Base select shape for selectDistinct path
+    const baseSelect = {
+      id: schema.subscribers.id,
+      email: schema.subscribers.email,
+      firstName: schema.subscribers.firstName,
+      lastName: schema.subscribers.lastName,
+      status: schema.subscribers.status,
+      unsubscribeToken: schema.subscribers.unsubscribeToken,
+      createdAt: schema.subscribers.createdAt,
+    };
+
+    // Helper: apply confirmed filter via EXISTS subquery
+    function confirmedCondition(positive: boolean) {
+      if (positive) {
+        return sql`EXISTS (SELECT 1 FROM subscriber_lists sl WHERE sl.subscriber_id = ${schema.subscribers.id} AND sl.status = 'confirmed')`;
+      } else {
+        return sql`NOT EXISTS (SELECT 1 FROM subscriber_lists sl WHERE sl.subscriber_id = ${schema.subscribers.id} AND sl.status = 'confirmed')`;
+      }
+    }
+
+    if (filterConfirmed === "confirmed") {
+      conditions.push(confirmedCondition(true));
+    } else if (filterConfirmed === "unconfirmed") {
+      conditions.push(confirmedCondition(false));
+    }
+
+    let subscribers: (typeof schema.subscribers.$inferSelect)[];
+    let total = 0;
+
     if (listAccess === "all") {
-      allSubscribers = db
-        .select()
-        .from(schema.subscribers)
-        .orderBy(desc(schema.subscribers.createdAt))
+      const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+      // Count
+      const countRow = whereClause
+        ? db.select({ count: sql<number>`count(*)` }).from(schema.subscribers).where(whereClause).get()
+        : db.select({ count: sql<number>`count(*)` }).from(schema.subscribers).get();
+      total = countRow?.count ?? 0;
+
+      // Page
+      const q = db.select().from(schema.subscribers).orderBy(desc(schema.subscribers.createdAt));
+      subscribers = (whereClause ? q.where(whereClause) : q)
+        .limit(PAGE_SIZE)
+        .offset(offset)
         .all();
     } else if (listAccess.length === 0) {
-      allSubscribers = [];
+      subscribers = [];
+      total = 0;
     } else {
-      allSubscribers = db
-        .selectDistinct({
-          id: schema.subscribers.id,
-          email: schema.subscribers.email,
-          firstName: schema.subscribers.firstName,
-          lastName: schema.subscribers.lastName,
-          status: schema.subscribers.status,
-          unsubscribeToken: schema.subscribers.unsubscribeToken,
-          createdAt: schema.subscribers.createdAt,
-        })
+      const accessCondition = inArray(schema.subscriberLists.listId, listAccess);
+      const allConditions = conditions.length > 0 ? and(accessCondition, ...conditions) : accessCondition;
+
+      // Count (selectDistinct workaround: use subquery count)
+      const countRow = db
+        .selectDistinct({ id: schema.subscribers.id })
         .from(schema.subscribers)
         .innerJoin(schema.subscriberLists, eq(schema.subscriberLists.subscriberId, schema.subscribers.id))
-        .where(inArray(schema.subscriberLists.listId, listAccess))
-        .orderBy(desc(schema.subscribers.createdAt))
+        .where(allConditions)
         .all();
+      total = countRow.length;
+
+      subscribers = db
+        .selectDistinct(baseSelect)
+        .from(schema.subscribers)
+        .innerJoin(schema.subscriberLists, eq(schema.subscriberLists.subscriberId, schema.subscribers.id))
+        .where(allConditions)
+        .orderBy(desc(schema.subscribers.createdAt))
+        .limit(PAGE_SIZE)
+        .offset(offset)
+        .all();
+    }
+
+    const hasFilters = !!(filterSearch || filterStatus || filterConfirmed);
+    const start = total === 0 ? 0 : offset + 1;
+    const end = Math.min(offset + PAGE_SIZE, total);
+
+    function buildUrl(params: Record<string, string | number>) {
+      const q = new URLSearchParams({
+        ...(filterSearch ? { search: filterSearch } : {}),
+        ...(filterStatus ? { status: filterStatus } : {}),
+        ...(filterConfirmed ? { confirmed: filterConfirmed } : {}),
+        page: String(page),
+        ...params,
+      });
+      return `/admin/subscribers?${q.toString()}`;
     }
 
     return c.html(
@@ -49,6 +127,42 @@ export function mountSubscriberRoutes(app: Hono, db: Db, config: Config) {
         <PageHeader title="Subscribers">
           <LinkButton href="/admin/subscribers/new">Add Subscriber</LinkButton>
         </PageHeader>
+
+        {/* Filters */}
+        <form method="get" action="/admin/subscribers" class="flex items-end gap-3 mb-6 flex-wrap">
+          <div>
+            <label class="block text-xs font-medium text-gray-500 mb-1">Search</label>
+            <input
+              type="text"
+              name="search"
+              value={filterSearch}
+              placeholder="email, name…"
+              class="px-2 py-1.5 border border-gray-300 rounded-md text-sm font-[inherit] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            />
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-500 mb-1">Status</label>
+            <Select name="status" size="sm">
+              <option value="" selected={!filterStatus}>All</option>
+              <option value="active" selected={filterStatus === "active"}>Active</option>
+              <option value="blocklisted" selected={filterStatus === "blocklisted"}>Blocklisted</option>
+            </Select>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-500 mb-1">Confirmed</label>
+            <Select name="confirmed" size="sm">
+              <option value="" selected={!filterConfirmed}>All</option>
+              <option value="confirmed" selected={filterConfirmed === "confirmed"}>Confirmed</option>
+              <option value="unconfirmed" selected={filterConfirmed === "unconfirmed"}>Unconfirmed</option>
+            </Select>
+          </div>
+          <input type="hidden" name="page" value="1" />
+          <Button type="submit" size="sm">Filter</Button>
+          {hasFilters && (
+            <a href="/admin/subscribers" class="text-sm text-gray-500 hover:text-gray-700 no-underline">Clear</a>
+          )}
+        </form>
+
         <Table>
           <thead>
             <tr>
@@ -60,7 +174,7 @@ export function mountSubscriberRoutes(app: Hono, db: Db, config: Config) {
             </tr>
           </thead>
           <tbody>
-            {allSubscribers.map((sub) => (
+            {subscribers.map((sub) => (
               <tr>
                 <Td><a href={`/admin/subscribers/${sub.id}`} class="text-blue-600 hover:text-blue-800">{sub.email}</a></Td>
                 <Td>{displayName(sub)}</Td>
@@ -73,8 +187,33 @@ export function mountSubscriberRoutes(app: Hono, db: Db, config: Config) {
                 </Td>
               </tr>
             ))}
+            {subscribers.length === 0 && (
+              <tr>
+                <Td class="text-gray-400" ><span>No subscribers match the current filters.</span></Td>
+                <Td></Td>
+                <Td></Td>
+                <Td></Td>
+                <Td></Td>
+              </tr>
+            )}
           </tbody>
         </Table>
+
+        {/* Pagination */}
+        {(total > PAGE_SIZE || page > 1) && (
+          <div class="flex items-center justify-between mt-2 pt-4 border-t border-gray-100">
+            <div>
+              {page > 1
+                ? <LinkButton href={buildUrl({ page: page - 1 })} variant="secondary" size="sm">← Previous</LinkButton>
+                : <span />
+              }
+            </div>
+            <span class="text-xs text-gray-400">Showing {start}–{end} of {total}</span>
+            <div>
+              {end < total && <LinkButton href={buildUrl({ page: page + 1 })} variant="secondary" size="sm">Next →</LinkButton>}
+            </div>
+          </div>
+        )}
       </AdminLayout>,
     );
   });
