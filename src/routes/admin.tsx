@@ -87,6 +87,11 @@ function AdminLayout({
 
 
 
+function extractEmail(addr: string): string {
+  const match = addr.match(/<([^>]+)>/);
+  return match ? match[1] : addr.trim();
+}
+
 function VerdictChips({ spf, dkim, dmarc }: { spf?: string | null; dkim?: string | null; dmarc?: string | null }) {
   const chip = (label: string, value?: string | null) => {
     if (!value) return null;
@@ -2515,7 +2520,7 @@ export function adminRoutes(db: Db, config: Config) {
                 id="fromAddr"
                 name="fromAddr"
                 required
-                value={msg.toAddr}
+                value={extractEmail(msg.toAddr)}
                 class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
@@ -2526,7 +2531,7 @@ export function adminRoutes(db: Db, config: Config) {
                 id="toAddr"
                 name="toAddr"
                 required
-                value={msg.fromAddr}
+                value={extractEmail(msg.fromAddr)}
                 class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
