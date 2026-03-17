@@ -5,7 +5,7 @@ import { loadConfig } from "./config";
 import { createDb } from "./db";
 import { publicRoutes } from "./routes/public";
 import { apiRoutes } from "./routes/api";
-import { adminRoutes } from "./routes/admin";
+import { adminRoutes } from "./routes/admin/index";
 import { startPoller } from "./services/poller";
 import { bootstrapOwner } from "./bootstrap";
 
