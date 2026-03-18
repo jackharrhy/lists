@@ -2,7 +2,6 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { eq, desc, and, inArray, like, sql } from "drizzle-orm";
 import { marked } from "marked";
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import type { Db } from "../../db";
 import { schema } from "../../db";
 import type { Config } from "../../config";
@@ -12,7 +11,7 @@ import { renderNewsletter } from "../../../emails/render";
 import { buildUnsubscribeUrl, buildPreferencesUrl } from "../../compliance";
 import { logEvent } from "../../services/events";
 import { getConfirmedSubscribers } from "../../services/subscriber";
-import { processImage } from "../../services/images";
+import { processImage, processPendingS3Images, deleteCampaignS3Images } from "../../services/images";
 import { AdminLayout, fmtDate, fmtDateTime, CampaignBadge, describeAudience, setFlash, getFlash, type User } from "./layout";
 import { Button, LinkButton, Input, Select, Textarea, Label, FormGroup, Table, Th, Td, Card, PageHeader } from "./ui";
 
@@ -119,49 +118,6 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
       });
     } catch (err) {
       return c.json({ error: "Failed to process image" }, 400);
-    }
-  });
-
-  app.post("/campaigns/upload-image-s3", async (c) => {
-    if (!config.s3MediaBucket) {
-      return c.json({ error: "S3 media bucket not configured" }, 400);
-    }
-
-    const body = await c.req.parseBody();
-    const file = body["image"];
-    if (!file || typeof file === "string") {
-      return c.json({ error: "No image provided" }, 400);
-    }
-
-    const originalSize = file.size;
-    const buf = await file.arrayBuffer();
-
-    try {
-      const processed = await processImage(buf);
-      const key = `images/${crypto.randomUUID()}.webp`;
-
-      const s3 = new S3Client({ region: config.awsRegion });
-      await s3.send(new PutObjectCommand({
-        Bucket: config.s3MediaBucket,
-        Key: key,
-        Body: processed.data,
-        ContentType: "image/webp",
-        CacheControl: "public, max-age=31536000",
-      }));
-
-      const baseUrl = config.s3MediaBaseUrl || `https://${config.s3MediaBucket}.s3.${config.awsRegion}.amazonaws.com`;
-      const url = `${baseUrl}/${key}`;
-
-      return c.json({
-        url,
-        sizeBytes: processed.sizeBytes,
-        originalSizeBytes: originalSize,
-        width: processed.width,
-        height: processed.height,
-      });
-    } catch (err) {
-      console.error("S3 upload error:", err);
-      return c.json({ error: "Failed to upload image" }, 400);
     }
   });
 
@@ -703,6 +659,7 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
                     ' \\u2192 Compressed: ' + formatBytes(data.sizeBytes) +
                     ' (' + data.width + '\\u00d7' + data.height + ' WebP)';
                   embedBtn.textContent = 'Embed in email (' + formatBytes(data.sizeBytes) + ', no external load)';
+                  s3Btn.textContent = 'Host on S3 (uploaded on save, ~' + formatBytes(data.sizeBytes) + ' stored now)';
                   modal.classList.remove('hidden');
                 })
                 .catch(function() { alert('Failed to process image'); });
@@ -727,23 +684,12 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
             });
 
             s3Btn.addEventListener('click', function() {
-              if (!currentFile) return;
-              s3Btn.disabled = true;
-              s3Btn.textContent = 'Uploading\\u2026';
-              var formData = new FormData();
-              formData.append('image', currentFile);
-              fetch('/admin/campaigns/upload-image-s3', { method: 'POST', body: formData })
-                .then(function(r) { return r.json(); })
-                .then(function(data) {
-                  if (data.url) {
-                    insertAtCursor('\\n![image](' + data.url + ')\\n');
-                    modal.classList.add('hidden');
-                  } else {
-                    alert('Upload failed: ' + (data.error || 'unknown error'));
-                  }
-                })
-                .catch(function() { alert('Upload failed'); })
-                .finally(function() { s3Btn.disabled = false; s3Btn.textContent = 'Host on S3 (smaller email size)'; });
+              if (processedData) {
+                var uuid = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2);
+                var marker = '<!-- s3-pending:' + uuid + ' -->';
+                insertAtCursor('\\n' + marker + '![image](' + processedData.dataUri + ')\\n');
+                modal.classList.add('hidden');
+              }
             });
 
             closeBtn.addEventListener('click', function() { modal.classList.add('hidden'); });
@@ -809,6 +755,17 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
       .values({ audienceType, audienceId, audienceData, fromAddress, fromName, subject, bodyMarkdown, scheduledAt, batchSize, batchInterval, status })
       .returning({ id: schema.campaigns.id })
       .get();
+
+    const campaignId = result.id;
+    if (config.s3MediaBucket) {
+      const processedMarkdown = await processPendingS3Images(bodyMarkdown, campaignId, config);
+      if (processedMarkdown !== bodyMarkdown) {
+        db.update(schema.campaigns)
+          .set({ bodyMarkdown: processedMarkdown })
+          .where(eq(schema.campaigns.id, campaignId))
+          .run();
+      }
+    }
 
     logEvent(db, {
       type: "admin.campaign_created",
@@ -1440,7 +1397,8 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
                     'Original: ' + formatBytes(data.originalSizeBytes) +
                     ' \\u2192 Compressed: ' + formatBytes(data.sizeBytes) +
                     ' (' + data.width + '\\u00d7' + data.height + ' WebP)';
-                  embedBtn.textContent = 'Embed in email (' + formatBytes(data.sizeBytes) + ', no external load)';
+                   embedBtn.textContent = 'Embed in email (' + formatBytes(data.sizeBytes) + ', no external load)';
+                  s3Btn.textContent = 'Host on S3 (uploaded on save, ~' + formatBytes(data.sizeBytes) + ' stored now)';
                   modal.classList.remove('hidden');
                 })
                 .catch(function() { alert('Failed to process image'); });
@@ -1465,23 +1423,12 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
             });
 
             s3Btn.addEventListener('click', function() {
-              if (!currentFile) return;
-              s3Btn.disabled = true;
-              s3Btn.textContent = 'Uploading\\u2026';
-              var formData = new FormData();
-              formData.append('image', currentFile);
-              fetch('/admin/campaigns/upload-image-s3', { method: 'POST', body: formData })
-                .then(function(r) { return r.json(); })
-                .then(function(data) {
-                  if (data.url) {
-                    insertAtCursor('\\n![image](' + data.url + ')\\n');
-                    modal.classList.add('hidden');
-                  } else {
-                    alert('Upload failed: ' + (data.error || 'unknown error'));
-                  }
-                })
-                .catch(function() { alert('Upload failed'); })
-                .finally(function() { s3Btn.disabled = false; s3Btn.textContent = 'Host on S3 (smaller email size)'; });
+              if (processedData) {
+                var uuid = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2);
+                var marker = '<!-- s3-pending:' + uuid + ' -->';
+                insertAtCursor('\\n' + marker + '![image](' + processedData.dataUri + ')\\n');
+                modal.classList.add('hidden');
+              }
             });
 
             closeBtn.addEventListener('click', function() { modal.classList.add('hidden'); });
@@ -1538,8 +1485,12 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
     const batchInterval = body["batchInterval"] ? parseInt(String(body["batchInterval"]), 10) || null : null;
     const status = scheduledAt ? "scheduled" : "draft";
 
+    const processedMarkdown = config.s3MediaBucket
+      ? await processPendingS3Images(bodyMarkdown, id, config)
+      : bodyMarkdown;
+
     db.update(schema.campaigns)
-      .set({ audienceType, audienceId, audienceData, fromAddress, fromName, subject, bodyMarkdown, scheduledAt, batchSize, batchInterval, status })
+      .set({ audienceType, audienceId, audienceData, fromAddress, fromName, subject, bodyMarkdown: processedMarkdown, scheduledAt, batchSize, batchInterval, status })
       .where(eq(schema.campaigns.id, id))
       .run();
 
@@ -1596,10 +1547,12 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
     return c.redirect(`/admin/campaigns/${id}`);
   });
 
-  app.post("/campaigns/:id/delete", (c) => {
+  app.post("/campaigns/:id/delete", async (c) => {
     const user = c.get("user") as User;
     const id = Number(c.req.param("id"));
     const campaign = db.select().from(schema.campaigns).where(eq(schema.campaigns.id, id)).get();
+
+    await deleteCampaignS3Images(id, config);
 
     logEvent(db, {
       type: "admin.campaign_deleted",
