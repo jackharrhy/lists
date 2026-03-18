@@ -381,8 +381,10 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
                 <h3 class="text-sm font-semibold text-gray-700 mt-6 mb-3">Sending options</h3>
 
                 <FormGroup>
-                  <Label for="scheduledAt">Schedule for (optional)</Label>
-                  <Input type="datetime-local" id="scheduledAt" name="scheduledAt" />
+                  <Label for="scheduledAtLocal">Schedule for (optional, your local time)</Label>
+                  <Input type="datetime-local" id="scheduledAtLocal" />
+                  <input type="hidden" id="scheduledAt" name="scheduledAt" />
+                  <p class="text-xs text-gray-400 mt-1" id="scheduledAtUtc"></p>
                 </FormGroup>
 
                 <div id="batchOptions">
@@ -445,6 +447,23 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
                 var nameInput = document.getElementById('fromName');
                 if (nameInput && !nameInput.value && this.value) {
                   nameInput.value = this.value.split('@')[0] || '';
+                }
+              });
+            }
+
+            // Timezone-aware schedule input
+            var localInput = document.getElementById('scheduledAtLocal');
+            var utcHidden = document.getElementById('scheduledAt');
+            var utcLabel = document.getElementById('scheduledAtUtc');
+            if (localInput) {
+              localInput.addEventListener('change', function() {
+                if (this.value) {
+                  var utc = new Date(this.value).toISOString();
+                  utcHidden.value = utc;
+                  utcLabel.textContent = 'UTC: ' + new Date(utc).toUTCString();
+                } else {
+                  utcHidden.value = '';
+                  utcLabel.textContent = '';
                 }
               });
             }
@@ -998,13 +1017,18 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
                 <h3 class="text-sm font-semibold text-gray-700 mt-6 mb-3">Sending options</h3>
 
                 <FormGroup>
-                  <Label for="scheduledAt">Schedule for (optional)</Label>
+                  <Label for="scheduledAtLocal">Schedule for (optional, your local time)</Label>
                   <Input
                     type="datetime-local"
-                    id="scheduledAt"
-                    name="scheduledAt"
-                    value={campaign.scheduledAt ? campaign.scheduledAt.slice(0, 16) : undefined}
+                    id="scheduledAtLocal"
+                    value={campaign.scheduledAt
+                      ? new Date(new Date(campaign.scheduledAt).getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16)
+                      : undefined}
                   />
+                  <input type="hidden" id="scheduledAt" name="scheduledAt" value={campaign.scheduledAt ?? ""} />
+                  <p class="text-xs text-gray-400 mt-1" id="scheduledAtUtc">
+                    {campaign.scheduledAt ? `UTC: ${new Date(campaign.scheduledAt).toUTCString()}` : ""}
+                   </p>
                 </FormGroup>
 
                 <div id="batchOptions">
@@ -1041,6 +1065,23 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
               var target = document.querySelector('[data-audience="' + this.value + '"]');
               if (target) target.classList.remove('hidden');
             });
+
+            // Timezone-aware schedule input (edit form)
+            var localInput = document.getElementById('scheduledAtLocal');
+            var utcHidden = document.getElementById('scheduledAt');
+            var utcLabel = document.getElementById('scheduledAtUtc');
+            if (localInput) {
+              localInput.addEventListener('change', function() {
+                if (this.value) {
+                  var utc = new Date(this.value).toISOString();
+                  utcHidden.value = utc;
+                  utcLabel.textContent = 'UTC: ' + new Date(utc).toUTCString();
+                } else {
+                  utcHidden.value = '';
+                  utcLabel.textContent = '';
+                }
+              });
+            }
 
              // From persona selector (edit form)
             var fromPersona = document.getElementById('fromPersona');
