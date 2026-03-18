@@ -31,40 +31,40 @@ export async function processImage(input: Buffer | ArrayBuffer): Promise<Process
   };
 }
 
-export function extractPendingS3Images(markdown: string): Array<{ uuid: string; alt: string; dataUri: string; marker: string }> {
-  const regex = /<!-- s3-pending:([a-f0-9-]+) -->!\[([^\]]*)\]\((data:image\/webp;base64,[^)]+)\)/g;
-  const results = [];
+// Extract s3-pending UUIDs from markdown (data URIs are no longer embedded)
+export function extractPendingUUIDs(markdown: string): string[] {
+  const regex = /<!-- s3-pending:([a-f0-9-]+) -->/g;
+  const uuids: string[] = [];
   let match;
   while ((match = regex.exec(markdown)) !== null) {
-    results.push({
-      uuid: match[1],
-      alt: match[2],
-      dataUri: match[3],
-      marker: match[0],
-    });
+    uuids.push(match[1]!);
   }
-  return results;
+  return uuids;
 }
 
+// pendingMap: { uuid: dataUri } -- submitted as a JSON field from the browser
 export async function processPendingS3Images(
   markdown: string,
   campaignId: number,
+  pendingMap: Record<string, string>,
   config: { s3MediaBucket: string; s3MediaBaseUrl: string; awsRegion: string },
 ): Promise<string> {
   if (!config.s3MediaBucket) return markdown;
 
-  const pending = extractPendingS3Images(markdown);
-  if (pending.length === 0) return markdown;
+  const uuids = extractPendingUUIDs(markdown);
+  if (uuids.length === 0) return markdown;
 
   const { S3Client, PutObjectCommand } = await import("@aws-sdk/client-s3");
   const s3 = new S3Client({ region: config.awsRegion });
   const baseUrl = config.s3MediaBaseUrl || `https://${config.s3MediaBucket}.s3.${config.awsRegion}.amazonaws.com`;
 
   let result = markdown;
-  for (const item of pending) {
-    const key = `images/${campaignId}/${item.uuid}.webp`;
-    // decode base64 dataUri
-    const base64 = item.dataUri.replace("data:image/webp;base64,", "");
+  for (const uuid of uuids) {
+    const dataUri = pendingMap[uuid];
+    if (!dataUri) continue;
+
+    const key = `images/${campaignId}/${uuid}.webp`;
+    const base64 = dataUri.replace("data:image/webp;base64,", "");
     const buf = Buffer.from(base64, "base64");
 
     await s3.send(new PutObjectCommand({
@@ -76,8 +76,7 @@ export async function processPendingS3Images(
     }));
 
     const url = `${baseUrl}/${key}`;
-    // Replace the full marker+dataUri with the S3 URL
-    result = result.replace(item.marker, `![image](${url})`);
+    result = result.replace(`<!-- s3-pending:${uuid} -->`, `![image](${url})\n`);
   }
 
   return result;

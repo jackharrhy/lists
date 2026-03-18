@@ -406,6 +406,7 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
                     Drop an image here or <span class="text-blue-500">click to upload</span>
                     <input type="file" id="imageFileInput" accept="image/*" class="hidden" />
                   </div>
+                  <input type="hidden" id="pendingImagesJson" name="pendingImagesJson" value="{}" />
                 </FormGroup>
 
                 <h3 class="text-sm font-semibold text-gray-700 mt-6 mb-3">Sending options</h3>
@@ -625,6 +626,8 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
             var embedBtn = document.getElementById('imageEmbedBtn');
             var s3Btn = document.getElementById('imageS3Btn');
             var closeBtn = document.getElementById('imageModalClose');
+            var pendingField = document.getElementById('pendingImagesJson');
+            var pendingMap = {}; // uuid -> dataUri (kept in memory, not in textarea)
             var currentFile = null;
             var processedData = null;
 
@@ -645,21 +648,16 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
             function handleFile(file) {
               if (!file || !file.type.startsWith('image/')) return;
               currentFile = file;
-
               var formData = new FormData();
               formData.append('image', file);
-
               fetch('/admin/campaigns/upload-image', { method: 'POST', body: formData })
                 .then(function(r) { return r.json(); })
                 .then(function(data) {
                   processedData = data;
                   modalName.textContent = file.name;
-                  modalSize.textContent =
-                    'Original: ' + formatBytes(data.originalSizeBytes) +
-                    ' \\u2192 Compressed: ' + formatBytes(data.sizeBytes) +
-                    ' (' + data.width + '\\u00d7' + data.height + ' WebP)';
+                  modalSize.textContent = 'Original: ' + formatBytes(data.originalSizeBytes) + ' \\u2192 ' + formatBytes(data.sizeBytes) + ' WebP (' + data.width + '\\u00d7' + data.height + ')';
                   embedBtn.textContent = 'Embed in email (' + formatBytes(data.sizeBytes) + ', no external load)';
-                  s3Btn.textContent = 'Host on S3 (uploaded on save, ~' + formatBytes(data.sizeBytes) + ' stored now)';
+                  s3Btn.textContent = 'Host on S3 (tiny email, uploads on save)';
                   modal.classList.remove('hidden');
                 })
                 .catch(function() { alert('Failed to process image'); });
@@ -667,7 +665,6 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
 
             dropZone.addEventListener('click', function() { fileInput.click(); });
             fileInput.addEventListener('change', function() { if (this.files[0]) handleFile(this.files[0]); });
-
             dropZone.addEventListener('dragover', function(e) { e.preventDefault(); this.classList.add('border-blue-400', 'bg-blue-50'); });
             dropZone.addEventListener('dragleave', function() { this.classList.remove('border-blue-400', 'bg-blue-50'); });
             dropZone.addEventListener('drop', function(e) {
@@ -685,9 +682,12 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
 
             s3Btn.addEventListener('click', function() {
               if (processedData) {
-                var uuid = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2);
-                var marker = '<!-- s3-pending:' + uuid + ' -->';
-                insertAtCursor('\\n' + marker + '![image](' + processedData.dataUri + ')\\n');
+                var uuid = (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2));
+                // Store data URI in memory map, only put short token in textarea
+                pendingMap[uuid] = processedData.dataUri;
+                pendingField.value = JSON.stringify(pendingMap);
+                // Insert short clean token - no base64 in the textarea!
+                insertAtCursor('\\n<!-- s3-pending:' + uuid + ' -->\\n');
                 modal.classList.add('hidden');
               }
             });
@@ -749,6 +749,8 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
     const batchSize = body["batchSize"] ? parseInt(String(body["batchSize"]), 10) || null : null;
     const batchInterval = body["batchInterval"] ? parseInt(String(body["batchInterval"]), 10) || null : null;
     const status = scheduledAt ? "scheduled" : "draft";
+    let pendingMap: Record<string, string> = {};
+    try { pendingMap = JSON.parse(String(body["pendingImagesJson"] ?? "{}")); } catch {}
 
     const result = db
       .insert(schema.campaigns)
@@ -757,8 +759,8 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
       .get();
 
     const campaignId = result.id;
-    if (config.s3MediaBucket) {
-      const processedMarkdown = await processPendingS3Images(bodyMarkdown, campaignId, config);
+    if (config.s3MediaBucket && Object.keys(pendingMap).length > 0) {
+      const processedMarkdown = await processPendingS3Images(bodyMarkdown, campaignId, pendingMap, config);
       if (processedMarkdown !== bodyMarkdown) {
         db.update(schema.campaigns)
           .set({ bodyMarkdown: processedMarkdown })
@@ -1156,6 +1158,7 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
                     Drop an image here or <span class="text-blue-500">click to upload</span>
                     <input type="file" id="imageFileInput" accept="image/*" class="hidden" />
                   </div>
+                  <input type="hidden" id="pendingImagesJson" name="pendingImagesJson" value="{}" />
                 </FormGroup>
 
                 <h3 class="text-sm font-semibold text-gray-700 mt-6 mb-3">Sending options</h3>
@@ -1364,6 +1367,8 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
             var embedBtn = document.getElementById('imageEmbedBtn');
             var s3Btn = document.getElementById('imageS3Btn');
             var closeBtn = document.getElementById('imageModalClose');
+            var pendingField = document.getElementById('pendingImagesJson');
+            var pendingMap = {};
             var currentFile = null;
             var processedData = null;
 
@@ -1384,21 +1389,16 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
             function handleFile(file) {
               if (!file || !file.type.startsWith('image/')) return;
               currentFile = file;
-
               var formData = new FormData();
               formData.append('image', file);
-
               fetch('/admin/campaigns/upload-image', { method: 'POST', body: formData })
                 .then(function(r) { return r.json(); })
                 .then(function(data) {
                   processedData = data;
                   modalName.textContent = file.name;
-                  modalSize.textContent =
-                    'Original: ' + formatBytes(data.originalSizeBytes) +
-                    ' \\u2192 Compressed: ' + formatBytes(data.sizeBytes) +
-                    ' (' + data.width + '\\u00d7' + data.height + ' WebP)';
-                   embedBtn.textContent = 'Embed in email (' + formatBytes(data.sizeBytes) + ', no external load)';
-                  s3Btn.textContent = 'Host on S3 (uploaded on save, ~' + formatBytes(data.sizeBytes) + ' stored now)';
+                  modalSize.textContent = 'Original: ' + formatBytes(data.originalSizeBytes) + ' \\u2192 ' + formatBytes(data.sizeBytes) + ' WebP (' + data.width + '\\u00d7' + data.height + ')';
+                  embedBtn.textContent = 'Embed in email (' + formatBytes(data.sizeBytes) + ', no external load)';
+                  s3Btn.textContent = 'Host on S3 (tiny email, uploads on save)';
                   modal.classList.remove('hidden');
                 })
                 .catch(function() { alert('Failed to process image'); });
@@ -1406,7 +1406,6 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
 
             dropZone.addEventListener('click', function() { fileInput.click(); });
             fileInput.addEventListener('change', function() { if (this.files[0]) handleFile(this.files[0]); });
-
             dropZone.addEventListener('dragover', function(e) { e.preventDefault(); this.classList.add('border-blue-400', 'bg-blue-50'); });
             dropZone.addEventListener('dragleave', function() { this.classList.remove('border-blue-400', 'bg-blue-50'); });
             dropZone.addEventListener('drop', function(e) {
@@ -1424,9 +1423,10 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
 
             s3Btn.addEventListener('click', function() {
               if (processedData) {
-                var uuid = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2);
-                var marker = '<!-- s3-pending:' + uuid + ' -->';
-                insertAtCursor('\\n' + marker + '![image](' + processedData.dataUri + ')\\n');
+                var uuid = (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2));
+                pendingMap[uuid] = processedData.dataUri;
+                pendingField.value = JSON.stringify(pendingMap);
+                insertAtCursor('\\n<!-- s3-pending:' + uuid + ' -->\\n');
                 modal.classList.add('hidden');
               }
             });
@@ -1484,9 +1484,11 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
     const batchSize = body["batchSize"] ? parseInt(String(body["batchSize"]), 10) || null : null;
     const batchInterval = body["batchInterval"] ? parseInt(String(body["batchInterval"]), 10) || null : null;
     const status = scheduledAt ? "scheduled" : "draft";
+    let pendingMap: Record<string, string> = {};
+    try { pendingMap = JSON.parse(String(body["pendingImagesJson"] ?? "{}")); } catch {}
 
-    const processedMarkdown = config.s3MediaBucket
-      ? await processPendingS3Images(bodyMarkdown, id, config)
+    const processedMarkdown = (config.s3MediaBucket && Object.keys(pendingMap).length > 0)
+      ? await processPendingS3Images(bodyMarkdown, id, pendingMap, config)
       : bodyMarkdown;
 
     db.update(schema.campaigns)
