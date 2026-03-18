@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { eq, desc, and, inArray, like, sql } from "drizzle-orm";
 import { marked } from "marked";
+import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import type { Db } from "../../db";
 import { schema } from "../../db";
 import type { Config } from "../../config";
@@ -11,6 +12,7 @@ import { renderNewsletter } from "../../../emails/render";
 import { buildUnsubscribeUrl, buildPreferencesUrl } from "../../compliance";
 import { logEvent } from "../../services/events";
 import { getConfirmedSubscribers } from "../../services/subscriber";
+import { processImage } from "../../services/images";
 import { AdminLayout, fmtDate, fmtDateTime, CampaignBadge, describeAudience, setFlash, getFlash, type User } from "./layout";
 import { Button, LinkButton, Input, Select, Textarea, Label, FormGroup, Table, Th, Td, Card, PageHeader } from "./ui";
 
@@ -93,6 +95,74 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
     });
 
     return c.html(html);
+  });
+
+  app.post("/campaigns/upload-image", async (c) => {
+    const body = await c.req.parseBody();
+    const file = body["image"];
+    if (!file || typeof file === "string") {
+      return c.json({ error: "No image provided" }, 400);
+    }
+
+    const originalSize = file.size;
+    const buf = await file.arrayBuffer();
+
+    try {
+      const processed = await processImage(buf);
+      return c.json({
+        dataUri: processed.dataUri,
+        sizeBytes: processed.sizeBytes,
+        originalSizeBytes: originalSize,
+        width: processed.width,
+        height: processed.height,
+        mimeType: processed.mimeType,
+      });
+    } catch (err) {
+      return c.json({ error: "Failed to process image" }, 400);
+    }
+  });
+
+  app.post("/campaigns/upload-image-s3", async (c) => {
+    if (!config.s3MediaBucket) {
+      return c.json({ error: "S3 media bucket not configured" }, 400);
+    }
+
+    const body = await c.req.parseBody();
+    const file = body["image"];
+    if (!file || typeof file === "string") {
+      return c.json({ error: "No image provided" }, 400);
+    }
+
+    const originalSize = file.size;
+    const buf = await file.arrayBuffer();
+
+    try {
+      const processed = await processImage(buf);
+      const key = `images/${crypto.randomUUID()}.webp`;
+
+      const s3 = new S3Client({ region: config.awsRegion });
+      await s3.send(new PutObjectCommand({
+        Bucket: config.s3MediaBucket,
+        Key: key,
+        Body: processed.data,
+        ContentType: "image/webp",
+        CacheControl: "public, max-age=31536000",
+      }));
+
+      const baseUrl = config.s3MediaBaseUrl || `https://${config.s3MediaBucket}.s3.${config.awsRegion}.amazonaws.com`;
+      const url = `${baseUrl}/${key}`;
+
+      return c.json({
+        url,
+        sizeBytes: processed.sizeBytes,
+        originalSizeBytes: originalSize,
+        width: processed.width,
+        height: processed.height,
+      });
+    } catch (err) {
+      console.error("S3 upload error:", err);
+      return c.json({ error: "Failed to upload image" }, 400);
+    }
   });
 
   // Campaigns
@@ -376,6 +446,10 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
                   <Label for="bodyMarkdown">Body (Markdown)</Label>
                   <Textarea id="bodyMarkdown" name="bodyMarkdown" required placeholder="Write your email in markdown…" />
                   <p class="text-xs text-gray-400 mt-1">{"Available variables: {{firstName}}, {{lastName}}, {{email}}, {{unsubscribeUrl}}, {{preferencesUrl}}"}</p>
+                  <div id="imageDropZone" class="border-2 border-dashed border-gray-200 rounded-md p-3 mt-1 text-center text-xs text-gray-400 hover:border-blue-300 transition-colors cursor-pointer">
+                    Drop an image here or <span class="text-blue-500">click to upload</span>
+                    <input type="file" id="imageFileInput" accept="image/*" class="hidden" />
+                  </div>
                 </FormGroup>
 
                 <h3 class="text-sm font-semibold text-gray-700 mt-6 mb-3">Sending options</h3>
@@ -411,6 +485,24 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
             </Card>
           </div>
         </div>
+
+        {/* Image upload modal */}
+        <div id="imageModal" class="hidden fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
+          <div class="bg-white rounded-lg p-6 max-w-sm w-full mx-4 shadow-xl">
+            <h3 class="font-semibold text-gray-800 mb-1" id="imageModalName"></h3>
+            <p class="text-xs text-gray-500 mb-4" id="imageModalSize"></p>
+            <div class="flex flex-col gap-2">
+              <button type="button" id="imageEmbedBtn" class="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 border-none cursor-pointer">
+                Embed in email (no external load)
+              </button>
+              <button type="button" id="imageS3Btn" class="px-4 py-2 bg-white text-gray-700 text-sm font-medium rounded-md hover:bg-gray-50 border border-gray-300 cursor-pointer">
+                Host on S3 (smaller email size)
+              </button>
+              <button type="button" id="imageModalClose" class="px-4 py-2 text-gray-500 text-sm hover:text-gray-700 border-none cursor-pointer bg-transparent">Cancel</button>
+            </div>
+          </div>
+        </div>
+
         <script dangerouslySetInnerHTML={{ __html: `var subscribers = ${JSON.stringify(allSubscribers.map(s => ({ id: s.id, email: s.email, firstName: s.firstName, lastName: s.lastName })))};` }} />
         <script dangerouslySetInnerHTML={{ __html: `
           (function() {
@@ -565,6 +657,97 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
               clearTimeout(timer);
               timer = setTimeout(updatePreview, 500);
             });
+          })();
+        `}} />
+        <script dangerouslySetInnerHTML={{ __html: `
+          (function() {
+            var dropZone = document.getElementById('imageDropZone');
+            var fileInput = document.getElementById('imageFileInput');
+            var modal = document.getElementById('imageModal');
+            var modalName = document.getElementById('imageModalName');
+            var modalSize = document.getElementById('imageModalSize');
+            var embedBtn = document.getElementById('imageEmbedBtn');
+            var s3Btn = document.getElementById('imageS3Btn');
+            var closeBtn = document.getElementById('imageModalClose');
+            var currentFile = null;
+            var processedData = null;
+
+            function formatBytes(b) {
+              if (b < 1024) return b + ' B';
+              if (b < 1024 * 1024) return (b / 1024).toFixed(1) + ' KB';
+              return (b / 1024 / 1024).toFixed(1) + ' MB';
+            }
+
+            function insertAtCursor(text) {
+              var ta = document.getElementById('bodyMarkdown');
+              var start = ta.selectionStart, end = ta.selectionEnd;
+              ta.value = ta.value.slice(0, start) + text + ta.value.slice(end);
+              ta.selectionStart = ta.selectionEnd = start + text.length;
+              ta.dispatchEvent(new Event('input'));
+            }
+
+            function handleFile(file) {
+              if (!file || !file.type.startsWith('image/')) return;
+              currentFile = file;
+
+              var formData = new FormData();
+              formData.append('image', file);
+
+              fetch('/admin/campaigns/upload-image', { method: 'POST', body: formData })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                  processedData = data;
+                  modalName.textContent = file.name;
+                  modalSize.textContent =
+                    'Original: ' + formatBytes(data.originalSizeBytes) +
+                    ' \\u2192 Compressed: ' + formatBytes(data.sizeBytes) +
+                    ' (' + data.width + '\\u00d7' + data.height + ' WebP)';
+                  embedBtn.textContent = 'Embed in email (' + formatBytes(data.sizeBytes) + ', no external load)';
+                  modal.classList.remove('hidden');
+                })
+                .catch(function() { alert('Failed to process image'); });
+            }
+
+            dropZone.addEventListener('click', function() { fileInput.click(); });
+            fileInput.addEventListener('change', function() { if (this.files[0]) handleFile(this.files[0]); });
+
+            dropZone.addEventListener('dragover', function(e) { e.preventDefault(); this.classList.add('border-blue-400', 'bg-blue-50'); });
+            dropZone.addEventListener('dragleave', function() { this.classList.remove('border-blue-400', 'bg-blue-50'); });
+            dropZone.addEventListener('drop', function(e) {
+              e.preventDefault();
+              this.classList.remove('border-blue-400', 'bg-blue-50');
+              if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+            });
+
+            embedBtn.addEventListener('click', function() {
+              if (processedData) {
+                insertAtCursor('\\n![image](' + processedData.dataUri + ')\\n');
+                modal.classList.add('hidden');
+              }
+            });
+
+            s3Btn.addEventListener('click', function() {
+              if (!currentFile) return;
+              s3Btn.disabled = true;
+              s3Btn.textContent = 'Uploading\\u2026';
+              var formData = new FormData();
+              formData.append('image', currentFile);
+              fetch('/admin/campaigns/upload-image-s3', { method: 'POST', body: formData })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                  if (data.url) {
+                    insertAtCursor('\\n![image](' + data.url + ')\\n');
+                    modal.classList.add('hidden');
+                  } else {
+                    alert('Upload failed: ' + (data.error || 'unknown error'));
+                  }
+                })
+                .catch(function() { alert('Upload failed'); })
+                .finally(function() { s3Btn.disabled = false; s3Btn.textContent = 'Host on S3 (smaller email size)'; });
+            });
+
+            closeBtn.addEventListener('click', function() { modal.classList.add('hidden'); });
+            modal.addEventListener('click', function(e) { if (e.target === modal) modal.classList.add('hidden'); });
           })();
         `}} />
       </AdminLayout>,
@@ -1012,6 +1195,10 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
                   <Label for="bodyMarkdown">Body (Markdown)</Label>
                   <textarea id="bodyMarkdown" name="bodyMarkdown" required placeholder="Write your email in markdown…" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 min-h-[200px] resize-y focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">{campaign.bodyMarkdown}</textarea>
                   <p class="text-xs text-gray-400 mt-1">{"Available variables: {{firstName}}, {{lastName}}, {{email}}, {{unsubscribeUrl}}, {{preferencesUrl}}"}</p>
+                  <div id="imageDropZone" class="border-2 border-dashed border-gray-200 rounded-md p-3 mt-1 text-center text-xs text-gray-400 hover:border-blue-300 transition-colors cursor-pointer">
+                    Drop an image here or <span class="text-blue-500">click to upload</span>
+                    <input type="file" id="imageFileInput" accept="image/*" class="hidden" />
+                  </div>
                 </FormGroup>
 
                 <h3 class="text-sm font-semibold text-gray-700 mt-6 mb-3">Sending options</h3>
@@ -1190,6 +1377,115 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
               clearTimeout(timer);
               timer = setTimeout(updatePreview, 500);
             });
+          })();
+        `}} />
+
+        {/* Image upload modal */}
+        <div id="imageModal" class="hidden fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
+          <div class="bg-white rounded-lg p-6 max-w-sm w-full mx-4 shadow-xl">
+            <h3 class="font-semibold text-gray-800 mb-1" id="imageModalName"></h3>
+            <p class="text-xs text-gray-500 mb-4" id="imageModalSize"></p>
+            <div class="flex flex-col gap-2">
+              <button type="button" id="imageEmbedBtn" class="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 border-none cursor-pointer">
+                Embed in email (no external load)
+              </button>
+              <button type="button" id="imageS3Btn" class="px-4 py-2 bg-white text-gray-700 text-sm font-medium rounded-md hover:bg-gray-50 border border-gray-300 cursor-pointer">
+                Host on S3 (smaller email size)
+              </button>
+              <button type="button" id="imageModalClose" class="px-4 py-2 text-gray-500 text-sm hover:text-gray-700 border-none cursor-pointer bg-transparent">Cancel</button>
+            </div>
+          </div>
+        </div>
+
+        <script dangerouslySetInnerHTML={{ __html: `
+          (function() {
+            var dropZone = document.getElementById('imageDropZone');
+            var fileInput = document.getElementById('imageFileInput');
+            var modal = document.getElementById('imageModal');
+            var modalName = document.getElementById('imageModalName');
+            var modalSize = document.getElementById('imageModalSize');
+            var embedBtn = document.getElementById('imageEmbedBtn');
+            var s3Btn = document.getElementById('imageS3Btn');
+            var closeBtn = document.getElementById('imageModalClose');
+            var currentFile = null;
+            var processedData = null;
+
+            function formatBytes(b) {
+              if (b < 1024) return b + ' B';
+              if (b < 1024 * 1024) return (b / 1024).toFixed(1) + ' KB';
+              return (b / 1024 / 1024).toFixed(1) + ' MB';
+            }
+
+            function insertAtCursor(text) {
+              var ta = document.getElementById('bodyMarkdown');
+              var start = ta.selectionStart, end = ta.selectionEnd;
+              ta.value = ta.value.slice(0, start) + text + ta.value.slice(end);
+              ta.selectionStart = ta.selectionEnd = start + text.length;
+              ta.dispatchEvent(new Event('input'));
+            }
+
+            function handleFile(file) {
+              if (!file || !file.type.startsWith('image/')) return;
+              currentFile = file;
+
+              var formData = new FormData();
+              formData.append('image', file);
+
+              fetch('/admin/campaigns/upload-image', { method: 'POST', body: formData })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                  processedData = data;
+                  modalName.textContent = file.name;
+                  modalSize.textContent =
+                    'Original: ' + formatBytes(data.originalSizeBytes) +
+                    ' \\u2192 Compressed: ' + formatBytes(data.sizeBytes) +
+                    ' (' + data.width + '\\u00d7' + data.height + ' WebP)';
+                  embedBtn.textContent = 'Embed in email (' + formatBytes(data.sizeBytes) + ', no external load)';
+                  modal.classList.remove('hidden');
+                })
+                .catch(function() { alert('Failed to process image'); });
+            }
+
+            dropZone.addEventListener('click', function() { fileInput.click(); });
+            fileInput.addEventListener('change', function() { if (this.files[0]) handleFile(this.files[0]); });
+
+            dropZone.addEventListener('dragover', function(e) { e.preventDefault(); this.classList.add('border-blue-400', 'bg-blue-50'); });
+            dropZone.addEventListener('dragleave', function() { this.classList.remove('border-blue-400', 'bg-blue-50'); });
+            dropZone.addEventListener('drop', function(e) {
+              e.preventDefault();
+              this.classList.remove('border-blue-400', 'bg-blue-50');
+              if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+            });
+
+            embedBtn.addEventListener('click', function() {
+              if (processedData) {
+                insertAtCursor('\\n![image](' + processedData.dataUri + ')\\n');
+                modal.classList.add('hidden');
+              }
+            });
+
+            s3Btn.addEventListener('click', function() {
+              if (!currentFile) return;
+              s3Btn.disabled = true;
+              s3Btn.textContent = 'Uploading\\u2026';
+              var formData = new FormData();
+              formData.append('image', currentFile);
+              fetch('/admin/campaigns/upload-image-s3', { method: 'POST', body: formData })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                  if (data.url) {
+                    insertAtCursor('\\n![image](' + data.url + ')\\n');
+                    modal.classList.add('hidden');
+                  } else {
+                    alert('Upload failed: ' + (data.error || 'unknown error'));
+                  }
+                })
+                .catch(function() { alert('Upload failed'); })
+                .finally(function() { s3Btn.disabled = false; s3Btn.textContent = 'Host on S3 (smaller email size)'; });
+            });
+
+            closeBtn.addEventListener('click', function() { modal.classList.add('hidden'); });
+            modal.addEventListener('click', function(e) { if (e.target === modal) modal.classList.add('hidden'); });
           })();
         `}} />
       </AdminLayout>,
