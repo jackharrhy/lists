@@ -437,8 +437,20 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
           </div>
           <div>
             <Card>
-              <h2 class="text-lg font-semibold mt-0 mb-3">Preview</h2>
-              <iframe id="previewFrame" class="w-full border-0" style="min-height: 500px;" srcdoc="<p style='color:#999;font-family:system-ui;padding:2rem'>Start writing to see a preview</p>" />
+              <div class="flex items-center justify-between mt-0 mb-3">
+                <h2 class="text-lg font-semibold m-0">Preview</h2>
+                <div class="flex items-center gap-1">
+                  <button type="button" onclick="setPreviewWidth(375)" class="px-2 py-0.5 text-xs border border-gray-200 rounded hover:bg-gray-100 cursor-pointer bg-white text-gray-500">375</button>
+                  <button type="button" onclick="setPreviewWidth(600)" class="px-2 py-0.5 text-xs border border-gray-200 rounded hover:bg-gray-100 cursor-pointer bg-white text-gray-500">600</button>
+                  <button type="button" onclick="setPreviewWidth(768)" class="px-2 py-0.5 text-xs border border-gray-200 rounded hover:bg-gray-100 cursor-pointer bg-white text-gray-500">768</button>
+                  <button type="button" onclick="setPreviewWidth(null)" class="px-2 py-0.5 text-xs border border-gray-200 rounded hover:bg-gray-100 cursor-pointer bg-white text-gray-500">full</button>
+                </div>
+              </div>
+              <div id="previewContainer" class="relative overflow-hidden flex justify-center bg-gray-50 rounded" style="min-height: 520px;">
+                <iframe id="previewFrame" style="min-height: 500px; width: 100%; border: 0; transition: width 0.15s;" srcdoc="<p style='color:#999;font-family:system-ui;padding:2rem'>Start writing to see a preview</p>" />
+                <div id="previewResizeHandle" style="position:absolute;right:0;top:0;bottom:0;width:6px;cursor:col-resize;background:transparent;" class="hover:bg-blue-200 transition-colors" title="Drag to resize" />
+              </div>
+              <p id="previewWidthLabel" class="text-xs text-gray-400 text-right mt-1"></p>
             </Card>
           </div>
         </div>
@@ -584,7 +596,32 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
               });
             }
 
-            // Preview
+            // Preview resize + live update (create form)
+            window.setPreviewWidth = function(w) {
+              var f = document.getElementById('previewFrame');
+              var lbl = document.getElementById('previewWidthLabel');
+              if (w === null) { f.style.width = '100%'; lbl.textContent = ''; }
+              else { f.style.width = w + 'px'; lbl.textContent = w + 'px'; }
+            };
+            (function() {
+              var handle = document.getElementById('previewResizeHandle');
+              var f = document.getElementById('previewFrame');
+              var lbl = document.getElementById('previewWidthLabel');
+              var drag = false, sx = 0, sw = 0;
+              handle.addEventListener('mousedown', function(e) {
+                drag = true; sx = e.clientX; sw = f.offsetWidth;
+                document.body.style.cursor = 'col-resize'; document.body.style.userSelect = 'none'; e.preventDefault();
+              });
+              document.addEventListener('mousemove', function(e) {
+                if (!drag) return;
+                var w = Math.max(280, sw + e.clientX - sx);
+                f.style.width = w + 'px'; lbl.textContent = Math.round(w) + 'px';
+              });
+              document.addEventListener('mouseup', function() {
+                if (!drag) return; drag = false; document.body.style.cursor = ''; document.body.style.userSelect = '';
+              });
+            })();
+
             var timer;
             var textarea = document.getElementById('bodyMarkdown');
             var subject = document.getElementById('subject');
@@ -1197,8 +1234,20 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
           </div>
           <div>
             <Card>
-              <h2 class="text-lg font-semibold mt-0 mb-3">Preview</h2>
-              <iframe id="previewFrame" class="w-full border-0" style="min-height: 500px;" src={`/admin/campaigns/${id}/preview`} />
+              <div class="flex items-center justify-between mt-0 mb-3">
+                <h2 class="text-lg font-semibold m-0">Preview</h2>
+                <div class="flex items-center gap-1">
+                  <button type="button" onclick="setPreviewWidth(375)" class="px-2 py-0.5 text-xs border border-gray-200 rounded hover:bg-gray-100 cursor-pointer bg-white text-gray-500">375</button>
+                  <button type="button" onclick="setPreviewWidth(600)" class="px-2 py-0.5 text-xs border border-gray-200 rounded hover:bg-gray-100 cursor-pointer bg-white text-gray-500">600</button>
+                  <button type="button" onclick="setPreviewWidth(768)" class="px-2 py-0.5 text-xs border border-gray-200 rounded hover:bg-gray-100 cursor-pointer bg-white text-gray-500">768</button>
+                  <button type="button" onclick="setPreviewWidth(null)" class="px-2 py-0.5 text-xs border border-gray-200 rounded hover:bg-gray-100 cursor-pointer bg-white text-gray-500">full</button>
+                </div>
+              </div>
+              <div id="previewContainer" class="relative overflow-hidden flex justify-center bg-gray-50 rounded" style="min-height: 520px;">
+                <iframe id="previewFrame" style="min-height: 500px; width: 100%; border: 0; transition: width 0.15s;" src={`/admin/campaigns/${id}/preview`} />
+                <div id="previewResizeHandle" style="position:absolute;right:0;top:0;bottom:0;width:6px;cursor:col-resize;background:transparent;" class="hover:bg-blue-200 transition-colors" title="Drag to resize" />
+              </div>
+              <p id="previewWidthLabel" class="text-xs text-gray-400 text-right mt-1"></p>
             </Card>
           </div>
         </div>
@@ -1307,7 +1356,32 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
               });
             }
 
-            // Preview
+            // Preview resize + live update (edit form)
+            window.setPreviewWidth = function(w) {
+              var f = document.getElementById('previewFrame');
+              var lbl = document.getElementById('previewWidthLabel');
+              if (w === null) { f.style.width = '100%'; lbl.textContent = ''; }
+              else { f.style.width = w + 'px'; lbl.textContent = w + 'px'; }
+            };
+            (function() {
+              var handle = document.getElementById('previewResizeHandle');
+              var f = document.getElementById('previewFrame');
+              var lbl = document.getElementById('previewWidthLabel');
+              var drag = false, sx = 0, sw = 0;
+              handle.addEventListener('mousedown', function(e) {
+                drag = true; sx = e.clientX; sw = f.offsetWidth;
+                document.body.style.cursor = 'col-resize'; document.body.style.userSelect = 'none'; e.preventDefault();
+              });
+              document.addEventListener('mousemove', function(e) {
+                if (!drag) return;
+                var w = Math.max(280, sw + e.clientX - sx);
+                f.style.width = w + 'px'; lbl.textContent = Math.round(w) + 'px';
+              });
+              document.addEventListener('mouseup', function() {
+                if (!drag) return; drag = false; document.body.style.cursor = ''; document.body.style.userSelect = '';
+              });
+            })();
+
             var timer;
             var textarea = document.getElementById('bodyMarkdown');
             var subject = document.getElementById('subject');
