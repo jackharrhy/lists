@@ -12,6 +12,7 @@
     "@tailwindcss/cli": "^4.2.1",
     "@types/bun": "latest",
     "@types/mailparser": "^3.4.6",
+    "@types/nodemailer": "^7.0.11",
     "@types/react": "^19.2.14",
     "@types/sharp": "^0.32.0",
     "@types/sns-validator": "^0.3.3",
@@ -34,6 +35,7 @@
     "hono": "^4.12.8",
     "mailparser": "^3.9.4",
     "marked": "^17.0.4",
+    "nodemailer": "^8.0.3",
     "sharp": "^0.34.5",
     "sns-validator": "^0.3.5",
     "zod": "^4.3.6"

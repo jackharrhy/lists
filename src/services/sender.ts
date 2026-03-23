@@ -1,6 +1,7 @@
 import { SESv2Client, SendEmailCommand } from "@aws-sdk/client-sesv2";
 import { eq, and, inArray } from "drizzle-orm";
 import { marked } from "marked";
+import * as nodemailer from "nodemailer";
 import type { Config } from "../config";
 import { type Db, schema } from "../db";
 import { getConfirmedSubscribers } from "./subscriber";
@@ -89,24 +90,9 @@ export function substituteVariables(
     .replace(/\{\{preferencesUrl\}\}/g, urls.preferencesUrl);
 }
 
-type InlineAttachment = {
-  cid: string;
-  contentType: string;
-  base64Data: string;
-};
+const streamTransport = nodemailer.createTransport({ streamTransport: true, buffer: true });
 
-/** Extract data:image URIs from HTML, replace with cid: references, return attachments */
-export function extractInlineImages(html: string): { html: string; attachments: InlineAttachment[] } {
-  const attachments: InlineAttachment[] = [];
-  const processed = html.replace(/src="data:(image\/[^;]+);base64,([^"]+)"/g, (_match, mimeType, base64Data) => {
-    const cid = `img-${crypto.randomUUID().replace(/-/g, "")}@lists`;
-    attachments.push({ cid, contentType: mimeType, base64Data });
-    return `src="cid:${cid}"`;
-  });
-  return { html: processed, attachments };
-}
-
-export function buildRawEmail({
+export async function buildRawEmail({
   from,
   to,
   subject,
@@ -122,92 +108,37 @@ export function buildRawEmail({
   text: string;
   fromDomain: string;
   headers: Record<string, string>;
-}): { raw: string; messageId: string } {
+}): Promise<{ raw: Buffer; messageId: string }> {
   const messageId = `<${crypto.randomUUID()}@${fromDomain}>`;
 
-  const headerLines = [
-    `From: ${from}`,
-    `To: ${to}`,
-    `Subject: ${subject}`,
-    `MIME-Version: 1.0`,
-    `Message-ID: ${messageId}`,
-    `Date: ${new Date().toUTCString()}`,
-  ];
+  // Extract data: URI images and convert to inline CID attachments
+  const inlineAttachments: nodemailer.Attachment[] = [];
+  const processedHtml = html.replace(/src="data:(image\/[^;]+);base64,([^"]+)"/g, (_match, mimeType, base64Data) => {
+    const cid = `img-${crypto.randomUUID().replace(/-/g, "")}@lists`;
+    inlineAttachments.push({
+      cid,
+      contentType: mimeType,
+      content: Buffer.from(base64Data, "base64"),
+      encoding: "base64",
+      contentDisposition: "inline",
+    });
+    return `src="cid:${cid}"`;
+  });
 
-  for (const [key, value] of Object.entries(headers)) {
-    headerLines.push(`${key}: ${value}`);
-  }
-
-  // Extract any embedded data: URIs and convert to CID attachments
-  const { html: processedHtml, attachments } = extractInlineImages(html);
-  const hasAttachments = attachments.length > 0;
-
-  if (!hasAttachments) {
-    // Simple multipart/alternative (plain text + html)
-    const boundary = `----=_Part_${Date.now().toString(36)}`;
-    headerLines.push(`Content-Type: multipart/alternative; boundary="${boundary}"`);
-    const body = [
-      `--${boundary}`,
-      `Content-Type: text/plain; charset=UTF-8`,
-      `Content-Transfer-Encoding: 7bit`,
-      ``,
-      text,
-      `--${boundary}`,
-      `Content-Type: text/html; charset=UTF-8`,
-      `Content-Transfer-Encoding: 7bit`,
-      ``,
-      processedHtml,
-      `--${boundary}--`,
-    ].join("\r\n");
-    return { raw: headerLines.join("\r\n") + "\r\n\r\n" + body, messageId };
-  }
-
-  // multipart/related wrapping multipart/alternative + inline image attachments
-  const outerBoundary = `----=_Outer_${Date.now().toString(36)}`;
-  const innerBoundary = `----=_Inner_${Date.now().toString(36)}`;
-
-  headerLines.push(`Content-Type: multipart/related; boundary="${outerBoundary}"; type="multipart/alternative"`);
-
-  const parts: string[] = [];
-
-  // Inner multipart/alternative (plain + html)
-  parts.push(
-    `--${outerBoundary}`,
-    `Content-Type: multipart/alternative; boundary="${innerBoundary}"`,
-    ``,
-    `--${innerBoundary}`,
-    `Content-Type: text/plain; charset=UTF-8`,
-    `Content-Transfer-Encoding: 7bit`,
-    ``,
+  const info = await streamTransport.sendMail({
+    from,
+    to,
+    subject,
     text,
-    `--${innerBoundary}`,
-    `Content-Type: text/html; charset=UTF-8`,
-    `Content-Transfer-Encoding: 7bit`,
-    ``,
-    processedHtml,
-    `--${innerBoundary}--`,
-  );
+    html: processedHtml,
+    headers: {
+      "Message-ID": messageId,
+      ...headers,
+    },
+    attachments: inlineAttachments,
+  });
 
-  // Inline image attachments
-  for (const att of attachments) {
-    parts.push(
-      `--${outerBoundary}`,
-      `Content-Type: ${att.contentType}`,
-      `Content-Transfer-Encoding: base64`,
-      `Content-ID: <${att.cid}>`,
-      `Content-Disposition: inline`,
-      ``,
-      // Wrap base64 at 76 chars per RFC 2045
-      att.base64Data.match(/.{1,76}/g)!.join("\r\n"),
-    );
-  }
-
-  parts.push(`--${outerBoundary}--`);
-
-  return {
-    raw: headerLines.join("\r\n") + "\r\n\r\n" + parts.join("\r\n"),
-    messageId,
-  };
+  return { raw: info.message as Buffer, messageId };
 }
 
 export async function sendCampaign(
@@ -325,7 +256,7 @@ export async function sendCampaign(
         preferencesUrl,
       });
 
-      const { raw: rawEmail, messageId: rfc822MessageId } = buildRawEmail({
+      const { raw: rawEmail, messageId: rfc822MessageId } = await buildRawEmail({
         from: fromWithName,
         to: subscriber.email,
         subject: campaign.subject,

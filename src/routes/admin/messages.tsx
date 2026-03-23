@@ -3,6 +3,7 @@ import { eq, desc, sql, and, inArray, like, isNull, isNotNull } from "drizzle-or
 import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { SESv2Client, SendEmailCommand } from "@aws-sdk/client-sesv2";
+import * as nodemailer from "nodemailer";
 import type { Db } from "../../db";
 import { schema } from "../../db";
 import type { Config } from "../../config";
@@ -504,27 +505,25 @@ export function mountMessageRoutes(app: Hono, db: Db, config: Config) {
     const inReplyToId = msg.rfc822MessageId;
     const fromDomain = fromAddr.split("@")[1] ?? config.fromDomain;
     const rfc822MessageId = `<${crypto.randomUUID()}@${fromDomain}>`;
-    const rawLines = [
-      `From: ${fromAddr}`,
-      `To: ${toAddr}`,
-      `Subject: ${subject}`,
-      `MIME-Version: 1.0`,
-      `Message-ID: ${rfc822MessageId}`,
-      `Date: ${new Date().toUTCString()}`,
-      ...(inReplyToId ? [`In-Reply-To: ${inReplyToId}`, `References: ${inReplyToId}`] : []),
-      `Content-Type: text/plain; charset=UTF-8`,
-      `Content-Transfer-Encoding: 7bit`,
-      ``,
-      replyBody,
-    ];
-    const rawEmail = rawLines.join("\r\n");
+
+    const transport = nodemailer.createTransport({ streamTransport: true, buffer: true });
+    const info = await transport.sendMail({
+      from: fromAddr,
+      to: toAddr,
+      subject,
+      text: replyBody,
+      headers: {
+        "Message-ID": rfc822MessageId,
+        ...(inReplyToId ? { "In-Reply-To": inReplyToId, "References": inReplyToId } : {}),
+      },
+    });
 
     const ses = new SESv2Client({ region: config.awsRegion });
     const result = await ses.send(
       new SendEmailCommand({
         Content: {
           Raw: {
-            Data: new TextEncoder().encode(rawEmail),
+            Data: info.message as Buffer,
           },
         },
         ConfigurationSetName: config.sesConfigSet || undefined,
