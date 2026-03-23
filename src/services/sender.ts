@@ -89,6 +89,23 @@ export function substituteVariables(
     .replace(/\{\{preferencesUrl\}\}/g, urls.preferencesUrl);
 }
 
+type InlineAttachment = {
+  cid: string;
+  contentType: string;
+  base64Data: string;
+};
+
+/** Extract data:image URIs from HTML, replace with cid: references, return attachments */
+export function extractInlineImages(html: string): { html: string; attachments: InlineAttachment[] } {
+  const attachments: InlineAttachment[] = [];
+  const processed = html.replace(/src="data:(image\/[^;]+);base64,([^"]+)"/g, (_match, mimeType, base64Data) => {
+    const cid = `img-${crypto.randomUUID().replace(/-/g, "")}@lists`;
+    attachments.push({ cid, contentType: mimeType, base64Data });
+    return `src="cid:${cid}"`;
+  });
+  return { html: processed, attachments };
+}
+
 export function buildRawEmail({
   from,
   to,
@@ -106,7 +123,6 @@ export function buildRawEmail({
   fromDomain: string;
   headers: Record<string, string>;
 }): { raw: string; messageId: string } {
-  const boundary = `----=_Part_${Date.now().toString(36)}`;
   const messageId = `<${crypto.randomUUID()}@${fromDomain}>`;
 
   const headerLines = [
@@ -122,24 +138,74 @@ export function buildRawEmail({
     headerLines.push(`${key}: ${value}`);
   }
 
-  headerLines.push(`Content-Type: multipart/alternative; boundary="${boundary}"`);
+  // Extract any embedded data: URIs and convert to CID attachments
+  const { html: processedHtml, attachments } = extractInlineImages(html);
+  const hasAttachments = attachments.length > 0;
 
-  const body = [
-    `--${boundary}`,
+  if (!hasAttachments) {
+    // Simple multipart/alternative (plain text + html)
+    const boundary = `----=_Part_${Date.now().toString(36)}`;
+    headerLines.push(`Content-Type: multipart/alternative; boundary="${boundary}"`);
+    const body = [
+      `--${boundary}`,
+      `Content-Type: text/plain; charset=UTF-8`,
+      `Content-Transfer-Encoding: 7bit`,
+      ``,
+      text,
+      `--${boundary}`,
+      `Content-Type: text/html; charset=UTF-8`,
+      `Content-Transfer-Encoding: 7bit`,
+      ``,
+      processedHtml,
+      `--${boundary}--`,
+    ].join("\r\n");
+    return { raw: headerLines.join("\r\n") + "\r\n\r\n" + body, messageId };
+  }
+
+  // multipart/related wrapping multipart/alternative + inline image attachments
+  const outerBoundary = `----=_Outer_${Date.now().toString(36)}`;
+  const innerBoundary = `----=_Inner_${Date.now().toString(36)}`;
+
+  headerLines.push(`Content-Type: multipart/related; boundary="${outerBoundary}"; type="multipart/alternative"`);
+
+  const parts: string[] = [];
+
+  // Inner multipart/alternative (plain + html)
+  parts.push(
+    `--${outerBoundary}`,
+    `Content-Type: multipart/alternative; boundary="${innerBoundary}"`,
+    ``,
+    `--${innerBoundary}`,
     `Content-Type: text/plain; charset=UTF-8`,
     `Content-Transfer-Encoding: 7bit`,
     ``,
     text,
-    `--${boundary}`,
+    `--${innerBoundary}`,
     `Content-Type: text/html; charset=UTF-8`,
     `Content-Transfer-Encoding: 7bit`,
     ``,
-    html,
-    `--${boundary}--`,
-  ].join("\r\n");
+    processedHtml,
+    `--${innerBoundary}--`,
+  );
+
+  // Inline image attachments
+  for (const att of attachments) {
+    parts.push(
+      `--${outerBoundary}`,
+      `Content-Type: ${att.contentType}`,
+      `Content-Transfer-Encoding: base64`,
+      `Content-ID: <${att.cid}>`,
+      `Content-Disposition: inline`,
+      ``,
+      // Wrap base64 at 76 chars per RFC 2045
+      att.base64Data.match(/.{1,76}/g)!.join("\r\n"),
+    );
+  }
+
+  parts.push(`--${outerBoundary}--`);
 
   return {
-    raw: headerLines.join("\r\n") + "\r\n\r\n" + body,
+    raw: headerLines.join("\r\n") + "\r\n\r\n" + parts.join("\r\n"),
     messageId,
   };
 }

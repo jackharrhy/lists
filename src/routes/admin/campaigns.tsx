@@ -462,7 +462,7 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
             <p class="text-xs text-gray-500 mb-4" id="imageModalSize"></p>
             <div class="flex flex-col gap-2">
               <button type="button" id="imageEmbedBtn" class="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 border-none cursor-pointer">
-                Embed in email (no external load)
+                Embed in email (inline attachment, always displays)
               </button>
               <button type="button" id="imageS3Btn" class="px-4 py-2 bg-white text-gray-700 text-sm font-medium rounded-md hover:bg-gray-50 border border-gray-300 cursor-pointer">
                 Host on S3 (smaller email size)
@@ -693,7 +693,7 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
                   processedData = data;
                   modalName.textContent = file.name;
                   modalSize.textContent = 'Original: ' + formatBytes(data.originalSizeBytes) + ' \\u2192 ' + formatBytes(data.sizeBytes) + ' WebP (' + data.width + '\\u00d7' + data.height + ')';
-                  embedBtn.textContent = 'Embed in email (' + formatBytes(data.sizeBytes) + ', no external load)';
+                  embedBtn.textContent = 'Embed in email (' + formatBytes(data.sizeBytes) + ' inline, always displays)';
                   s3Btn.textContent = 'Host on S3 (tiny email, uploads on save)';
                   modal.classList.remove('hidden');
                 })
@@ -1421,7 +1421,7 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
             <p class="text-xs text-gray-500 mb-4" id="imageModalSize"></p>
             <div class="flex flex-col gap-2">
               <button type="button" id="imageEmbedBtn" class="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 border-none cursor-pointer">
-                Embed in email (no external load)
+                Embed in email (inline attachment, always displays)
               </button>
               <button type="button" id="imageS3Btn" class="px-4 py-2 bg-white text-gray-700 text-sm font-medium rounded-md hover:bg-gray-50 border border-gray-300 cursor-pointer">
                 Host on S3 (smaller email size)
@@ -1471,7 +1471,7 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
                   processedData = data;
                   modalName.textContent = file.name;
                   modalSize.textContent = 'Original: ' + formatBytes(data.originalSizeBytes) + ' \\u2192 ' + formatBytes(data.sizeBytes) + ' WebP (' + data.width + '\\u00d7' + data.height + ')';
-                  embedBtn.textContent = 'Embed in email (' + formatBytes(data.sizeBytes) + ', no external load)';
+                  embedBtn.textContent = 'Embed in email (' + formatBytes(data.sizeBytes) + ' inline, always displays)';
                   s3Btn.textContent = 'Host on S3 (tiny email, uploads on save)';
                   modal.classList.remove('hidden');
                 })

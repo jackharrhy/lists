@@ -1,0 +1,226 @@
+Delivered-To: 0ediblepencil0@gmail.com
+Received: by 2002:a05:6919:da92:b0:434:8ae0:7ee1 with SMTP id ew18csp339220ysc;
+        Mon, 23 Mar 2026 09:50:51 -0700 (PDT)
+X-Received: by 2002:a17:906:240e:b0:b8f:9bea:ad6 with SMTP id a640c23a62f3a-b982f1ff53bmr708518366b.18.1774284651675;
+        Mon, 23 Mar 2026 09:50:51 -0700 (PDT)
+ARC-Seal: i=2; a=rsa-sha256; t=1774284651; cv=pass;
+        d=google.com; s=arc-20240605;
+        b=bXSGXg5mfF/rb8f7T6XyKlgu9q734WUouw8um3G1afWxS1+wwGHig1UNSxRiMh/UE3
+         1qGCs5Pn8ZA3z2P4pNAXxam+J91OL8CQArej1yRu4g/uyby4MsxP/vUBoqtzsYHkzm2V
+         si2fl/c20vl7f/Jn9zg7Do6v/EOp7l4dgbC8BQCbCdDcb73Dy5rpSdQ4rtTCZm/xEXE0
+         Uwf8fiMaR0n3iox71kYcIEmEqVF+hfPSCLVCpkbJlxYn8PVqlH1NdvS42PGeEvR/EZJ/
+         JaxhJbrx9neixFQn1OXNSX3XVYxuzo2Blxl2ZYQQGs9Veo/DDgg4XfhD4P5/p2edC7lS
+         DGNQ==
+ARC-Message-Signature: i=2; a=rsa-sha256; c=relaxed/relaxed; d=google.com; s=arc-20240605;
+        h=to:subject:message-id:date:from:in-reply-to:references:mime-version
+         :dkim-signature;
+        bh=ikx7mlM00fvpzMchI5tSO+OO1qCH+yaHpRolk+/sNpE=;
+        fh=L+TTyMb+3af2bWsQMm9PPEl4Obv7Csv+1EZjVRZXOIw=;
+        b=DLx8/CHztCIFH8VjWf8FO/UtNaUEqFm5huItjj1GeklRegEz+xdJ+ECGsHhOsXKOyk
+         WK2QCLmE1BwwWqONBkVQUoRogcGTdGeNzOiLOEmERVdgRwzH7evROEHZ2gvsx5Z+uXII
+         szeF9SJKflmVOiwZ4EFa0bFGM0mPHWEJ3pkY6IUKf0fdZC2GNklEhI0N8Xu2N5p6Huwd
+         4yWVkSBFcZ474LCxzfO579T4HcsbXCiHgMAvbDKeRr9djvknoE1qWcO7I1I7vAiIVe24
+         H7TU8vxlQ0r2YY78oC+pIASga9u4QPt3Tc48SOkI5B4VQ7yxtdg2JOWBlVZ5uwYgD8mZ
+         RB1Q==;
+        dara=google.com
+ARC-Authentication-Results: i=2; mx.google.com;
+       dkim=pass header.i=@gmail.com header.s=20230601 header.b=kaEA7K0s;
+       arc=pass (i=1);
+       spf=pass (google.com: domain of andrewgluther@gmail.com designates 209.85.220.41 as permitted sender) smtp.mailfrom=andrewgluther@gmail.com;
+       dmarc=pass (p=NONE sp=QUARANTINE dis=NONE) header.from=gmail.com;
+       dara=pass header.i=@gmail.com
+Return-Path: <andrewgluther@gmail.com>
+Received: from mail-sor-f41.google.com (mail-sor-f41.google.com. [209.85.220.41])
+        by mx.google.com with SMTPS id a640c23a62f3a-b98334f85ddsor232278466b.14.2026.03.23.09.50.51
+        for <0ediblepencil0@gmail.com>
+        (Google Transport Security);
+        Mon, 23 Mar 2026 09:50:51 -0700 (PDT)
+Received-SPF: pass (google.com: domain of andrewgluther@gmail.com designates 209.85.220.41 as permitted sender) client-ip=209.85.220.41;
+Authentication-Results: mx.google.com;
+       dkim=pass header.i=@gmail.com header.s=20230601 header.b=kaEA7K0s;
+       arc=pass (i=1);
+       spf=pass (google.com: domain of andrewgluther@gmail.com designates 209.85.220.41 as permitted sender) smtp.mailfrom=andrewgluther@gmail.com;
+       dmarc=pass (p=NONE sp=QUARANTINE dis=NONE) header.from=gmail.com;
+       dara=pass header.i=@gmail.com
+ARC-Seal: i=1; a=rsa-sha256; t=1774284651; cv=none;
+        d=google.com; s=arc-20240605;
+        b=NdMng2cSPuxqWskn+KAi42rVxbqhMF4QQqAI6KwqvPFcs1P/aJDUegk1KDBYLDWcc7
+         iL05STyrQyM8v7O19oR0+fQHF+Opu88pCpBg+9chpyiTdT22xytBeADUo356NenWhczy
+         D3G9CpbpudtZFph+EL2MeTG0acQ4c1wxF0QZVYJJGBoSufH+bjVfe0mv9Ko2VLRT996z
+         0iVB5l1YR+1aNFSw80G5ZyLK3SN1L01SPMWOqNowV6iDwA06VQ65QIAdlM+pV7M4+Zh4
+         eRwJL1V6bg6GKYFVvIee1Truii4Qs95wMaFOuJEMHBUdGU3vDNRuck/xHP8FoJOjRA56
+         2wQg==
+ARC-Message-Signature: i=1; a=rsa-sha256; c=relaxed/relaxed; d=google.com; s=arc-20240605;
+        h=to:subject:message-id:date:from:in-reply-to:references:mime-version
+         :dkim-signature;
+        bh=ikx7mlM00fvpzMchI5tSO+OO1qCH+yaHpRolk+/sNpE=;
+        fh=L+TTyMb+3af2bWsQMm9PPEl4Obv7Csv+1EZjVRZXOIw=;
+        b=hs9IIP3PTbtWPZngmg9ARA6w/nQR86UToIXiaBD2OuK30LqPdXIEjRDtcwgh2M0Dbs
+         FPnqkWuHA7VMs+bCuPkciKy6sKrHqgmVBNXTBVVOIM985+lT2eYuvKenjRP38DQ3xmX9
+         rYsbZ2Rq9wqBPc8lxGVKpcxu41A6uf50FNE+N0YOETfU4DS2GXbdileHfr13sB+WiLt6
+         Bpds+BRNZuaSisx1v2kaGHRiL5CmxsJ6EgNeTlqK/R/YRynmu13Bcf1z0uaYFzNCjrNO
+         s9flJNSj6B76nMGm55Oeo9Sy8SmQHtduFaK0Oz8JSmKaijZtf2+A8S22Cq7S4iOWwNqr
+         WNPg==;
+        dara=google.com
+ARC-Authentication-Results: i=1; mx.google.com; arc=none
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed;
+        d=gmail.com; s=20230601; t=1774284651; x=1774889451; dara=google.com;
+        h=to:subject:message-id:date:from:in-reply-to:references:mime-version
+         :from:to:cc:subject:date:message-id:reply-to;
+        bh=ikx7mlM00fvpzMchI5tSO+OO1qCH+yaHpRolk+/sNpE=;
+        b=kaEA7K0sj/CXTwNROXM1+oa7FbBsr6l1loshkHWr+6R1KUcTz2+hFF20Fq7dKvHnIt
+         CTn0xjVRGkadzEC5XptqFNWzTHjDAqWiBEXuw8wrnQd3N8gp1n8zju1u92ax2xe2V7vB
+         psvAjma+4NZ1w5ZrMm4vWupCoPxPR3I8iuTCuF8ki/66FPn5y9B2NmG7WaXwr6T3yXzE
+         X7mxxqlVPaCkg0kOTzMP7se9MRSYH2muvfeQ+WXrkp4ITmyjmz6oo1U9D2xhTVSWo+8o
+         z2cAx0YHCMmMZYQSPp5QoaIchy5XqmnCaPSPtW78RV+44FFBmUR0/fU+hnCBJzZc+hax
+         4baw==
+X-Google-DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed;
+        d=1e100.net; s=20251104; t=1774284651; x=1774889451;
+        h=to:subject:message-id:date:from:in-reply-to:references:mime-version
+         :x-gm-gg:x-gm-message-state:from:to:cc:subject:date:message-id
+         :reply-to;
+        bh=ikx7mlM00fvpzMchI5tSO+OO1qCH+yaHpRolk+/sNpE=;
+        b=nhV5h3yHIl/Teqf3YYW6MclxVUoSDzp4ciOzhc8VJsok0K8zT3FlXmdK402Kx13wGB
+         yFpF7kd6BBrySCFNw1HGOtT67UafYrA93i+Gy6sZFAb260byWBlRd2SnVvO081S0Cc/A
+         +7E7ys50oAXM7ulmrkKNeRydUt/lRyPafgPvcCvJCGt9CgYEgDKFPVgV3oADJvvMHvzs
+         Aha87nd3J+WsRzg1khZJ8GIzGBd530m4hyq8hyfJcSE1i2ozfIcJ2GD7P8u83ZYg23Cz
+         0pEuyPdQjxY3/jIwbhxKQcKZW714S5nin2AC1Nn+sNYudm1FvIrRwSOtkPNf+C+jYCXu
+         /2Jg==
+X-Gm-Message-State: AOJu0YzIA9Non2dGUrzHCtop3ixI//IUEtlerePfsbkR1gmgp1UUTVEn
+	Q8WloHwL287aZZqx+UPvHhczSWraCcHIkYsoLlUnNMpEx4QNtisSOQflHyp0qvfdANersdp5ag1
+	QeHe9tKa3jtaAb2eoDQhcUKr/dXRHsJ8Zfw==
+X-Gm-Gg: ATEYQzwG0vLdxhsl4YH+Cm+6tXL1NPtp7QtuHPe+aKrpVBrSvBCQrwA+S8qry7tfrMm
+	ULRc6Bxp3K8Ch/sdFht4tEvjoi0VP77/voZVLfzDklxTZbsgVPAQZ6+xrDI5gTMg+PlKy1gcOAa
+	SIOm4fh4UirMFJjZNhtEVzRox5DKoLgGReH+kxM6jvtdw7KXl7geUxa34YTCCIb5f3K/7QOUdo2
+	c+oTFfBl8YvLoTbMdmT/u9LBT+JEPLYfEmaIgXPadHksUKmGjLuKAysylZAx09qIN3MXnsIcITq
+	RH/hud1dE2fgpzzOl/wyOEmGcfPOBO3Z3YwA4L7ipZR2pe5ntQ==
+X-Received: by 2002:a17:907:d2a:b0:b98:4a4d:426 with SMTP id
+ a640c23a62f3a-b984a4d0d2fmr616018766b.15.1774284650479; Mon, 23 Mar 2026
+ 09:50:50 -0700 (PDT)
+MIME-Version: 1.0
+References: <0100019d1b9a30a3-900d9f35-6408-4a7e-b22c-0bbd1de66b21-000000@email.amazonses.com>
+In-Reply-To: <0100019d1b9a30a3-900d9f35-6408-4a7e-b22c-0bbd1de66b21-000000@email.amazonses.com>
+From: Andrew Luther <andrewgluther@gmail.com>
+Date: Mon, 23 Mar 2026 12:50:39 -0400
+X-Gm-Features: AaiRm53UOj816YUu64Ms_DSaTaPr6JnZTwyBsxhNjhsoa6EOwV9z8eF76U1WhEs
+Message-ID: <CAHYN4Aotiz_cAuaSkY0hJ8qi437g36Ri1JqFyN-LC4zekfBckQ@mail.gmail.com>
+Subject: Fwd: Hello Andrew, welcome to the DO. IT Hackathon Mailing List!
+To: Jack Harrhy <0ediblepencil0@gmail.com>
+Content-Type: multipart/alternative; boundary="0000000000005286c2064db3d6fb"
+
+--0000000000005286c2064db3d6fb
+Content-Type: text/plain; charset="UTF-8"
+Content-Transfer-Encoding: base64
+
+LS0tLS0tLS0tLSBGb3J3YXJkZWQgbWVzc2FnZSAtLS0tLS0tLS0NCkZyb206IERPLiBJVCBIYWNr
+YXRob25zIDxkb2l0QHNpbGljb25oYXJib3VyLmRldj4NCkRhdGU6IE1vbiwgMjMgTWFyIDIwMjYg
+YXQgMTI6NDkNClN1YmplY3Q6IEhlbGxvIEFuZHJldywgd2VsY29tZSB0byB0aGUgRE8uIElUIEhh
+Y2thdGhvbiBNYWlsaW5nIExpc3QhDQpUbzogPGFuZHJld2dsdXRoZXJAZ21haWwuY29tPg0KDQoN
+CkhlbGxvIEFuZHJldywgd2VsY29tZSB0byB0aGUgRE8uIElUIEhhY2thdGhvbiBNYWlsaW5nIExp
+c3QhDQog4oCM4oCN4oCO4oCP77u/IOKAjOKAjeKAjuKAj++7vyDigIzigI3igI7igI/vu78g4oCM
+4oCN4oCO4oCP77u/IOKAjOKAjeKAjuKAj++7vyDigIzigI3igI7igI/vu78g4oCM4oCN4oCO4oCP
+77u/IOKAjOKAjeKAjuKAj++7vyDigIzigI3igI7igI/vu78g4oCM4oCN4oCO4oCP77u/IOKAjOKA
+jeKAjuKAj++7vw0K4oCM4oCN4oCO4oCP77u/IOKAjOKAjeKAjuKAj++7vyDigIzigI3igI7igI/v
+u78g4oCM4oCN4oCO4oCP77u/IOKAjOKAjeKAjuKAj++7vyDigIzigI3igI7igI/vu78g4oCM4oCN
+4oCO4oCP77u/IOKAjOKAjeKAjuKAj++7vyDigIzigI3igI7igI/vu78g4oCM4oCN4oCO4oCP77u/
+IOKAjOKAjeKAjuKAj++7vw0K4oCM4oCN4oCO4oCP77u/IOKAjOKAjeKAjuKAj++7vyDigIzigI3i
+gI7igI/vu78g4oCM4oCN4oCO4oCP77u/IOKAjOKAjeKAjuKAj++7vyDigIzigI3igI7igI/vu78g
+4oCM4oCN4oCO4oCP77u/IOKAjOKAjeKAjuKAj++7vyDigIzigI3igI7igI/vu78g4oCM4oCN4oCO
+4oCP77u/IOKAjOKAjeKAjuKAj++7vw0K4oCM4oCN4oCO4oCP77u/IOKAjOKAjeKAjuKAj++7vyDi
+gIzigI3igI7igI/vu78g4oCM4oCN4oCO4oCP77u/IOKAjOKAjeKAjuKAj++7vyDigIzigI3igI7i
+gI/vu78g4oCM4oCN4oCO4oCP77u/IOKAjOKAjeKAjuKAj++7vyDigIzigI3igI7igI/vu78g4oCM
+4oCN4oCO4oCP77u/IOKAjOKAjeKAjuKAj++7vw0K4oCM4oCN4oCO4oCP77u/IOKAjOKAjeKAjuKA
+j++7vyDigIzigI3igI7igI/vu78g4oCM4oCN4oCO4oCP77u/IOKAjOKAjeKAjuKAj++7vyDigIzi
+gI3igI7igI/vu78g4oCM4oCN4oCO4oCP77u/IOKAjOKAjeKAjuKAj++7vyDigIzigI3igI7igI/v
+u78g4oCM4oCN4oCO4oCP77u/IOKAjOKAjeKAjuKAj++7vw0K4oCM4oCN4oCO4oCP77u/IOKAjOKA
+jeKAjuKAj++7vyDigIzigI3igI7igI/vu78g4oCM4oCN4oCO4oCP77u/IOKAjOKAjeKAjuKAj++7
+vyDigIzigI3igI7igI/vu78g4oCM4oCN4oCO4oCP77u/IOKAjOKAjeKAjuKAj++7vyDigIzigI3i
+gI7igI/vu78g4oCM4oCN4oCO4oCP77u/IOKAjOKAjeKAjuKAj++7vw0K4oCM4oCN4oCO4oCP77u/
+IOKAjOKAjeKAjuKAj++7vyDigIzigI3igI7igI/vu78g4oCM4oCN4oCO4oCP77u/IOKAjOKAjeKA
+juKAj++7vyDigIzigI3igI7igI/vu78g4oCM4oCN4oCO4oCP77u/IOKAjOKAjeKAjuKAj++7vyDi
+gIzigI3igI7igI/vu78g4oCM4oCN4oCO4oCP77u/IOKAjOKAjeKAjuKAj++7vw0K4oCM4oCN4oCO
+4oCP77u/IOKAjOKAjeKAjuKAj++7vyDigIzigI3igI7igI/vu78g4oCM4oCN4oCO4oCP77u/IOKA
+jOKAjeKAjuKAj++7vyDigIzigI3igI7igI/vu78g4oCM4oCN4oCO4oCP77u/IOKAjOKAjeKAjuKA
+j++7vyDigIzigI3igI7igI/vu78g4oCM4oCN4oCO4oCP77u/IOKAjOKAjeKAjuKAj++7vw0K4oCM
+4oCN4oCO4oCP77u/IOKAjOKAjeKAjuKAj++7vyDigIzigI3igI7igI/vu78NCg0KRE8uIElUIEhh
+Y2thdGhvbnMNCg0KSGVsbG8gQW5kcmV3LCB3ZWxjb21lIHRvIERPLiBJVCENCg0KW2ltYWdlOiBp
+bWFnZV0NCg0KVGhpcyBpcyBhIG5ldyBtYWlsaW5nIGxpc3QsIGhvcGUgeW91IHN0aWNrIGFyb3Vu
+ZCENCi0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLQ0KDQpVbnN1YnNjcmliZQ0KPGh0dHBz
+Oi8vbGlzdHMuamFja2hhcnJoeS5kZXYvdW5zdWJzY3JpYmUvYjZkNjFlY2Y2MDhmYWEzOTAyMDdm
+MmUxMGMwMjZjMGE5OTIyZTcwNDM4NDE5MzQ1M2Y5MjBhNGZiOWQ5YzAwNT4NCsK3IE1hbmFnZSBw
+cmVmZXJlbmNlcw0KPGh0dHBzOi8vbGlzdHMuamFja2hhcnJoeS5kZXYvcHJlZmVyZW5jZXMvYjZk
+NjFlY2Y2MDhmYWEzOTAyMDdmMmUxMGMwMjZjMGE5OTIyZTcwNDM4NDE5MzQ1M2Y5MjBhNGZiOWQ5
+YzAwNT4NCg==
+--0000000000005286c2064db3d6fb
+Content-Type: text/html; charset="UTF-8"
+Content-Transfer-Encoding: base64
+
+PGRpdiBkaXI9Imx0ciI+PGJyPjxicj48ZGl2IGNsYXNzPSJnbWFpbF9xdW90ZSBnbWFpbF9xdW90
+ZV9jb250YWluZXIiPjxkaXYgZGlyPSJsdHIiIGNsYXNzPSJnbWFpbF9hdHRyIj4tLS0tLS0tLS0t
+IEZvcndhcmRlZCBtZXNzYWdlIC0tLS0tLS0tLTxicj5Gcm9tOiA8c3Ryb25nIGNsYXNzPSJnbWFp
+bF9zZW5kZXJuYW1lIiBkaXI9ImF1dG8iPkRPLiBJVCBIYWNrYXRob25zPC9zdHJvbmc+IDxzcGFu
+IGRpcj0iYXV0byI+Jmx0OzxhIGhyZWY9Im1haWx0bzpkb2l0QHNpbGljb25oYXJib3VyLmRldiI+
+ZG9pdEBzaWxpY29uaGFyYm91ci5kZXY8L2E+Jmd0Ozwvc3Bhbj48YnI+RGF0ZTogTW9uLCAyMyBN
+YXIgMjAyNiBhdCAxMjo0OTxicj5TdWJqZWN0OiBIZWxsbyBBbmRyZXcsIHdlbGNvbWUgdG8gdGhl
+IERPLiBJVCBIYWNrYXRob24gTWFpbGluZyBMaXN0ITxicj5UbzogICZsdDs8YSBocmVmPSJtYWls
+dG86YW5kcmV3Z2x1dGhlckBnbWFpbC5jb20iPmFuZHJld2dsdXRoZXJAZ21haWwuY29tPC9hPiZn
+dDs8YnI+PC9kaXY+PGJyPjxicj48dT48L3U+PGRpdiBzdHlsZT0iYmFja2dyb3VuZC1jb2xvcjoj
+ZmZmZmZmIj48ZGl2IHN0eWxlPSJkaXNwbGF5Om5vbmU7b3ZlcmZsb3c6aGlkZGVuO2xpbmUtaGVp
+Z2h0OjFweDtvcGFjaXR5OjA7bWF4LWhlaWdodDowO21heC13aWR0aDowIj5IZWxsbyBBbmRyZXcs
+IHdlbGNvbWUgdG8gdGhlIERPLiBJVCBIYWNrYXRob24gTWFpbGluZyBMaXN0ITxkaXY+wqDigIzi
+gI3igI7igI/vu7/CoOKAjOKAjeKAjuKAj++7v8Kg4oCM4oCN4oCO4oCP77u/wqDigIzigI3igI7i
+gI/vu7/CoOKAjOKAjeKAjuKAj++7v8Kg4oCM4oCN4oCO4oCP77u/wqDigIzigI3igI7igI/vu7/C
+oOKAjOKAjeKAjuKAj++7v8Kg4oCM4oCN4oCO4oCP77u/wqDigIzigI3igI7igI/vu7/CoOKAjOKA
+jeKAjuKAj++7v8Kg4oCM4oCN4oCO4oCP77u/wqDigIzigI3igI7igI/vu7/CoOKAjOKAjeKAjuKA
+j++7v8Kg4oCM4oCN4oCO4oCP77u/wqDigIzigI3igI7igI/vu7/CoOKAjOKAjeKAjuKAj++7v8Kg
+4oCM4oCN4oCO4oCP77u/wqDigIzigI3igI7igI/vu7/CoOKAjOKAjeKAjuKAj++7v8Kg4oCM4oCN
+4oCO4oCP77u/wqDigIzigI3igI7igI/vu7/CoOKAjOKAjeKAjuKAj++7v8Kg4oCM4oCN4oCO4oCP
+77u/wqDigIzigI3igI7igI/vu7/CoOKAjOKAjeKAjuKAj++7v8Kg4oCM4oCN4oCO4oCP77u/wqDi
+gIzigI3igI7igI/vu7/CoOKAjOKAjeKAjuKAj++7v8Kg4oCM4oCN4oCO4oCP77u/wqDigIzigI3i
+gI7igI/vu7/CoOKAjOKAjeKAjuKAj++7v8Kg4oCM4oCN4oCO4oCP77u/wqDigIzigI3igI7igI/v
+u7/CoOKAjOKAjeKAjuKAj++7v8Kg4oCM4oCN4oCO4oCP77u/wqDigIzigI3igI7igI/vu7/CoOKA
+jOKAjeKAjuKAj++7v8Kg4oCM4oCN4oCO4oCP77u/wqDigIzigI3igI7igI/vu7/CoOKAjOKAjeKA
+juKAj++7v8Kg4oCM4oCN4oCO4oCP77u/wqDigIzigI3igI7igI/vu7/CoOKAjOKAjeKAjuKAj++7
+v8Kg4oCM4oCN4oCO4oCP77u/wqDigIzigI3igI7igI/vu7/CoOKAjOKAjeKAjuKAj++7v8Kg4oCM
+4oCN4oCO4oCP77u/wqDigIzigI3igI7igI/vu7/CoOKAjOKAjeKAjuKAj++7v8Kg4oCM4oCN4oCO
+4oCP77u/wqDigIzigI3igI7igI/vu7/CoOKAjOKAjeKAjuKAj++7v8Kg4oCM4oCN4oCO4oCP77u/
+wqDigIzigI3igI7igI/vu7/CoOKAjOKAjeKAjuKAj++7v8Kg4oCM4oCN4oCO4oCP77u/wqDigIzi
+gI3igI7igI/vu7/CoOKAjOKAjeKAjuKAj++7v8Kg4oCM4oCN4oCO4oCP77u/wqDigIzigI3igI7i
+gI/vu7/CoOKAjOKAjeKAjuKAj++7v8Kg4oCM4oCN4oCO4oCP77u/wqDigIzigI3igI7igI/vu7/C
+oOKAjOKAjeKAjuKAj++7v8Kg4oCM4oCN4oCO4oCP77u/wqDigIzigI3igI7igI/vu7/CoOKAjOKA
+jeKAjuKAj++7v8Kg4oCM4oCN4oCO4oCP77u/wqDigIzigI3igI7igI/vu7/CoOKAjOKAjeKAjuKA
+j++7v8Kg4oCM4oCN4oCO4oCP77u/wqDigIzigI3igI7igI/vu7/CoOKAjOKAjeKAjuKAj++7v8Kg
+4oCM4oCN4oCO4oCP77u/wqDigIzigI3igI7igI/vu7/CoOKAjOKAjeKAjuKAj++7v8Kg4oCM4oCN
+4oCO4oCP77u/wqDigIzigI3igI7igI/vu7/CoOKAjOKAjeKAjuKAj++7v8Kg4oCM4oCN4oCO4oCP
+77u/wqDigIzigI3igI7igI/vu7/CoOKAjOKAjeKAjuKAj++7v8Kg4oCM4oCN4oCO4oCP77u/wqDi
+gIzigI3igI7igI/vu7/CoOKAjOKAjeKAjuKAj++7v8Kg4oCM4oCN4oCO4oCP77u/wqDigIzigI3i
+gI7igI/vu7/CoOKAjOKAjeKAjuKAj++7v8Kg4oCM4oCN4oCO4oCP77u/wqDigIzigI3igI7igI/v
+u788L2Rpdj48L2Rpdj48dGFibGUgYm9yZGVyPSIwIiB3aWR0aD0iMTAwJSIgY2VsbHBhZGRpbmc9
+IjAiIGNlbGxzcGFjaW5nPSIwIiByb2xlPSJwcmVzZW50YXRpb24iIGFsaWduPSJjZW50ZXIiPjx0
+Ym9keT48dHI+PHRkIHN0eWxlPSJiYWNrZ3JvdW5kLWNvbG9yOiNmZmZmZmY7Zm9udC1mYW1pbHk6
+c3lzdGVtLXVpLC1hcHBsZS1zeXN0ZW0sQmxpbmtNYWNTeXN0ZW1Gb250LCYjMzk7U2Vnb2UgVUkm
+IzM5OyxSb2JvdG8sc2Fucy1zZXJpZiI+PHRhYmxlIGFsaWduPSJjZW50ZXIiIHdpZHRoPSIxMDAl
+IiBib3JkZXI9IjAiIGNlbGxwYWRkaW5nPSIwIiBjZWxsc3BhY2luZz0iMCIgcm9sZT0icHJlc2Vu
+dGF0aW9uIiBzdHlsZT0ibWF4LXdpZHRoOjYwMHB4O21hcmdpbjowIGF1dG87cGFkZGluZzozMnB4
+IDI0cHgiPjx0Ym9keT48dHIgc3R5bGU9IndpZHRoOjEwMCUiPjx0ZD48cCBzdHlsZT0iZm9udC1z
+aXplOjEzcHg7bGluZS1oZWlnaHQ6MjRweDtmb250LXdlaWdodDo2MDA7Y29sb3I6IzY2NjY2Njt0
+ZXh0LXRyYW5zZm9ybTp1cHBlcmNhc2U7bGV0dGVyLXNwYWNpbmc6MC41cHg7bWFyZ2luOjAgMCAy
+NHB4O21hcmdpbi10b3A6MDttYXJnaW4tcmlnaHQ6MDttYXJnaW4tYm90dG9tOjI0cHg7bWFyZ2lu
+LWxlZnQ6MCI+RE8uIElUIEhhY2thdGhvbnM8L3A+PGRpdiBzdHlsZT0iZm9udC1zaXplOjE2cHg7
+bGluZS1oZWlnaHQ6MjZweDtjb2xvcjojMWExYTFhIj48cD5IZWxsbyBBbmRyZXcsIHdlbGNvbWUg
+dG8gRE8uIElUITwvcD4NCjxwPjxpbWcgYWx0PSJpbWFnZSI+PC9wPg0KPHA+VGhpcyBpcyBhIG5l
+dyBtYWlsaW5nIGxpc3QsIGhvcGUgeW91IHN0aWNrIGFyb3VuZCE8L3A+DQo8L2Rpdj48aHIgc3R5
+bGU9IndpZHRoOjEwMCU7Ym9yZGVyOm5vbmU7Ym9yZGVyLXRvcDoxcHggc29saWQgI2VhZWFlYTti
+b3JkZXItY29sb3I6I2U1ZTVlNTttYXJnaW46MzJweCAwIDI0cHgiPjxwIHN0eWxlPSJmb250LXNp
+emU6MTJweDtsaW5lLWhlaWdodDoyMHB4O2NvbG9yOiM5OTk5OTk7dGV4dC1hbGlnbjpjZW50ZXI7
+bWFyZ2luLXRvcDoxNnB4O21hcmdpbi1ib3R0b206MTZweCI+PGEgaHJlZj0iaHR0cHM6Ly9saXN0
+cy5qYWNraGFycmh5LmRldi91bnN1YnNjcmliZS9iNmQ2MWVjZjYwOGZhYTM5MDIwN2YyZTEwYzAy
+NmMwYTk5MjJlNzA0Mzg0MTkzNDUzZjkyMGE0ZmI5ZDljMDA1IiBzdHlsZT0iY29sb3I6Izk5OTk5
+OTt0ZXh0LWRlY29yYXRpb24tbGluZTpub25lO3RleHQtZGVjb3JhdGlvbjp1bmRlcmxpbmUiIHRh
+cmdldD0iX2JsYW5rIj5VbnN1YnNjcmliZTwvYT4gwrcgPGEgaHJlZj0iaHR0cHM6Ly9saXN0cy5q
+YWNraGFycmh5LmRldi9wcmVmZXJlbmNlcy9iNmQ2MWVjZjYwOGZhYTM5MDIwN2YyZTEwYzAyNmMw
+YTk5MjJlNzA0Mzg0MTkzNDUzZjkyMGE0ZmI5ZDljMDA1IiBzdHlsZT0iY29sb3I6Izk5OTk5OTt0
+ZXh0LWRlY29yYXRpb24tbGluZTpub25lO3RleHQtZGVjb3JhdGlvbjp1bmRlcmxpbmUiIHRhcmdl
+dD0iX2JsYW5rIj5NYW5hZ2UgcHJlZmVyZW5jZXM8L2E+PC9wPjwvdGQ+PC90cj48L3Rib2R5Pjwv
+dGFibGU+PC90ZD48L3RyPjwvdGJvZHk+PC90YWJsZT48L2Rpdj48L2Rpdj48L2Rpdj4NCg==
+--0000000000005286c2064db3d6fb--
