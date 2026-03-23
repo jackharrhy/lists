@@ -274,7 +274,7 @@ export async function sendCampaign(
           new SendEmailCommand({
             Content: {
               Raw: {
-                Data: new TextEncoder().encode(rawEmail),
+                Data: rawEmail,
               },
             },
             ConfigurationSetName: config.sesConfigSet || undefined,
