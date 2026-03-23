@@ -311,10 +311,40 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
 
     return c.html(
       <AdminLayout title="New Campaign" user={user} flash={flash}>
-        <h1 class="text-2xl font-bold mt-0 mb-4">New Campaign</h1>
-        <div class="grid grid-cols-2 gap-6">
-          <div>
-            <Card>
+        <div class="flex items-center justify-between mb-4">
+          <h1 class="text-2xl font-bold mt-0 mb-0">New Campaign</h1>
+          <button type="button" onclick="togglePreviewPanel()" id="previewToggleBtn" class="px-3 py-1.5 bg-gray-100 text-gray-700 text-sm font-medium rounded-md hover:bg-gray-200 border border-gray-300 cursor-pointer">
+            Preview
+          </button>
+        </div>
+
+        {/* Full-screen preview panel */}
+        <div id="previewPanel" class="hidden fixed inset-0 z-40 bg-gray-100 flex flex-col" style="padding: 0;">
+          <div class="bg-white border-b border-gray-200 px-4 py-2 flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <span class="text-sm font-medium text-gray-700">Preview</span>
+              <div class="flex items-center gap-1 ml-4">
+                <button type="button" onclick="setPreviewWidth(375)" class="px-2 py-0.5 text-xs border border-gray-300 rounded hover:bg-gray-100 cursor-pointer bg-white text-gray-600">375</button>
+                <button type="button" onclick="setPreviewWidth(600)" class="px-2 py-0.5 text-xs border border-gray-300 rounded hover:bg-gray-100 cursor-pointer bg-white text-gray-600">600</button>
+                <button type="button" onclick="setPreviewWidth(768)" class="px-2 py-0.5 text-xs border border-gray-300 rounded hover:bg-gray-100 cursor-pointer bg-white text-gray-600">768</button>
+                <button type="button" onclick="setPreviewWidth(1024)" class="px-2 py-0.5 text-xs border border-gray-300 rounded hover:bg-gray-100 cursor-pointer bg-white text-gray-600">1024</button>
+                <button type="button" onclick="setPreviewWidth(null)" class="px-2 py-0.5 text-xs border border-gray-300 rounded hover:bg-gray-100 cursor-pointer bg-white text-gray-600">full</button>
+                <span id="previewWidthLabel" class="text-xs text-gray-400 ml-2"></span>
+              </div>
+            </div>
+            <button type="button" onclick="togglePreviewPanel()" class="px-3 py-1.5 text-sm text-gray-500 hover:text-gray-800 border border-gray-200 rounded cursor-pointer bg-white">
+              Close ✕
+            </button>
+          </div>
+          <div class="flex-1 overflow-auto flex justify-center py-4">
+            <div id="previewContainer" class="relative" style="width: 100%; max-width: 100%;">
+              <iframe id="previewFrame" style="min-height: calc(100vh - 80px); width: 100%; border: 0; background: white; transition: width 0.15s; display: block; margin: 0 auto;" srcdoc="<p style='color:#999;font-family:system-ui;padding:2rem'>Start writing to see a preview</p>" />
+            </div>
+          </div>
+        </div>
+
+        <div class="max-w-2xl">
+          <Card>
               <form method="post" action="/admin/campaigns/new">
                 <FormGroup>
                   <Label for="audienceMode">Audience</Label>
@@ -434,25 +464,6 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
                 <Button type="submit">Create Draft</Button>
               </form>
             </Card>
-          </div>
-          <div>
-            <Card>
-              <div class="flex items-center justify-between mt-0 mb-3">
-                <h2 class="text-lg font-semibold m-0">Preview</h2>
-                <div class="flex items-center gap-1">
-                  <button type="button" onclick="setPreviewWidth(375)" class="px-2 py-0.5 text-xs border border-gray-200 rounded hover:bg-gray-100 cursor-pointer bg-white text-gray-500">375</button>
-                  <button type="button" onclick="setPreviewWidth(600)" class="px-2 py-0.5 text-xs border border-gray-200 rounded hover:bg-gray-100 cursor-pointer bg-white text-gray-500">600</button>
-                  <button type="button" onclick="setPreviewWidth(768)" class="px-2 py-0.5 text-xs border border-gray-200 rounded hover:bg-gray-100 cursor-pointer bg-white text-gray-500">768</button>
-                  <button type="button" onclick="setPreviewWidth(null)" class="px-2 py-0.5 text-xs border border-gray-200 rounded hover:bg-gray-100 cursor-pointer bg-white text-gray-500">full</button>
-                </div>
-              </div>
-              <div id="previewContainer" class="relative overflow-hidden flex justify-center bg-gray-50 rounded" style="min-height: 520px;">
-                <iframe id="previewFrame" style="min-height: 500px; width: 100%; border: 0; transition: width 0.15s;" srcdoc="<p style='color:#999;font-family:system-ui;padding:2rem'>Start writing to see a preview</p>" />
-                <div id="previewResizeHandle" style="position:absolute;right:0;top:0;bottom:0;width:6px;cursor:col-resize;background:transparent;" class="hover:bg-blue-200 transition-colors" title="Drag to resize" />
-              </div>
-              <p id="previewWidthLabel" class="text-xs text-gray-400 text-right mt-1"></p>
-            </Card>
-          </div>
         </div>
 
         {/* Image upload modal */}
@@ -596,31 +607,40 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
               });
             }
 
-            // Preview resize + live update (create form)
+            // Preview panel toggle + width control
             window.setPreviewWidth = function(w) {
               var f = document.getElementById('previewFrame');
               var lbl = document.getElementById('previewWidthLabel');
-              if (w === null) { f.style.width = '100%'; lbl.textContent = ''; }
-              else { f.style.width = w + 'px'; lbl.textContent = w + 'px'; }
+              if (w === null) {
+                f.style.width = '100%'; f.style.maxWidth = '100%';
+                if (lbl) lbl.textContent = '';
+              } else {
+                f.style.width = w + 'px'; f.style.maxWidth = w + 'px';
+                if (lbl) lbl.textContent = w + 'px';
+              }
             };
-            (function() {
-              var handle = document.getElementById('previewResizeHandle');
-              var f = document.getElementById('previewFrame');
-              var lbl = document.getElementById('previewWidthLabel');
-              var drag = false, sx = 0, sw = 0;
-              handle.addEventListener('mousedown', function(e) {
-                drag = true; sx = e.clientX; sw = f.offsetWidth;
-                document.body.style.cursor = 'col-resize'; document.body.style.userSelect = 'none'; e.preventDefault();
-              });
-              document.addEventListener('mousemove', function(e) {
-                if (!drag) return;
-                var w = Math.max(280, sw + e.clientX - sx);
-                f.style.width = w + 'px'; lbl.textContent = Math.round(w) + 'px';
-              });
-              document.addEventListener('mouseup', function() {
-                if (!drag) return; drag = false; document.body.style.cursor = ''; document.body.style.userSelect = '';
-              });
-            })();
+            window.togglePreviewPanel = function() {
+              var panel = document.getElementById('previewPanel');
+              var btn = document.getElementById('previewToggleBtn');
+              var hidden = panel.classList.contains('hidden');
+              if (hidden) {
+                panel.classList.remove('hidden');
+                document.body.style.overflow = 'hidden';
+                btn.textContent = 'Close Preview';
+                updatePreview();
+              } else {
+                panel.classList.add('hidden');
+                document.body.style.overflow = '';
+                btn.textContent = 'Preview';
+              }
+            };
+            // Close on Escape
+            document.addEventListener('keydown', function(e) {
+              if (e.key === 'Escape') {
+                var panel = document.getElementById('previewPanel');
+                if (!panel.classList.contains('hidden')) window.togglePreviewPanel();
+              }
+            });
 
             var timer;
             var textarea = document.getElementById('bodyMarkdown');
@@ -1098,10 +1118,40 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
 
     return c.html(
       <AdminLayout title={`Edit: ${campaign.subject}`} user={user} flash={flash}>
-        <h1 class="text-2xl font-bold mt-0 mb-4">Edit Campaign</h1>
-        <div class="grid grid-cols-2 gap-6">
-          <div>
-            <Card>
+        <div class="flex items-center justify-between mb-4">
+          <h1 class="text-2xl font-bold mt-0 mb-0">Edit Campaign</h1>
+          <button type="button" onclick="togglePreviewPanel()" id="previewToggleBtn" class="px-3 py-1.5 bg-gray-100 text-gray-700 text-sm font-medium rounded-md hover:bg-gray-200 border border-gray-300 cursor-pointer">
+            Preview
+          </button>
+        </div>
+
+        {/* Full-screen preview panel */}
+        <div id="previewPanel" class="hidden fixed inset-0 z-40 bg-gray-100 flex flex-col">
+          <div class="bg-white border-b border-gray-200 px-4 py-2 flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <span class="text-sm font-medium text-gray-700">Preview</span>
+              <div class="flex items-center gap-1 ml-4">
+                <button type="button" onclick="setPreviewWidth(375)" class="px-2 py-0.5 text-xs border border-gray-300 rounded hover:bg-gray-100 cursor-pointer bg-white text-gray-600">375</button>
+                <button type="button" onclick="setPreviewWidth(600)" class="px-2 py-0.5 text-xs border border-gray-300 rounded hover:bg-gray-100 cursor-pointer bg-white text-gray-600">600</button>
+                <button type="button" onclick="setPreviewWidth(768)" class="px-2 py-0.5 text-xs border border-gray-300 rounded hover:bg-gray-100 cursor-pointer bg-white text-gray-600">768</button>
+                <button type="button" onclick="setPreviewWidth(1024)" class="px-2 py-0.5 text-xs border border-gray-300 rounded hover:bg-gray-100 cursor-pointer bg-white text-gray-600">1024</button>
+                <button type="button" onclick="setPreviewWidth(null)" class="px-2 py-0.5 text-xs border border-gray-300 rounded hover:bg-gray-100 cursor-pointer bg-white text-gray-600">full</button>
+                <span id="previewWidthLabel" class="text-xs text-gray-400 ml-2"></span>
+              </div>
+            </div>
+            <button type="button" onclick="togglePreviewPanel()" class="px-3 py-1.5 text-sm text-gray-500 hover:text-gray-800 border border-gray-200 rounded cursor-pointer bg-white">
+              Close ✕
+            </button>
+          </div>
+          <div class="flex-1 overflow-auto flex justify-center py-4">
+            <div id="previewContainer" class="relative" style="width: 100%; max-width: 100%;">
+              <iframe id="previewFrame" style="min-height: calc(100vh - 80px); width: 100%; border: 0; background: white; transition: width 0.15s; display: block; margin: 0 auto;" src={`/admin/campaigns/${id}/preview`} />
+            </div>
+          </div>
+        </div>
+
+        <div class="max-w-2xl">
+          <Card>
               <form method="post" action={`/admin/campaigns/${id}/edit`}>
                 <FormGroup>
                   <Label for="audienceMode">Audience</Label>
@@ -1231,25 +1281,6 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
                 <Button type="submit">Save Changes</Button>
               </form>
             </Card>
-          </div>
-          <div>
-            <Card>
-              <div class="flex items-center justify-between mt-0 mb-3">
-                <h2 class="text-lg font-semibold m-0">Preview</h2>
-                <div class="flex items-center gap-1">
-                  <button type="button" onclick="setPreviewWidth(375)" class="px-2 py-0.5 text-xs border border-gray-200 rounded hover:bg-gray-100 cursor-pointer bg-white text-gray-500">375</button>
-                  <button type="button" onclick="setPreviewWidth(600)" class="px-2 py-0.5 text-xs border border-gray-200 rounded hover:bg-gray-100 cursor-pointer bg-white text-gray-500">600</button>
-                  <button type="button" onclick="setPreviewWidth(768)" class="px-2 py-0.5 text-xs border border-gray-200 rounded hover:bg-gray-100 cursor-pointer bg-white text-gray-500">768</button>
-                  <button type="button" onclick="setPreviewWidth(null)" class="px-2 py-0.5 text-xs border border-gray-200 rounded hover:bg-gray-100 cursor-pointer bg-white text-gray-500">full</button>
-                </div>
-              </div>
-              <div id="previewContainer" class="relative overflow-hidden flex justify-center bg-gray-50 rounded" style="min-height: 520px;">
-                <iframe id="previewFrame" style="min-height: 500px; width: 100%; border: 0; transition: width 0.15s;" src={`/admin/campaigns/${id}/preview`} />
-                <div id="previewResizeHandle" style="position:absolute;right:0;top:0;bottom:0;width:6px;cursor:col-resize;background:transparent;" class="hover:bg-blue-200 transition-colors" title="Drag to resize" />
-              </div>
-              <p id="previewWidthLabel" class="text-xs text-gray-400 text-right mt-1"></p>
-            </Card>
-          </div>
         </div>
         <script dangerouslySetInnerHTML={{ __html: `var subscribers = ${JSON.stringify(allSubscribers.map(s => ({ id: s.id, email: s.email, firstName: s.firstName, lastName: s.lastName })))};` }} />
         <script dangerouslySetInnerHTML={{ __html: `
@@ -1356,31 +1387,38 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
               });
             }
 
-            // Preview resize + live update (edit form)
+            // Preview panel toggle + width control (edit form)
             window.setPreviewWidth = function(w) {
               var f = document.getElementById('previewFrame');
               var lbl = document.getElementById('previewWidthLabel');
-              if (w === null) { f.style.width = '100%'; lbl.textContent = ''; }
-              else { f.style.width = w + 'px'; lbl.textContent = w + 'px'; }
+              if (w === null) {
+                f.style.width = '100%'; f.style.maxWidth = '100%';
+                if (lbl) lbl.textContent = '';
+              } else {
+                f.style.width = w + 'px'; f.style.maxWidth = w + 'px';
+                if (lbl) lbl.textContent = w + 'px';
+              }
             };
-            (function() {
-              var handle = document.getElementById('previewResizeHandle');
-              var f = document.getElementById('previewFrame');
-              var lbl = document.getElementById('previewWidthLabel');
-              var drag = false, sx = 0, sw = 0;
-              handle.addEventListener('mousedown', function(e) {
-                drag = true; sx = e.clientX; sw = f.offsetWidth;
-                document.body.style.cursor = 'col-resize'; document.body.style.userSelect = 'none'; e.preventDefault();
-              });
-              document.addEventListener('mousemove', function(e) {
-                if (!drag) return;
-                var w = Math.max(280, sw + e.clientX - sx);
-                f.style.width = w + 'px'; lbl.textContent = Math.round(w) + 'px';
-              });
-              document.addEventListener('mouseup', function() {
-                if (!drag) return; drag = false; document.body.style.cursor = ''; document.body.style.userSelect = '';
-              });
-            })();
+            window.togglePreviewPanel = function() {
+              var panel = document.getElementById('previewPanel');
+              var btn = document.getElementById('previewToggleBtn');
+              var hidden = panel.classList.contains('hidden');
+              if (hidden) {
+                panel.classList.remove('hidden');
+                document.body.style.overflow = 'hidden';
+                btn.textContent = 'Close Preview';
+              } else {
+                panel.classList.add('hidden');
+                document.body.style.overflow = '';
+                btn.textContent = 'Preview';
+              }
+            };
+            document.addEventListener('keydown', function(e) {
+              if (e.key === 'Escape') {
+                var panel = document.getElementById('previewPanel');
+                if (!panel.classList.contains('hidden')) window.togglePreviewPanel();
+              }
+            });
 
             var timer;
             var textarea = document.getElementById('bodyMarkdown');
