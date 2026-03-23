@@ -77,6 +77,7 @@ export function AdminLayout({
               {isAdmin && (
                 <a href="/admin/users" class="text-gray-500 text-xs no-underline hover:text-white">Users</a>
               )}
+              <a href="/design" class="text-gray-600 text-xs no-underline hover:text-white">Design</a>
             </div>
 
             {/* User */}
