@@ -5,6 +5,7 @@ import { webhookRoutes } from "../src/routes/webhooks";
 import { eq } from "drizzle-orm";
 
 // Skip SNS signature verification in tests (fake payloads won't have valid RSA sigs)
+process.env.NODE_ENV = "test";
 process.env.SNS_SKIP_VERIFY = "true";
 import * as schema from "../src/db/schema";
 

@@ -251,16 +251,6 @@ export async function sendCampaign(
         }).returning().get();
       }
 
-      const attemptAt = new Date().toISOString();
-      db.update(schema.campaignSends).set({
-        status: "attempting",
-        attemptCount: delivery.attemptCount + 1,
-        lastAttemptAt: attemptAt,
-        nextAttemptAt: null,
-        lastError: null,
-        updatedAt: attemptAt,
-      }).where(eq(schema.campaignSends.id, delivery.id)).run();
-
       const unsubscribeUrl = list
         ? buildUnsubscribeUrl(config.baseUrl, subscriber.unsubscribeToken, list.id)
         : buildUnsubscribeUrl(config.baseUrl, subscriber.unsubscribeToken);
@@ -297,6 +287,18 @@ export async function sendCampaign(
           "Reply-To": replyTo,
         },
       });
+
+      // Mark the attempt immediately before the network call. This keeps the
+      // restart-recovery ambiguity window as small as possible.
+      const attemptAt = new Date().toISOString();
+      db.update(schema.campaignSends).set({
+        status: "attempting",
+        attemptCount: delivery.attemptCount + 1,
+        lastAttemptAt: attemptAt,
+        nextAttemptAt: null,
+        lastError: null,
+        updatedAt: attemptAt,
+      }).where(eq(schema.campaignSends.id, delivery.id)).run();
 
       try {
         const result = await sendEmail(config,

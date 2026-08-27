@@ -10,13 +10,19 @@ import { mountDesignRoutes } from "./routes/admin/design";
 import { startPoller } from "./services/poller";
 import { startScheduler } from "./services/scheduler";
 import { bootstrapOwner } from "./bootstrap";
-import { startDeliveryWorker } from "./services/delivery-worker";
+import { rescheduleInterruptedCampaigns, startDeliveryWorker } from "./services/delivery-worker";
 import { mcpRoutes } from "./routes/mcp";
 import { oauthRoutes } from "./routes/oauth";
+import { cleanupExpiredAuthRecords } from "./services/auth-maintenance";
 
 const config = loadConfig();
 const db = createDb(config.dbPath);
 await bootstrapOwner(db, config);
+cleanupExpiredAuthRecords(db);
+const interruptedCampaigns = rescheduleInterruptedCampaigns(db);
+if (interruptedCampaigns > 0) {
+  console.warn(`Queued ${interruptedCampaigns} interrupted campaign(s) to resume`);
+}
 
 const app = createHttpApp();
 mountDesignRoutes(app);

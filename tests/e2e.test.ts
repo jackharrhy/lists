@@ -6,7 +6,7 @@ import { createHttpApp, type App } from "../src/http";
 
 import { createTestDb, seedList } from "./helpers";
 import { sendCampaign } from "../src/services/sender";
-import { processDueDeliveries } from "../src/services/delivery-worker";
+import { processDueDeliveries, recoverAbandonedDeliveries, rescheduleInterruptedCampaigns } from "../src/services/delivery-worker";
 import { publicRoutes } from "../src/routes/public";
 import { adminRoutes } from "../src/routes/admin";
 import * as schema from "../src/db/schema";
@@ -135,6 +135,45 @@ describe("Full campaign send flow", () => {
     expect(delivery.attemptCount).toBe(2);
     expect(delivery.sesMessageId).toBe("retried-ses-id");
     expect(db.select().from(schema.campaigns).get()!.status).toBe("sent");
+  });
+
+  test("recovers an attempt stranded by a restart", () => {
+    const db = createTestDb();
+    const list = seedList(db, { slug: "newsletter", fromDomain: "example.com" });
+    const sub = createSubscriber(db, "stranded@example.com", "Stranded", null, ["newsletter"]);
+    const campaign = db.insert(schema.campaigns).values({
+      audienceType: "list", audienceId: list.id, subject: "Interrupted",
+      bodyMarkdown: "Hello", fromAddress: "news@example.com", status: "sending",
+    }).returning().get();
+    const delivery = db.insert(schema.campaignSends).values({
+      campaignId: campaign.id,
+      subscriberId: sub.id,
+      idempotencyKey: `campaign:${campaign.id}:subscriber:${sub.id}`,
+      status: "attempting",
+      attemptCount: 1,
+      lastAttemptAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    }).returning().get();
+
+    expect(recoverAbandonedDeliveries(db, new Date("2026-01-01T00:16:00.000Z"))).toBe(1);
+    const recovered = db.select().from(schema.campaignSends)
+      .where(eq(schema.campaignSends.id, delivery.id)).get()!;
+    expect(recovered.status).toBe("deferred");
+    expect(recovered.nextAttemptAt).toBe("2026-01-01T00:16:00.000Z");
+  });
+
+  test("reschedules a campaign interrupted by a restart", () => {
+    const db = createTestDb();
+    const campaign = db.insert(schema.campaigns).values({
+      audienceType: "all", subject: "Interrupted campaign", bodyMarkdown: "Hello",
+      fromAddress: "news@example.com", status: "sending",
+    }).returning().get();
+
+    expect(rescheduleInterruptedCampaigns(db, new Date("2026-01-01T00:00:00.000Z"))).toBe(1);
+    const recovered = db.select().from(schema.campaigns)
+      .where(eq(schema.campaigns.id, campaign.id)).get()!;
+    expect(recovered.status).toBe("scheduled");
+    expect(recovered.scheduledAt).toBe("2026-01-01T00:15:00.000Z");
   });
 });
 

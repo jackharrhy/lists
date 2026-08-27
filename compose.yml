@@ -69,6 +69,7 @@ services:
       DB_PATH: /data/lists.db
       OWNER_EMAIL: owner@lists.local
       OWNER_PASSWORD: local-password
+      NODE_ENV: development
     volumes:
       - .:/app
       - app-dependencies:/app/node_modules

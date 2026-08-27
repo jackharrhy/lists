@@ -7,6 +7,11 @@ import { logEvent } from "../services/events";
 
 const snsValidator = new MessageValidator();
 
+export function shouldVerifySnsSignature(env: Record<string, string | undefined> = process.env) {
+  const localEnvironment = env.NODE_ENV === "test" || env.NODE_ENV === "development";
+  return env.SNS_SKIP_VERIFY !== "true" || !localEnvironment;
+}
+
 async function verifySnsSignature(rawBody: unknown): Promise<boolean> {
   return new Promise((resolve) => {
     snsValidator.validate(rawBody as Record<string, unknown>, (err: Error | null) => {
@@ -144,8 +149,8 @@ export function webhookRoutes(db: Db) {
 
     // Verify SNS message signature using AWS's official validator
     // This checks: SigningCertURL is from amazonaws.com, RSA-SHA1 signature is valid
-    // Skip in test/dev environments by setting SNS_SKIP_VERIFY=true
-    if (!process.env.SNS_SKIP_VERIFY) {
+    // The local/test bypass is deliberately ignored in production.
+    if (shouldVerifySnsSignature()) {
       const valid = await verifySnsSignature(rawBody);
       if (!valid) {
         console.error("SNS signature verification failed");
