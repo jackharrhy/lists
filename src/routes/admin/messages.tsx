@@ -529,6 +529,10 @@ export function mountMessageRoutes(app: App, db: Db, config: Config) {
           },
         },
         ConfigurationSetName: config.sesConfigSet || undefined,
+        EmailTags: [
+          { Name: "message_kind", Value: "reply" },
+          ...(msg.campaignId ? [{ Name: "campaign_id", Value: String(msg.campaignId) }] : []),
+        ],
       }).input,
     );
 

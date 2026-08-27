@@ -10,6 +10,7 @@ import { mountDesignRoutes } from "./routes/admin/design";
 import { startPoller } from "./services/poller";
 import { startScheduler } from "./services/scheduler";
 import { bootstrapOwner } from "./bootstrap";
+import { startDeliveryWorker } from "./services/delivery-worker";
 
 const config = loadConfig();
 const db = createDb(config.dbPath);
@@ -34,6 +35,11 @@ startPoller(db, config).catch((err) => {
 
 startScheduler(db, config).catch((err) => {
   console.error("Scheduler crashed:", err);
+  process.exit(1);
+});
+
+startDeliveryWorker(db, config).catch((err) => {
+  console.error("Delivery worker crashed:", err);
   process.exit(1);
 });
 

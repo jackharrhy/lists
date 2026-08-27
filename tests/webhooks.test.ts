@@ -1,6 +1,6 @@
 import { test, expect, describe, beforeEach, afterEach, mock } from "bun:test";
 import { createHttpApp, type App } from "../src/http";
-import { createTestDb, seedSubscriber } from "./helpers";
+import { createTestDb, seedSubscriber, seedList } from "./helpers";
 import { webhookRoutes } from "../src/routes/webhooks";
 import { eq } from "drizzle-orm";
 
@@ -126,6 +126,52 @@ function makeComplaintBody(email: string) {
     Message: message,
   };
 }
+
+function makeLifecycleBody(eventType: "Send" | "Delivery" | "DeliveryDelay" | "Reject", messageId: string) {
+  return {
+    ...SNS_BASE,
+    MessageId: `sns-${eventType.toLowerCase()}-${messageId}`,
+    Type: "Notification",
+    Message: JSON.stringify({
+      eventType,
+      mail: {
+        timestamp: "2026-03-17T00:00:00.000Z",
+        messageId,
+        source: "sender@example.com",
+        destination: ["reader@example.com"],
+      },
+    }),
+  };
+}
+
+describe("POST /webhooks/ses - Delivery lifecycle", () => {
+  test("moves an accepted send to delivered and deduplicates repeated SNS events", async () => {
+    const db = createTestDb();
+    const app = makeApp(db);
+    const list = seedList(db);
+    const subscriber = seedSubscriber(db, { email: "reader@example.com" });
+    const campaign = db.insert(schema.campaigns).values({
+      audienceType: "list", audienceId: list.id, subject: "Lifecycle",
+      bodyMarkdown: "Hello", fromAddress: "news@example.com", status: "sent",
+    }).returning().get();
+    db.insert(schema.campaignSends).values({
+      campaignId: campaign.id,
+      subscriberId: subscriber.id,
+      idempotencyKey: `campaign:${campaign.id}:subscriber:${subscriber.id}`,
+      sesMessageId: "ses-lifecycle-id",
+      status: "accepted",
+    }).run();
+
+    const body = makeLifecycleBody("Delivery", "ses-lifecycle-id");
+    expect((await postSes(app, body)).status).toBe(200);
+    expect((await postSes(app, body)).status).toBe(200);
+
+    const delivery = db.select().from(schema.campaignSends).get()!;
+    expect(delivery.status).toBe("delivered");
+    expect(delivery.deliveredAt).not.toBeNull();
+    expect(db.select().from(schema.deliveryEvents).all()).toHaveLength(1);
+  });
+});
 
 describe("POST /webhooks/ses - SubscriptionConfirmation", () => {
   let originalFetch: typeof global.fetch;

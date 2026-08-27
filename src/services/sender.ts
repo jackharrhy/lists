@@ -151,8 +151,8 @@ export async function sendCampaign(
 ) {
   const campaign = db.select().from(schema.campaigns).where(eq(schema.campaigns.id, campaignId)).get();
   if (!campaign) throw new Error(`Campaign ${campaignId} not found`);
-  if (!["draft", "failed", "scheduled"].includes(campaign.status)) {
-    throw new Error(`Campaign ${campaignId} is ${campaign.status}, must be draft, failed, or scheduled`);
+  if (!["draft", "failed", "scheduled", "sending"].includes(campaign.status)) {
+    throw new Error(`Campaign ${campaignId} is ${campaign.status}, must be draft, failed, scheduled, or sending`);
   }
 
   // Resolve list when audienceType is "list"
@@ -208,7 +208,7 @@ export async function sendCampaign(
         .from(schema.campaignSends)
         .where(and(
           eq(schema.campaignSends.campaignId, campaignId),
-          eq(schema.campaignSends.status, "sent"),
+          inArray(schema.campaignSends.status, ["accepted", "delivered", "delivery_delayed", "sent"]),
         ))
         .all()
         .map((r) => r.subscriberId),
@@ -234,6 +234,32 @@ export async function sendCampaign(
 
     for (const subscriber of subscribers) {
       if (alreadySent.has(subscriber.id)) continue;
+
+      const idempotencyKey = `campaign:${campaignId}:subscriber:${subscriber.id}`;
+      let delivery = db.select().from(schema.campaignSends)
+        .where(eq(schema.campaignSends.idempotencyKey, idempotencyKey)).get();
+      if (delivery?.status === "deferred" && delivery.nextAttemptAt && delivery.nextAttemptAt > new Date().toISOString()) continue;
+      if (delivery && ["accepted", "delivered", "delivery_delayed", "bounced", "complained", "sent"].includes(delivery.status)) continue;
+
+      if (!delivery) {
+        delivery = db.insert(schema.campaignSends).values({
+          campaignId,
+          subscriberId: subscriber.id,
+          idempotencyKey,
+          status: "pending",
+          updatedAt: new Date().toISOString(),
+        }).returning().get();
+      }
+
+      const attemptAt = new Date().toISOString();
+      db.update(schema.campaignSends).set({
+        status: "attempting",
+        attemptCount: delivery.attemptCount + 1,
+        lastAttemptAt: attemptAt,
+        nextAttemptAt: null,
+        lastError: null,
+        updatedAt: attemptAt,
+      }).where(eq(schema.campaignSends.id, delivery.id)).run();
 
       const unsubscribeUrl = list
         ? buildUnsubscribeUrl(config.baseUrl, subscriber.unsubscribeToken, list.id)
@@ -281,31 +307,48 @@ export async function sendCampaign(
               },
             },
             ConfigurationSetName: config.sesConfigSet || undefined,
+            EmailTags: [
+              { Name: "campaign_id", Value: String(campaignId) },
+              { Name: "subscriber_id", Value: String(subscriber.id) },
+              ...(list ? [{ Name: "list_id", Value: String(list.id) }] : []),
+              { Name: "message_kind", Value: "campaign" },
+            ],
           }).input,
         );
 
-        db.insert(schema.campaignSends)
-          .values({
-            campaignId,
-            subscriberId: subscriber.id,
+        const acceptedAt = new Date().toISOString();
+        db.update(schema.campaignSends)
+          .set({
             sesMessageId: result.MessageId ?? null,
             rfc822MessageId,
-            status: "sent",
-            sentAt: new Date().toISOString(),
+            status: "accepted",
+            sentAt: acceptedAt,
+            acceptedAt,
+            updatedAt: acceptedAt,
           })
+          .where(eq(schema.campaignSends.id, delivery.id))
           .run();
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        sendErrors.push(`${subscriber.email}: ${msg}`);
-        db.insert(schema.campaignSends)
-          .values({
-            campaignId,
-            subscriberId: subscriber.id,
-            rfc822MessageId,
-            status: "bounced",
-            sentAt: new Date().toISOString(),
-          })
-          .run();
+        const metadataStatus = typeof err === "object" && err && "$metadata" in err
+          ? Number((err as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode)
+          : 0;
+        const errorName = err instanceof Error ? err.name : "";
+        const retryable = metadataStatus === 429 || metadataStatus >= 500 ||
+          ["ThrottlingException", "TooManyRequestsException", "ServiceUnavailableException", "TimeoutError"].includes(errorName);
+        const attempts = delivery.attemptCount + 1;
+        const willRetry = retryable && attempts < 5;
+        const retryAt = willRetry
+          ? new Date(Date.now() + Math.min(60, 2 ** attempts) * 60_000).toISOString()
+          : null;
+        db.update(schema.campaignSends).set({
+          rfc822MessageId,
+          status: willRetry ? "deferred" : "failed",
+          nextAttemptAt: retryAt,
+          lastError: msg,
+          updatedAt: new Date().toISOString(),
+        }).where(eq(schema.campaignSends.id, delivery.id)).run();
+        if (!willRetry) sendErrors.push(`${subscriber.email}: ${msg}`);
         console.error(`Failed to send to ${subscriber.email}: ${msg}`);
       }
     }
@@ -323,7 +366,7 @@ export async function sendCampaign(
           .from(schema.campaignSends)
           .where(and(
             eq(schema.campaignSends.campaignId, campaignId),
-            eq(schema.campaignSends.status, "sent"),
+          inArray(schema.campaignSends.status, ["accepted", "delivered", "delivery_delayed", "sent"]),
           ))
           .all()
           .map((r) => r.subscriberId),
@@ -361,6 +404,18 @@ export async function sendCampaign(
         console.log(`Campaign ${campaignId}: sent batch, ${remainingCount} remaining, next at ${nextAt}`);
         return; // don't fall through to mark as "sent"
       }
+    }
+
+    const outstanding = db.select({ id: schema.campaignSends.id })
+      .from(schema.campaignSends)
+      .where(and(
+        eq(schema.campaignSends.campaignId, campaignId),
+        inArray(schema.campaignSends.status, ["pending", "attempting", "deferred"]),
+      )).all();
+    if (outstanding.length > 0) {
+      db.update(schema.campaigns).set({ status: "sending" })
+        .where(eq(schema.campaigns.id, campaignId)).run();
+      return;
     }
 
     db.update(schema.campaigns)

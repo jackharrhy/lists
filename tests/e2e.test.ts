@@ -6,6 +6,7 @@ import { createHttpApp, type App } from "../src/http";
 
 import { createTestDb, seedList } from "./helpers";
 import { sendCampaign } from "../src/services/sender";
+import { processDueDeliveries } from "../src/services/delivery-worker";
 import { publicRoutes } from "../src/routes/public";
 import { adminRoutes } from "../src/routes/admin";
 import * as schema from "../src/db/schema";
@@ -84,7 +85,7 @@ describe("Full campaign send flow", () => {
       .where(eq(schema.campaignSends.campaignId, campaign.id))
       .all();
     expect(sends).toHaveLength(1);
-    expect(sends[0].status).toBe("sent");
+    expect(sends[0].status).toBe("accepted");
     expect(sends[0].sesMessageId).toBe("test-msg-id");
 
     // SES should have been called exactly once
@@ -95,6 +96,46 @@ describe("Full campaign send flow", () => {
     const input = sesCalls[0].args[0].input;
     expect(input.Content?.Raw?.Data).toBeDefined();
     expect(input.ConfigurationSetName).toBe("test-config-set");
+    expect(input.EmailTags).toEqual(expect.arrayContaining([
+      { Name: "campaign_id", Value: String(campaign.id) },
+      { Name: "subscriber_id", Value: String(sub.id) },
+      { Name: "message_kind", Value: "campaign" },
+    ]));
+  });
+
+  test("defers retryable SES failures and the worker later accepts them", async () => {
+    const db = createTestDb();
+    const list = seedList(db, { slug: "newsletter", fromDomain: "example.com" });
+    const sub = createSubscriber(db, "retry@example.com", "Retry", null, ["newsletter"]);
+    confirmSubscriber(db, sub.unsubscribeToken);
+    const campaign = db.insert(schema.campaigns).values({
+      audienceType: "list", audienceId: list.id, subject: "Retry me",
+      bodyMarkdown: "Hello", fromAddress: "news@example.com", status: "draft",
+    }).returning().get();
+
+    const throttle = Object.assign(new Error("rate limited"), {
+      name: "ThrottlingException",
+      $metadata: { httpStatusCode: 429 },
+    });
+    sesMock.on(SendEmailCommand).rejects(throttle);
+    await sendCampaign(db, testConfig, campaign.id);
+
+    let delivery = db.select().from(schema.campaignSends).get()!;
+    expect(delivery.status).toBe("deferred");
+    expect(delivery.attemptCount).toBe(1);
+    expect(delivery.nextAttemptAt).not.toBeNull();
+    expect(db.select().from(schema.campaigns).get()!.status).toBe("sending");
+
+    db.update(schema.campaignSends).set({ nextAttemptAt: new Date(0).toISOString() })
+      .where(eq(schema.campaignSends.id, delivery.id)).run();
+    sesMock.on(SendEmailCommand).resolves({ MessageId: "retried-ses-id" });
+    await processDueDeliveries(db, testConfig);
+
+    delivery = db.select().from(schema.campaignSends).get()!;
+    expect(delivery.status).toBe("accepted");
+    expect(delivery.attemptCount).toBe(2);
+    expect(delivery.sesMessageId).toBe("retried-ses-id");
+    expect(db.select().from(schema.campaigns).get()!.status).toBe("sent");
   });
 });
 
@@ -147,8 +188,17 @@ describe("Campaign send failure flow", () => {
       .where(eq(schema.campaignSends.campaignId, campaign.id))
       .all();
     expect(sends).toHaveLength(1);
-    expect(sends[0].status).toBe("bounced");
+    expect(sends[0].status).toBe("failed");
     expect(sends[0].sesMessageId).toBeNull();
+
+    sesMock.on(SendEmailCommand).resolves({ MessageId: "manual-retry-id" });
+    await sendCampaign(db, testConfig, campaign.id);
+    const retried = db.select().from(schema.campaignSends)
+      .where(eq(schema.campaignSends.campaignId, campaign.id)).all();
+    expect(retried).toHaveLength(1);
+    expect(retried[0].status).toBe("accepted");
+    expect(retried[0].attemptCount).toBe(2);
+    expect(db.select().from(schema.campaigns).where(eq(schema.campaigns.id, campaign.id)).get()!.status).toBe("sent");
   });
 
   test("throws for non-existent campaign", async () => {
@@ -176,7 +226,7 @@ describe("Campaign send failure flow", () => {
       .get();
 
     expect(sendCampaign(db, testConfig, campaign.id)).rejects.toThrow(
-      "must be draft, failed, or scheduled",
+      "must be draft, failed, scheduled, or sending",
     );
   });
 });
@@ -244,7 +294,7 @@ describe("Campaign retry skips already sent", () => {
 
     const newSend = sends.find((s) => s.subscriberId === sub2.id);
     expect(newSend).toBeDefined();
-    expect(newSend!.status).toBe("sent");
+    expect(newSend!.status).toBe("accepted");
     expect(newSend!.sesMessageId).toBe("retry-msg-id");
   });
 });

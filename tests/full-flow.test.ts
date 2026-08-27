@@ -154,7 +154,7 @@ describe("Full HTTP flow: campaign create+send (list audience)", () => {
       .all();
     expect(sends).toHaveLength(1);
     expect(sends[0].subscriberId).toBe(sub.id);
-    expect(sends[0].status).toBe("sent");
+    expect(sends[0].status).toBe("accepted");
   });
 });
 
@@ -474,7 +474,7 @@ describe("Full HTTP flow: subscribe → confirm → receive campaign", () => {
       .all();
     expect(sends).toHaveLength(1);
     expect(sends[0].subscriberId).toBe(subscriber!.id);
-    expect(sends[0].status).toBe("sent");
+    expect(sends[0].status).toBe("accepted");
   });
 });
 
