@@ -6,6 +6,14 @@ The complete application can run without an AWS account. Moto emulates S3 and SQ
 docker compose up --build --wait
 ```
 
+To open the stack from another machine on a Tailnet or LAN, override its public URLs:
+
+```sh
+BASE_URL=http://100.x.y.z:8080 \
+S3_MEDIA_BASE_URL=http://100.x.y.z:5000/lists-media \
+docker compose up --build --wait
+```
+
 - Application: http://localhost:8080
 - Admin login: `owner@lists.local` / `local-password`
 - Mailpit inbox: http://localhost:8025
