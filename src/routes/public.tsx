@@ -40,6 +40,7 @@ function Layout({ children }: { children: any }) {
 
 export function publicRoutes(db: Db, config: Config) {
   const app = createHttpApp();
+  const publicSubscriptionsEnabled = config.publicSubscriptionsEnabled ?? true;
 
   // GET /subscribe - landing page with subscribe form
   app.get("/subscribe", (c) => {
@@ -64,7 +65,9 @@ export function publicRoutes(db: Db, config: Config) {
           Subscribe to hear about things being worked on, written about, or found interesting.
         </p>
 
-        {domains.length > 0 ? (
+        {!publicSubscriptionsEnabled ? (
+          <p class="text-gray-600">Public subscriptions are temporarily unavailable.</p>
+        ) : domains.length > 0 ? (
           <>
           <details class="mb-6">
             <summary class="cursor-pointer text-sm font-medium text-blue-600 hover:text-blue-800 select-none">
@@ -157,6 +160,16 @@ export function publicRoutes(db: Db, config: Config) {
 
   // POST /subscribe - process subscription
   app.post("/subscribe", async (c) => {
+    if (!publicSubscriptionsEnabled) {
+      return c.html(
+        <Layout>
+          <h1 class="text-2xl font-bold mb-2">Subscriptions unavailable</h1>
+          <p class="text-gray-600">Public subscriptions are temporarily unavailable.</p>
+        </Layout>,
+        503,
+      );
+    }
+
     const body = c.body as Record<string, any>;
     const email = String(body["email"] ?? "").trim();
     const firstName = String(body["firstName"] ?? "").trim().slice(0, 255) || null;

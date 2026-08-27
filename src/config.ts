@@ -11,6 +11,7 @@ export type Config = {
   s3MediaBaseUrl: string;
   ownerEmail: string;
   ownerPassword: string;
+  publicSubscriptionsEnabled?: boolean;
   awsEndpointUrl?: string;
   smtpUrl?: string;
 };
@@ -35,6 +36,7 @@ export function loadConfig(): Config {
     s3MediaBaseUrl: process.env.S3_MEDIA_BASE_URL ?? "",
     ownerEmail: process.env.OWNER_EMAIL ?? "",
     ownerPassword: process.env.OWNER_PASSWORD ?? "",
+    publicSubscriptionsEnabled: process.env.PUBLIC_SUBSCRIPTIONS_ENABLED === "true",
     awsEndpointUrl: process.env.AWS_ENDPOINT_URL || undefined,
     smtpUrl: process.env.SMTP_URL || undefined,
   };

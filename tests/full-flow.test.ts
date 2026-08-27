@@ -380,6 +380,26 @@ describe("Full HTTP flow: campaign create+send (all subscribers)", () => {
 // Test 5: Full subscribe → confirm → receive campaign flow
 // ---------------------------------------------------------------------------
 describe("Full HTTP flow: subscribe → confirm → receive campaign", () => {
+  test("public subscriptions can be disabled without creating a subscriber or sending email", async () => {
+    const db = createTestDb();
+    await seedOwner(db);
+    seedList(db, { slug: "newsletter", name: "Newsletter", fromDomain: "example.com" });
+
+    const app = createApp(db, { publicSubscriptionsEnabled: false });
+    const response = await app.request("/subscribe", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        email: "target@example.com",
+        lists: "newsletter",
+      }).toString(),
+    });
+
+    expect(response.status).toBe(503);
+    expect(db.select().from(schema.subscribers).all()).toHaveLength(0);
+    expect(sesMock.commandCalls(SendEmailCommand)).toHaveLength(0);
+  });
+
   test("public subscribe, confirm via link, then receive campaign via admin send", async () => {
     const db = createTestDb();
     await seedOwner(db);
