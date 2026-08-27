@@ -57,7 +57,7 @@ export function AdminLayout({
         hx-boost="true"
         hx-target="#app-shell"
         hx-select="#app-shell"
-        hx-swap="outerHTML transition:true"
+        hx-swap="outerHTML"
         hx-push-url="true"
         hx-indicator="#global-progress"
       >

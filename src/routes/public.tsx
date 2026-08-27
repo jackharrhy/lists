@@ -28,7 +28,7 @@ function Layout({ children }: { children: any }) {
         <link rel="stylesheet" href={assetUrl("/static/styles.css")} />
         <script src={assetUrl("/static/app.js")} defer></script>
       </head>
-      <body class="public-page font-sans text-gray-900 bg-gray-50 m-0 p-0" hx-boost="true" hx-target="#app-shell" hx-select="#app-shell" hx-swap="outerHTML transition:true" hx-push-url="true" hx-indicator="#global-progress">
+      <body class="public-page font-sans text-gray-900 bg-gray-50 m-0 p-0" hx-boost="true" hx-target="#app-shell" hx-select="#app-shell" hx-swap="outerHTML" hx-push-url="true" hx-indicator="#global-progress">
         <div id="global-progress" class="htmx-indicator" role="progressbar" aria-label="Loading"></div>
         <div id="app-shell" class="max-w-lg mx-auto px-6 py-12">
           {children}

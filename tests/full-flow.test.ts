@@ -741,6 +741,8 @@ describe("HTMX application shell", () => {
     expect(html).toMatch(/href="\/static\/styles\.css\?v=[a-z0-9]+"/);
     expect(html).toContain('hx-boost="true"');
     expect(html).toContain('hx-target="#app-shell"');
+    expect(html).toContain('hx-swap="outerHTML"');
+    expect(html).not.toContain("transition:true");
     expect(html).toContain('id="global-progress"');
     expect(html).toContain('method="post" action="/subscribe"');
   });
@@ -757,6 +759,7 @@ describe("HTMX application shell", () => {
     expect(response.status).toBe(200);
     expect(html).toContain('id="app-shell"');
     expect(html).toContain('hx-select="#app-shell"');
+    expect(html).not.toContain("transition:true");
     expect(html).toContain('hx-get="/admin/subscribers"');
     expect(html).toContain("keyup changed delay:350ms");
     expect(html).toContain('class="bg-gray-900 py-3 mb-6"');
