@@ -1,7 +1,8 @@
-import { SESv2Client, SendEmailCommand } from "@aws-sdk/client-sesv2";
+import { SendEmailCommand } from "@aws-sdk/client-sesv2";
 import { eq, and, inArray } from "drizzle-orm";
 import { marked } from "marked";
 import * as nodemailer from "nodemailer";
+import type Mail from "nodemailer/lib/mailer";
 import type { Config } from "../config";
 import { type Db, schema } from "../db";
 import { getConfirmedSubscribers } from "./subscriber";
@@ -12,6 +13,7 @@ import {
 } from "../compliance";
 import { renderNewsletter } from "../../emails/render";
 import { logEvent } from "./events";
+import { sendEmail } from "./mailer";
 
 /** Get all active, confirmed subscribers (deduplicated by email) for campaigns with no specific list. */
 function getAllActiveConfirmedSubscribers(db: Db) {
@@ -57,6 +59,7 @@ function getSubscribersByTag(db: Db, tagId: number) {
 }
 
 function getSubscribersByIds(db: Db, ids: number[]) {
+  if (ids.length === 0) return [];
   return db
     .selectDistinct({
       id: schema.subscribers.id,
@@ -112,7 +115,7 @@ export async function buildRawEmail({
   const messageId = `<${crypto.randomUUID()}@${fromDomain}>`;
 
   // Extract data: URI images and convert to inline CID attachments
-  const inlineAttachments: nodemailer.Attachment[] = [];
+  const inlineAttachments: Mail.Attachment[] = [];
   const processedHtml = html.replace(/src="data:(image\/[^;]+);base64,([^"]+)"/g, (_match, mimeType, base64Data) => {
     const cid = `img-${crypto.randomUUID().replace(/-/g, "")}@lists`;
     inlineAttachments.push({
@@ -197,7 +200,7 @@ export async function sendCampaign(
         throw new Error(`Unknown audience type: ${campaign.audienceType}`);
     }
 
-    const ses = new SESv2Client({ region: config.awsRegion });
+    const sendErrors: string[] = [];
 
     // figure out which subscribers already got this (for retries)
     const alreadySent = new Set(
@@ -270,7 +273,7 @@ export async function sendCampaign(
       });
 
       try {
-        const result = await ses.send(
+        const result = await sendEmail(config,
           new SendEmailCommand({
             Content: {
               Raw: {
@@ -278,7 +281,7 @@ export async function sendCampaign(
               },
             },
             ConfigurationSetName: config.sesConfigSet || undefined,
-          }),
+          }).input,
         );
 
         db.insert(schema.campaignSends)
@@ -293,6 +296,7 @@ export async function sendCampaign(
           .run();
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+        sendErrors.push(`${subscriber.email}: ${msg}`);
         db.insert(schema.campaignSends)
           .values({
             campaignId,
@@ -304,6 +308,12 @@ export async function sendCampaign(
           .run();
         console.error(`Failed to send to ${subscriber.email}: ${msg}`);
       }
+    }
+
+    if (sendErrors.length > 0) {
+      throw new Error(
+        `Campaign delivery failed for ${sendErrors.length} recipient${sendErrors.length === 1 ? "" : "s"}: ${sendErrors.join("; ")}`,
+      );
     }
 
     // For batched campaigns, check if there are more unsent subscribers remaining

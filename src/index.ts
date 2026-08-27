@@ -1,6 +1,5 @@
-import { Hono } from "hono";
-import { trimTrailingSlash } from "hono/trailing-slash";
-import { serveStatic } from "hono/bun";
+import { staticPlugin } from "@elysia/static";
+import { createHttpApp } from "./http";
 import { loadConfig } from "./config";
 import { createDb } from "./db";
 import { publicRoutes } from "./routes/public";
@@ -16,17 +15,17 @@ const config = loadConfig();
 const db = createDb(config.dbPath);
 await bootstrapOwner(db, config);
 
-const app = new Hono();
-
-app.use(trimTrailingSlash());
-app.use("/static/*", serveStatic({ root: "./public", rewriteRequestPath: (p) => p.replace("/static", "") }));
-
-app.get("/", (c) => c.redirect("/subscribe"));
-app.route("/", publicRoutes(db, config));
-app.route("/webhooks", webhookRoutes(db));
-app.route("/api", apiRoutes(db, config));
-app.route("/admin", adminRoutes(db, config));
+const app = createHttpApp();
 mountDesignRoutes(app);
+
+app
+  .use(staticPlugin({ assets: "public", prefix: "/static" }))
+  .get("/health", () => ({ ok: true }))
+  .get("/", ({ redirect }) => redirect("/subscribe", 302))
+  .use(publicRoutes(db, config))
+  .group("/webhooks", (app) => app.use(webhookRoutes(db)))
+  .group("/api", (app) => app.use(apiRoutes(db, config)))
+  .group("/admin", (app) => app.use(adminRoutes(db, config)));
 
 startPoller(db, config).catch((err) => {
   console.error("Poller crashed:", err);
@@ -39,8 +38,6 @@ startScheduler(db, config).catch((err) => {
 });
 
 console.log("lists running on :8080");
+app.listen(8080);
 
-export default {
-  port: 8080,
-  fetch: app.fetch,
-};
+export default app;

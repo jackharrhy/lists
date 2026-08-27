@@ -10,6 +10,7 @@ import type { Config } from "../config";
 import type { Db } from "../db";
 import { schema } from "../db";
 import { logEvent } from "./events";
+import { awsClientConfig, s3ClientConfig } from "./aws";
 
 type SQSPayload = {
   messageId: string;
@@ -46,8 +47,8 @@ async function fetchAndParseEmail(s3: S3Client, bucket: string, key: string) {
 }
 
 export async function startPoller(db: Db, config: Config) {
-  const sqs = new SQSClient({ region: config.awsRegion });
-  const s3 = new S3Client({ region: config.awsRegion });
+  const sqs = new SQSClient(awsClientConfig(config));
+  const s3 = new S3Client(s3ClientConfig(config));
   const queueUrl = config.sqsQueueUrl;
 
   console.log(`Polling SQS queue: ${queueUrl}`);
@@ -85,11 +86,7 @@ export async function startPoller(db: Db, config: Config) {
               bodyHtml = parsed.html || null;
               // Prefer parsed headers over Lambda payload (more reliable)
               parsedRfc822MessageId = parsed.messageId ?? null;
-              parsedInReplyTo = parsed.inReplyTo
-                ? (typeof parsed.inReplyTo === "string"
-                  ? parsed.inReplyTo
-                  : parsed.inReplyTo.text ?? null)
-                : null;
+              parsedInReplyTo = parsed.inReplyTo ?? null;
             }
           } catch (err) {
             console.error(`Failed to fetch/parse email from S3 (${s3Key}):`, err);

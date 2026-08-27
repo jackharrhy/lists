@@ -1,5 +1,5 @@
 import { test, expect, describe, beforeEach, afterEach, mock } from "bun:test";
-import { Hono } from "hono";
+import { createHttpApp, type App } from "../src/http";
 import { createTestDb, seedSubscriber } from "./helpers";
 import { webhookRoutes } from "../src/routes/webhooks";
 import { eq } from "drizzle-orm";
@@ -18,19 +18,19 @@ const SNS_BASE = {
 };
 
 function makeApp(db: ReturnType<typeof createTestDb>) {
-  const app = new Hono();
-  app.route("/webhooks", webhookRoutes(db));
+  const app = createHttpApp();
+  app.group("/webhooks", (app) => app.use(webhookRoutes(db)));
   return app;
 }
 
-function postSes(app: Hono, body: unknown, messageType: string | null = "Notification") {
+function postSes(app: App, body: unknown, messageType: string | null = "Notification") {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
   if (messageType !== null) {
     headers["x-amz-sns-message-type"] = messageType;
   }
-  return app.fetch(
+  return app.handle(
     new Request("http://localhost/webhooks/ses", {
       method: "POST",
       headers,

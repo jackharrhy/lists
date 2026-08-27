@@ -1,6 +1,6 @@
 import { test, expect, describe, beforeEach } from "bun:test";
 import { eq } from "drizzle-orm";
-import { Hono } from "hono";
+import { createHttpApp, type App } from "../src/http";
 
 import { createTestDb, seedList, type TestDb } from "./helpers";
 import { adminRoutes } from "../src/routes/admin";
@@ -49,7 +49,7 @@ async function seedUser(
 
 /** POST /login and return the session cookie string */
 async function login(
-  app: Hono,
+  app: App,
   email: string,
   password: string,
 ): Promise<{ res: Response; cookie: string | null }> {
@@ -76,7 +76,7 @@ async function login(
 }
 
 /** Make an authenticated GET request */
-async function authGet(app: Hono, path: string, cookie: string) {
+async function authGet(app: App, path: string, cookie: string) {
   return app.request(path, {
     method: "GET",
     headers: { Cookie: cookie },
@@ -85,7 +85,7 @@ async function authGet(app: Hono, path: string, cookie: string) {
 
 /** Make an authenticated POST request with form data */
 async function authPost(
-  app: Hono,
+  app: App,
   path: string,
   cookie: string,
   body: Record<string, string | string[]>,
@@ -137,12 +137,12 @@ describe("Owner bootstrap", () => {
 // ---------------------------------------------------------------------------
 describe("Login flow", () => {
   let db: TestDb;
-  let app: Hono;
+  let app: App;
 
   beforeEach(async () => {
     db = createTestDb();
-    app = new Hono();
-    app.route("/", adminRoutes(db, testConfig));
+    app = createHttpApp();
+    app.use(adminRoutes(db, testConfig));
     await seedUser(db, {
       email: "owner@example.com",
       password: "correct-password",
@@ -176,8 +176,8 @@ describe("Login flow", () => {
 describe("Role-based access to users page", () => {
   test("owner can access /users, member gets 403", async () => {
     const db = createTestDb();
-    const app = new Hono();
-    app.route("/", adminRoutes(db, testConfig));
+    const app = createHttpApp();
+    app.use(adminRoutes(db, testConfig));
 
     await seedUser(db, {
       email: "owner@example.com",
@@ -212,8 +212,8 @@ describe("Role-based access to users page", () => {
 describe("Member filtered view", () => {
   test("member only sees assigned lists and their campaigns", async () => {
     const db = createTestDb();
-    const app = new Hono();
-    app.route("/", adminRoutes(db, testConfig));
+    const app = createHttpApp();
+    app.use(adminRoutes(db, testConfig));
 
     // Seed owner
     await seedUser(db, {
@@ -284,8 +284,8 @@ describe("Member filtered view", () => {
 describe("Invite user flow", () => {
   test("owner can invite a member with list assignments, new user can login", async () => {
     const db = createTestDb();
-    const app = new Hono();
-    app.route("/", adminRoutes(db, testConfig));
+    const app = createHttpApp();
+    app.use(adminRoutes(db, testConfig));
 
     await seedUser(db, {
       email: "owner@example.com",
@@ -346,8 +346,8 @@ describe("Invite user flow", () => {
 describe("Can't delete yourself", () => {
   test("POST /users/{own-id}/delete returns 400 and user still exists", async () => {
     const db = createTestDb();
-    const app = new Hono();
-    app.route("/", adminRoutes(db, testConfig));
+    const app = createHttpApp();
+    app.use(adminRoutes(db, testConfig));
 
     const owner = await seedUser(db, {
       email: "owner@example.com",

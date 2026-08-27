@@ -95,6 +95,37 @@ describe("createSubscriber", () => {
     expect(subLists).toHaveLength(2);
     expect(subLists.every((sl) => sl.status === "unconfirmed")).toBe(true);
   });
+
+  test("moves an unsubscribed list back to unconfirmed when resubscribing", () => {
+    const db = createTestDb();
+    const list = seedList(db, { slug: "news" });
+    const subscriber = createSubscriber(db, "returning@example.com", null, null, ["news"]);
+    confirmSubscriber(db, subscriber.unsubscribeToken);
+    unsubscribeFromList(db, subscriber.unsubscribeToken, list.id);
+
+    createSubscriber(db, "returning@example.com", null, null, ["news"]);
+
+    const subscription = db
+      .select()
+      .from(schema.subscriberLists)
+      .where(
+        and(
+          eq(schema.subscriberLists.subscriberId, subscriber.id),
+          eq(schema.subscriberLists.listId, list.id),
+        ),
+      )
+      .get();
+    expect(subscription!.status).toBe("unconfirmed");
+  });
+
+  test("rejects unknown list slugs without creating a subscriber", () => {
+    const db = createTestDb();
+
+    expect(() =>
+      createSubscriber(db, "lost@example.com", null, null, ["does-not-exist"]),
+    ).toThrow("Unknown list slug");
+    expect(db.select().from(schema.subscribers).all()).toHaveLength(0);
+  });
 });
 
 describe("confirmSubscriber", () => {

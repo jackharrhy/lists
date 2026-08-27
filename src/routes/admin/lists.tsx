@@ -1,4 +1,5 @@
-import { Hono } from "hono";
+import { Html } from "@elysia/html";
+import type { App } from "../../http";
 import { eq, desc, sql, and, inArray } from "drizzle-orm";
 import type { Db } from "../../db";
 import { schema } from "../../db";
@@ -8,9 +9,19 @@ import { logEvent } from "../../services/events";
 import { AdminLayout, displayName, fmtDate, fmtDateTime, CampaignBadge, setFlash, getFlash, type User } from "./layout";
 import { Button, LinkButton, Input, Label, FormGroup, Table, Th, Td, Card, PageHeader } from "./ui";
 
-export function mountListRoutes(app: Hono, db: Db, config: Config) {
+export function mountListRoutes(app: App, db: Db, config: Config) {
+  app.guard({
+    beforeHandle: (c) => {
+      if (c.path.endsWith("/lists/new") || /\/lists\/\d+\/delete$/.test(c.path)) {
+        return requireRole("owner", "admin")(c as any);
+      }
+      if (/\/lists\/\d+(?:\/edit)?$/.test(c.path)) {
+        return requireListAccess(db, (ctx) => Number(ctx.req.param("id")))(c);
+      }
+    },
+  }, (app) => {
   app.get("/lists", (c) => {
-    const user = c.get("user") as User;
+    const user = c.user as User;
     const flash = getFlash(c);
     const listAccess = getAccessibleListIds(db, user);
     const isAdmin = user.role === "owner" || user.role === "admin";
@@ -69,8 +80,8 @@ export function mountListRoutes(app: Hono, db: Db, config: Config) {
     );
   });
 
-  app.get("/lists/new", requireRole("owner", "admin"), (c) => {
-    const user = c.get("user") as User;
+  app.get("/lists/new", (c) => {
+    const user = c.user as User;
     const flash = getFlash(c);
     return c.html(
       <AdminLayout title="New List" user={user} flash={flash}>
@@ -107,7 +118,8 @@ export function mountListRoutes(app: Hono, db: Db, config: Config) {
   });
 
   app.post("/lists/new", async (c) => {
-    const body = await c.req.parseBody();
+    const user = c.user as User;
+    const body = c.body as Record<string, any>;
     const slug = String(body["slug"] ?? "").trim();
     const name = String(body["name"] ?? "").trim();
     const description = String(body["description"] ?? "").trim();
@@ -128,10 +140,10 @@ export function mountListRoutes(app: Hono, db: Db, config: Config) {
     return c.redirect("/admin/lists");
   });
 
-  app.get("/lists/:id", requireListAccess(db, (c) => Number(c.req.param("id"))), (c) => {
-    const user = c.get("user") as User;
+  app.get("/lists/:id", (c) => {
+    const user = c.user as User;
     const flash = getFlash(c);
-    const id = Number(c.req.param("id"));
+    const id = Number(c.params.id);
     const list = db.select().from(schema.lists).where(eq(schema.lists.id, id)).get();
     if (!list) return c.notFound();
     const isAdmin = user.role === "owner" || user.role === "admin";
@@ -291,10 +303,10 @@ export function mountListRoutes(app: Hono, db: Db, config: Config) {
     );
   });
 
-  app.post("/lists/:id/edit", requireListAccess(db, (c) => Number(c.req.param("id"))), async (c) => {
-    const user = c.get("user") as User;
-    const id = Number(c.req.param("id"));
-    const body = await c.req.parseBody();
+  app.post("/lists/:id/edit", async (c) => {
+    const user = c.user as User;
+    const id = Number(c.params.id);
+    const body = c.body as Record<string, any>;
     const slug = String(body["slug"] ?? "").trim();
     const name = String(body["name"] ?? "").trim();
     const description = String(body["description"] ?? "").trim();
@@ -314,9 +326,9 @@ export function mountListRoutes(app: Hono, db: Db, config: Config) {
     return c.redirect(`/admin/lists/${id}`);
   });
 
-  app.post("/lists/:id/delete", requireRole("owner", "admin"), (c) => {
-    const user = c.get("user") as User;
-    const id = Number(c.req.param("id"));
+  app.post("/lists/:id/delete", (c) => {
+    const user = c.user as User;
+    const id = Number(c.params.id);
     const list = db.select().from(schema.lists).where(eq(schema.lists.id, id)).get();
 
     logEvent(db, { type: "admin.list_deleted", detail: list?.name ?? `id=${id}`, userId: user.id });
@@ -338,5 +350,7 @@ export function mountListRoutes(app: Hono, db: Db, config: Config) {
 
     setFlash(c, "List deleted.");
     return c.redirect("/admin/lists");
+  });
+  return app;
   });
 }

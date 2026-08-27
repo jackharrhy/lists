@@ -1,4 +1,5 @@
-import { Hono } from "hono";
+import { Html } from "@elysia/html";
+import type { App } from "../../http";
 import { eq, inArray } from "drizzle-orm";
 import type { Db } from "../../db";
 import { schema } from "../../db";
@@ -32,9 +33,9 @@ function parseCSV(text: string): string[][] {
   return rows;
 }
 
-export function mountImportRoutes(app: Hono, db: Db, config: Config) {
+export function mountImportRoutes(app: App, db: Db, config: Config) {
   app.get("/import", (c) => {
-    const user = c.get("user") as User;
+    const user = c.user as User;
     const flash = getFlash(c);
     return c.html(
       <AdminLayout title="Import Subscribers" user={user} flash={flash}>
@@ -59,8 +60,8 @@ export function mountImportRoutes(app: Hono, db: Db, config: Config) {
   });
 
   app.post("/import/upload", async (c) => {
-    const user = c.get("user") as User;
-    const body = await c.req.parseBody();
+    const user = c.user as User;
+    const body = c.body as Record<string, any>;
     const file = body["csv"];
 
     if (!file || typeof file === "string") {
@@ -184,8 +185,8 @@ export function mountImportRoutes(app: Hono, db: Db, config: Config) {
   });
 
   app.post("/import/process", async (c) => {
-    const user = c.get("user") as User;
-    const body = await c.req.parseBody({ all: true });
+    const user = c.user as User;
+    const body = c.body as Record<string, any>;
 
     let dataRows: string[][];
     let headers: string[];

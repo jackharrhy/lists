@@ -1,5 +1,5 @@
 import { test, expect, describe } from "bun:test";
-import { Hono } from "hono";
+import { createHttpApp, type App } from "../src/http";
 import {
   createSession,
   destroySession,
@@ -45,14 +45,13 @@ describe("destroySession", () => {
     const db = createTestDb();
     const user = seedUser(db);
 
-    const app = new Hono();
-    app.use("/protected/*", adminAuth(db));
-    app.get("/protected/data", (c) => c.text("ok"));
+    const app = createHttpApp();
+    app.group("/protected", (app) => app.use(adminAuth(db)).get("/data", (c) => c.text("ok")));
 
     const token = createSession(user.id);
 
     // Valid session should grant access
-    const validRes = await app.fetch(
+    const validRes = await app.handle(
       new Request("http://localhost/protected/data", {
         headers: { Cookie: `session=${token}` },
       }),
@@ -62,7 +61,7 @@ describe("destroySession", () => {
 
     // Destroy and verify it now redirects
     destroySession(token);
-    const invalidRes = await app.fetch(
+    const invalidRes = await app.handle(
       new Request("http://localhost/protected/data", {
         headers: { Cookie: `session=${token}` },
       }),
@@ -76,11 +75,10 @@ describe("adminAuth middleware", () => {
   test("redirects when no session cookie is present", async () => {
     const db = createTestDb();
 
-    const app = new Hono();
-    app.use("/protected/*", adminAuth(db));
-    app.get("/protected/data", (c) => c.text("ok"));
+    const app = createHttpApp();
+    app.group("/protected", (app) => app.use(adminAuth(db)).get("/data", (c) => c.text("ok")));
 
-    const res = await app.fetch(
+    const res = await app.handle(
       new Request("http://localhost/protected/data"),
     );
     expect(res.status).toBe(302);
@@ -91,15 +89,14 @@ describe("adminAuth middleware", () => {
     const db = createTestDb();
     const user = seedUser(db, { email: "admin@test.com", role: "admin" });
 
-    const app = new Hono();
-    app.use("/protected/*", adminAuth(db));
-    app.get("/protected/data", (c) => {
-      const u = c.get("user") as typeof user;
+    const app = createHttpApp();
+    app.group("/protected", (app) => app.use(adminAuth(db)).get("/data", (c) => {
+      const u = c.user as typeof user;
       return c.text(`${u.email}:${u.role}`);
-    });
+    }));
 
     const token = createSession(user.id);
-    const res = await app.fetch(
+    const res = await app.handle(
       new Request("http://localhost/protected/data", {
         headers: { Cookie: `session=${token}` },
       }),
@@ -111,11 +108,10 @@ describe("adminAuth middleware", () => {
   test("redirects with invalid session cookie", async () => {
     const db = createTestDb();
 
-    const app = new Hono();
-    app.use("/protected/*", adminAuth(db));
-    app.get("/protected/data", (c) => c.text("ok"));
+    const app = createHttpApp();
+    app.group("/protected", (app) => app.use(adminAuth(db)).get("/data", (c) => c.text("ok")));
 
-    const res = await app.fetch(
+    const res = await app.handle(
       new Request("http://localhost/protected/data", {
         headers: { Cookie: "session=bogus-token" },
       }),
@@ -130,13 +126,13 @@ describe("requireRole middleware", () => {
     const db = createTestDb();
     const user = seedUser(db, { email: "member@test.com", role: "member" });
 
-    const app = new Hono();
-    app.use("/protected/*", adminAuth(db));
-    app.use("/protected/*", requireRole("owner", "admin"));
-    app.get("/protected/data", (c) => c.text("ok"));
+    const app = createHttpApp();
+    app.group("/protected", (app) => app
+      .use(adminAuth(db))
+      .get("/data", (c) => c.text("ok"), { beforeHandle: requireRole("owner", "admin") }));
 
     const token = createSession(user.id);
-    const res = await app.fetch(
+    const res = await app.handle(
       new Request("http://localhost/protected/data", {
         headers: { Cookie: `session=${token}` },
       }),
@@ -148,13 +144,13 @@ describe("requireRole middleware", () => {
     const db = createTestDb();
     const user = seedUser(db, { email: "owner@test.com", role: "owner" });
 
-    const app = new Hono();
-    app.use("/protected/*", adminAuth(db));
-    app.use("/protected/*", requireRole("owner", "admin"));
-    app.get("/protected/data", (c) => c.text("ok"));
+    const app = createHttpApp();
+    app.group("/protected", (app) => app
+      .use(adminAuth(db))
+      .get("/data", (c) => c.text("ok"), { beforeHandle: requireRole("owner", "admin") }));
 
     const token = createSession(user.id);
-    const res = await app.fetch(
+    const res = await app.handle(
       new Request("http://localhost/protected/data", {
         headers: { Cookie: `session=${token}` },
       }),

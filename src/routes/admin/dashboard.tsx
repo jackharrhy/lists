@@ -1,15 +1,16 @@
-import { Hono } from "hono";
+import { Html } from "@elysia/html";
+import type { App } from "../../http";
 import { eq, desc, sql, and, inArray } from "drizzle-orm";
 import type { Db } from "../../db";
 import { schema } from "../../db";
 import type { Config } from "../../config";
 import { getAccessibleListIds } from "../../auth";
 import { AdminLayout, fmtDate, CampaignBadge, type User } from "./layout";
-import { Table, Th, Td } from "./ui";
+import { Table, Th, Td, PageHeader } from "./ui";
 
-export function mountDashboardRoutes(app: Hono, db: Db, config: Config) {
+export function mountDashboardRoutes(app: App, db: Db, config: Config) {
   app.get("/", (c) => {
-    const user = c.get("user") as User;
+    const user = c.user as User;
     const listAccess = getAccessibleListIds(db, user);
     const isAdmin = user.role === "owner" || user.role === "admin";
 
@@ -78,23 +79,25 @@ export function mountDashboardRoutes(app: Hono, db: Db, config: Config) {
 
     return c.html(
       <AdminLayout title="Dashboard" user={user}>
-        <h1 class="text-2xl font-bold mt-0 mb-4">Dashboard</h1>
-        <div class="flex gap-4 mb-6">
-          <div class="inline-flex flex-col items-center bg-white border border-gray-200 rounded-lg px-6 py-4 min-w-[120px] text-center">
-            <span class="text-3xl font-bold text-blue-600">{activeCount}</span>
-            <span class="text-xs text-gray-500 uppercase tracking-wide">Subscribers</span>
+        <PageHeader title="Dashboard">
+          <span class="hidden sm:inline text-sm text-gray-500">Your mailing operation at a glance</span>
+        </PageHeader>
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-9">
+          <div class="stat-card flex flex-col">
+            <span class="text-3xl font-bold tracking-tight text-gray-950">{activeCount}</span>
+            <span class="text-[0.68rem] font-bold text-gray-500 uppercase tracking-[0.12em] mt-1">Subscribers</span>
           </div>
-          <div class="inline-flex flex-col items-center bg-white border border-gray-200 rounded-lg px-6 py-4 min-w-[120px] text-center">
-            <span class="text-3xl font-bold text-blue-600">{listCount}</span>
-            <span class="text-xs text-gray-500 uppercase tracking-wide">Lists</span>
+          <div class="stat-card flex flex-col">
+            <span class="text-3xl font-bold tracking-tight text-gray-950">{listCount}</span>
+            <span class="text-[0.68rem] font-bold text-gray-500 uppercase tracking-[0.12em] mt-1">Lists</span>
           </div>
-          <div class="inline-flex flex-col items-center bg-white border border-gray-200 rounded-lg px-6 py-4 min-w-[120px] text-center">
-            <span class="text-3xl font-bold text-blue-600">{campaignCount}</span>
-            <span class="text-xs text-gray-500 uppercase tracking-wide">Campaigns</span>
+          <div class="stat-card flex flex-col">
+            <span class="text-3xl font-bold tracking-tight text-gray-950">{campaignCount}</span>
+            <span class="text-[0.68rem] font-bold text-gray-500 uppercase tracking-[0.12em] mt-1">Campaigns</span>
           </div>
         </div>
 
-        <h2 class="text-xl font-semibold mt-6 mb-3">Recent Campaigns</h2>
+        <div class="flex items-end justify-between mb-3"><div><p class="text-[0.68rem] font-bold uppercase tracking-[0.14em] text-gray-400 mb-1">Latest work</p><h2 class="text-xl font-bold tracking-tight m-0">Recent campaigns</h2></div><a href="/admin/campaigns" class="text-sm font-semibold text-blue-600 no-underline hover:text-blue-800">View all →</a></div>
         {recentCampaigns.length === 0 ? (
           <p>No campaigns yet.</p>
         ) : (

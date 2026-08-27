@@ -1,4 +1,5 @@
-import { Hono } from "hono";
+import { Html } from "@elysia/html";
+import type { App } from "../../http";
 import { eq, desc, sql } from "drizzle-orm";
 import type { Db } from "../../db";
 import { schema } from "../../db";
@@ -7,9 +8,9 @@ import { logEvent } from "../../services/events";
 import { AdminLayout, displayName, fmtDate, setFlash, getFlash, type User } from "./layout";
 import { Button, LinkButton, Input, Label, FormGroup, Table, Th, Td, Card, PageHeader } from "./ui";
 
-export function mountTagRoutes(app: Hono, db: Db, config: Config) {
+export function mountTagRoutes(app: App, db: Db, config: Config) {
   app.get("/tags", (c) => {
-    const user = c.get("user") as User;
+    const user = c.user as User;
     const flash = getFlash(c);
     const allTags = db.select().from(schema.tags).orderBy(desc(schema.tags.createdAt)).all();
 
@@ -51,7 +52,7 @@ export function mountTagRoutes(app: Hono, db: Db, config: Config) {
   });
 
   app.get("/tags/new", (c) => {
-    const user = c.get("user") as User;
+    const user = c.user as User;
     const flash = getFlash(c);
     return c.html(
       <AdminLayout title="New Tag" user={user} flash={flash}>
@@ -70,8 +71,8 @@ export function mountTagRoutes(app: Hono, db: Db, config: Config) {
   });
 
   app.post("/tags/new", async (c) => {
-    const user = c.get("user") as User;
-    const body = await c.req.parseBody();
+    const user = c.user as User;
+    const body = c.body as Record<string, any>;
     const name = String(body["name"] ?? "").trim();
 
     if (!name) {
@@ -87,9 +88,9 @@ export function mountTagRoutes(app: Hono, db: Db, config: Config) {
   });
 
   app.get("/tags/:id", (c) => {
-    const user = c.get("user") as User;
+    const user = c.user as User;
     const flash = getFlash(c);
-    const id = Number(c.req.param("id"));
+    const id = Number(c.params.id);
     const tag = db.select().from(schema.tags).where(eq(schema.tags.id, id)).get();
     if (!tag) return c.notFound();
 
@@ -152,8 +153,8 @@ export function mountTagRoutes(app: Hono, db: Db, config: Config) {
   });
 
   app.post("/tags/:id/delete", (c) => {
-    const user = c.get("user") as User;
-    const id = Number(c.req.param("id"));
+    const user = c.user as User;
+    const id = Number(c.params.id);
     const tag = db.select().from(schema.tags).where(eq(schema.tags.id, id)).get();
 
     logEvent(db, { type: "admin.tag_deleted", detail: tag?.name ?? `id=${id}`, userId: user.id });

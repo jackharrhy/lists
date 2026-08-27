@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { createHttpApp } from "../http";
 import { z } from "zod";
 import { eq } from "drizzle-orm";
 import { type Db, schema } from "../db";
@@ -16,12 +16,12 @@ const CreateSubscriberSchema = z.object({
 });
 
 export function apiRoutes(db: Db, config: Config) {
-  const app = new Hono();
+  const app = createHttpApp();
 
-  app.use("/*", apiAuth(config.apiToken));
+  app.onBeforeHandle(apiAuth(config.apiToken));
 
   app.post("/subscribers", async (c) => {
-    const raw = await c.req.json().catch(() => null);
+    const raw = c.body;
     const parsed = CreateSubscriberSchema.safeParse(raw);
     if (!parsed.success) {
       return c.json({ error: "Invalid request", details: parsed.error.flatten() }, 400);
@@ -39,14 +39,14 @@ export function apiRoutes(db: Db, config: Config) {
   });
 
   app.delete("/subscribers/:id", (c) => {
-    const id = parseInt(c.req.param("id"), 10);
+    const id = parseInt(c.params.id, 10);
     if (isNaN(id)) return c.json({ error: "Invalid subscriber id" }, 400);
     db.delete(schema.subscribers).where(eq(schema.subscribers.id, id)).run();
     return c.json({ ok: true });
   });
 
   app.post("/campaigns/:id/send", async (c) => {
-    const id = parseInt(c.req.param("id"), 10);
+    const id = parseInt(c.params.id, 10);
     if (isNaN(id)) return c.json({ error: "Invalid campaign id" }, 400);
     try {
       await sendCampaign(db, config, id);

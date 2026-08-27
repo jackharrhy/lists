@@ -12,6 +12,12 @@ export function createSubscriber(
 ) {
   const normalized = email.toLowerCase().trim();
 
+  const requestedLists = listSlugs.map((slug) => {
+    const list = db.select().from(schema.lists).where(eq(schema.lists.slug, slug)).get();
+    if (!list) throw new Error(`Unknown list slug: ${slug}`);
+    return list;
+  });
+
   let subscriber = db.select().from(schema.subscribers).where(eq(schema.subscribers.email, normalized)).get();
 
   if (!subscriber) {
@@ -33,15 +39,23 @@ export function createSubscriber(
     });
   }
 
-  for (const slug of listSlugs) {
-    const list = db.select().from(schema.lists).where(eq(schema.lists.slug, slug)).get();
-    if (!list) continue;
-
+  for (const list of requestedLists) {
     const existing = db.select().from(schema.subscriberLists).where(and(
       eq(schema.subscriberLists.subscriberId, subscriber.id),
       eq(schema.subscriberLists.listId, list.id),
     )).get();
-    if (existing) continue;
+    if (existing) {
+      if (existing.status === "unsubscribed") {
+        db.update(schema.subscriberLists)
+          .set({ status: "unconfirmed" })
+          .where(and(
+            eq(schema.subscriberLists.subscriberId, subscriber.id),
+            eq(schema.subscriberLists.listId, list.id),
+          ))
+          .run();
+      }
+      continue;
+    }
 
     db.insert(schema.subscriberLists)
       .values({

@@ -1,0 +1,87 @@
+name: lists
+
+services:
+  moto:
+    image: ghcr.io/getmoto/motoserver:5.1.22
+    ports:
+      - "5000:5000"
+    environment:
+      MOTO_PORT: "5000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/moto-api/')"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  aws-init:
+    image: public.ecr.aws/aws-cli/aws-cli:2.27.49
+    depends_on:
+      moto:
+        condition: service_healthy
+    environment: &aws-environment
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_DEFAULT_REGION: us-east-1
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        aws --endpoint-url http://moto:5000 s3api head-bucket --bucket lists-inbound 2>/dev/null || aws --endpoint-url http://moto:5000 s3api create-bucket --bucket lists-inbound
+        aws --endpoint-url http://moto:5000 s3api head-bucket --bucket lists-media 2>/dev/null || aws --endpoint-url http://moto:5000 s3api create-bucket --bucket lists-media
+        aws --endpoint-url http://moto:5000 sqs create-queue --queue-name lists-inbound
+        aws --endpoint-url http://moto:5000 sesv2 create-email-identity --email-identity lists.local
+
+  mailpit:
+    image: axllent/mailpit:v1.30.4
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+    environment:
+      MP_DATABASE: /data/mailpit.db
+      MP_MAX_MESSAGES: "5000"
+    volumes:
+      - mailpit-data:/data
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  app:
+    build: .
+    depends_on:
+      aws-init:
+        condition: service_completed_successfully
+      mailpit:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      <<: *aws-environment
+      AWS_REGION: us-east-1
+      AWS_ENDPOINT_URL: http://moto:5000
+      SQS_QUEUE_URL: http://moto:5000/123456789012/lists-inbound
+      S3_BUCKET: lists-inbound
+      S3_MEDIA_BUCKET: lists-media
+      S3_MEDIA_BASE_URL: http://localhost:5000/lists-media
+      SMTP_URL: smtp://mailpit:1025
+      API_TOKEN: local-api-token
+      BASE_URL: http://localhost:8080
+      FROM_DOMAIN: lists.local
+      DB_PATH: /data/lists.db
+      OWNER_EMAIL: owner@lists.local
+      OWNER_PASSWORD: local-password
+    volumes:
+      - .:/app
+      - app-dependencies:/app/node_modules
+      - app-data:/data
+    command: ["sh", "-c", "bun install --frozen-lockfile && bun run build:assets && bun run src/index.ts"]
+    healthcheck:
+      test: ["CMD", "bun", "-e", "const r=await fetch('http://localhost:8080/health');if(!r.ok)process.exit(1)"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  app-data:
+  app-dependencies:
+  mailpit-data:

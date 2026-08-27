@@ -1,4 +1,6 @@
 import sharp from "sharp";
+import { s3ClientConfig } from "./aws";
+import type { Config } from "../config";
 
 export type ProcessedImage = {
   data: Buffer;
@@ -47,7 +49,7 @@ export async function processPendingS3Images(
   markdown: string,
   campaignId: number,
   pendingMap: Record<string, string>,
-  config: { s3MediaBucket: string; s3MediaBaseUrl: string; awsRegion: string },
+  config: Config,
 ): Promise<string> {
   if (!config.s3MediaBucket) return markdown;
 
@@ -55,7 +57,7 @@ export async function processPendingS3Images(
   if (uuids.length === 0) return markdown;
 
   const { S3Client, PutObjectCommand } = await import("@aws-sdk/client-s3");
-  const s3 = new S3Client({ region: config.awsRegion });
+  const s3 = new S3Client(s3ClientConfig(config));
   const baseUrl = config.s3MediaBaseUrl || `https://${config.s3MediaBucket}.s3.${config.awsRegion}.amazonaws.com`;
 
   let result = markdown;
@@ -84,12 +86,12 @@ export async function processPendingS3Images(
 
 export async function deleteCampaignS3Images(
   campaignId: number,
-  config: { s3MediaBucket: string; awsRegion: string },
+  config: Config,
 ): Promise<void> {
   if (!config.s3MediaBucket) return;
 
   const { S3Client, ListObjectsV2Command, DeleteObjectsCommand } = await import("@aws-sdk/client-s3");
-  const s3 = new S3Client({ region: config.awsRegion });
+  const s3 = new S3Client(s3ClientConfig(config));
   const prefix = `images/${campaignId}/`;
 
   const listed = await s3.send(new ListObjectsV2Command({
