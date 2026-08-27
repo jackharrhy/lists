@@ -29,14 +29,32 @@ function seedUser(
 
 describe("createSession", () => {
   test("returns a string", () => {
-    const session = createSession(1);
+    const db = createTestDb();
+    const user = seedUser(db);
+    const session = createSession(db, user.id);
     expect(typeof session).toBe("string");
   });
 
   test("returns unique sessions", () => {
-    const a = createSession(1);
-    const b = createSession(1);
+    const db = createTestDb();
+    const user = seedUser(db);
+    const a = createSession(db, user.id);
+    const b = createSession(db, user.id);
     expect(a).not.toBe(b);
+  });
+
+  test("persists sessions in the database across app instances", async () => {
+    const db = createTestDb();
+    const user = seedUser(db);
+    const token = createSession(db, user.id);
+
+    const restartedApp = createHttpApp();
+    restartedApp.group("/protected", (app) => app.use(adminAuth(db)).get("/data", (c) => c.text("ok")));
+
+    const res = await restartedApp.handle(new Request("http://localhost/protected/data", {
+      headers: { Cookie: `session=${token}` },
+    }));
+    expect(res.status).toBe(200);
   });
 });
 
@@ -48,7 +66,7 @@ describe("destroySession", () => {
     const app = createHttpApp();
     app.group("/protected", (app) => app.use(adminAuth(db)).get("/data", (c) => c.text("ok")));
 
-    const token = createSession(user.id);
+    const token = createSession(db, user.id);
 
     // Valid session should grant access
     const validRes = await app.handle(
@@ -60,7 +78,7 @@ describe("destroySession", () => {
     expect(await validRes.text()).toBe("ok");
 
     // Destroy and verify it now redirects
-    destroySession(token);
+    destroySession(db, token);
     const invalidRes = await app.handle(
       new Request("http://localhost/protected/data", {
         headers: { Cookie: `session=${token}` },
@@ -95,7 +113,7 @@ describe("adminAuth middleware", () => {
       return c.text(`${u.email}:${u.role}`);
     }));
 
-    const token = createSession(user.id);
+    const token = createSession(db, user.id);
     const res = await app.handle(
       new Request("http://localhost/protected/data", {
         headers: { Cookie: `session=${token}` },
@@ -131,7 +149,7 @@ describe("requireRole middleware", () => {
       .use(adminAuth(db))
       .get("/data", (c) => c.text("ok"), { beforeHandle: requireRole("owner", "admin") }));
 
-    const token = createSession(user.id);
+    const token = createSession(db, user.id);
     const res = await app.handle(
       new Request("http://localhost/protected/data", {
         headers: { Cookie: `session=${token}` },
@@ -149,7 +167,7 @@ describe("requireRole middleware", () => {
       .use(adminAuth(db))
       .get("/data", (c) => c.text("ok"), { beforeHandle: requireRole("owner", "admin") }));
 
-    const token = createSession(user.id);
+    const token = createSession(db, user.id);
     const res = await app.handle(
       new Request("http://localhost/protected/data", {
         headers: { Cookie: `session=${token}` },

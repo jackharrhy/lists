@@ -106,7 +106,7 @@ describe("OAuth PKCE", () => {
     const client = await registered.json() as any;
     const verifier = "a".repeat(64);
     const challenge = Buffer.from(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier))).toString("base64url");
-    const session = createSession(user.id);
+    const session = createSession(db, user.id);
     const authorize = await app.request("/oauth/authorize", {
       method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", Cookie: `session=${session}` },
       body: new URLSearchParams({

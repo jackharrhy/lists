@@ -2,33 +2,38 @@ import { Elysia } from "elysia";
 import { eq, and } from "drizzle-orm";
 import type { Db } from "./db";
 import { schema } from "./db";
+import { hashToken } from "./services/api-tokens";
 
 type SessionData = { userId: number; expiry: number };
 
-const sessions = new Map<string, SessionData>();
-
-export function createSession(userId: number): string {
+export function createSession(db: Db, userId: number): string {
   const token = crypto.randomUUID();
-  sessions.set(token, { userId, expiry: Date.now() + 24 * 60 * 60 * 1000 });
+  db.insert(schema.sessions).values({
+    tokenHash: hashToken(token),
+    userId,
+    expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+  }).run();
   return token;
 }
 
-export function destroySession(token: string) {
-  sessions.delete(token);
+export function destroySession(db: Db, token: string) {
+  db.delete(schema.sessions).where(eq(schema.sessions.tokenHash, hashToken(token))).run();
 }
 
-function getValidSession(token: string): SessionData | null {
-  const session = sessions.get(token);
+function getValidSession(db: Db, token: string): SessionData | null {
+  const session = db.select().from(schema.sessions)
+    .where(eq(schema.sessions.tokenHash, hashToken(token))).get();
   if (!session) return null;
-  if (Date.now() > session.expiry) {
-    sessions.delete(token);
+  const expiry = Date.parse(session.expiresAt);
+  if (Date.now() > expiry) {
+    destroySession(db, token);
     return null;
   }
-  return session;
+  return { userId: session.userId, expiry };
 }
 
 export function getSessionUser(db: Db, token: string | undefined) {
-  const session = token ? getValidSession(token) : null;
+  const session = token ? getValidSession(db, token) : null;
   return session ? db.select().from(schema.users).where(eq(schema.users.id, session.userId)).get() ?? null : null;
 }
 
@@ -36,7 +41,7 @@ export function adminAuth(db: Db) {
   return new Elysia({ name: "admin-auth" })
     .resolve(({ cookie }) => {
       const token = cookie.session?.value;
-      const session = typeof token === "string" ? getValidSession(token) : null;
+      const session = typeof token === "string" ? getValidSession(db, token) : null;
       const user = session
         ? db.select().from(schema.users).where(eq(schema.users.id, session.userId)).get()
         : null;

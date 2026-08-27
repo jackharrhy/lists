@@ -115,7 +115,7 @@ export function mountAuthRoutes(app: App, db: Db, config: Config) {
     const valid = await Bun.password.verify(password, user.passwordHash);
     if (!valid) return renderError("Invalid email or password.");
 
-    const token = createSession(user.id);
+    const token = createSession(db, user.id);
     c.cookie.session!.set({
       value: token,
       path: "/",
@@ -129,7 +129,7 @@ export function mountAuthRoutes(app: App, db: Db, config: Config) {
   app.post("/logout", (c) => {
     const token = c.cookie.session!.value;
     if (typeof token === "string") {
-      destroySession(token);
+      destroySession(db, token);
     }
     c.cookie.session!.remove();
     setFlash(c, "Signed out.");

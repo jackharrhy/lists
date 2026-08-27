@@ -616,7 +616,7 @@ function createOwnerAndSession(db: ReturnType<typeof createTestDb>) {
     })
     .returning()
     .get();
-  const sessionToken = createSession(user.id);
+  const sessionToken = createSession(db, user.id);
   return { user, sessionToken };
 }
 
