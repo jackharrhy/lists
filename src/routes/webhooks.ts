@@ -129,6 +129,9 @@ export function webhookRoutes(db: Db) {
     let rawBody: unknown;
     try {
       rawBody = c.body;
+      if (typeof rawBody === "string") {
+        rawBody = JSON.parse(rawBody);
+      }
     } catch {
       return c.text("Invalid JSON", 400);
     }

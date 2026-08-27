@@ -39,6 +39,19 @@ function postSes(app: App, body: unknown, messageType: string | null = "Notifica
   );
 }
 
+function postSesAsSns(app: App, body: unknown, messageType = "Notification") {
+  return app.handle(
+    new Request("http://localhost/webhooks/ses", {
+      method: "POST",
+      headers: {
+        "Content-Type": "text/plain; charset=UTF-8",
+        "x-amz-sns-message-type": messageType,
+      },
+      body: JSON.stringify(body),
+    }),
+  );
+}
+
 function makeHardBounceBody(email: string) {
   const message = JSON.stringify({
     eventType: "Bounce",
@@ -145,6 +158,15 @@ function makeLifecycleBody(eventType: "Send" | "Delivery" | "DeliveryDelay" | "R
 }
 
 describe("POST /webhooks/ses - Delivery lifecycle", () => {
+  test("accepts the text/plain JSON body sent by SNS", async () => {
+    const db = createTestDb();
+    const app = makeApp(db);
+    const response = await postSesAsSns(app, makeLifecycleBody("Send", "ses-text-body"));
+
+    expect(response.status).toBe(200);
+    expect(db.select().from(schema.deliveryEvents).all()).toHaveLength(1);
+  });
+
   test("moves an accepted send to delivered and deduplicates repeated SNS events", async () => {
     const db = createTestDb();
     const app = makeApp(db);
