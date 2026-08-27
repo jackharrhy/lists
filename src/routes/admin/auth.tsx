@@ -6,6 +6,7 @@ import { schema } from "../../db";
 import type { Config } from "../../config";
 import { createSession, destroySession } from "../../auth";
 import { setFlash, getFlash } from "./layout";
+import { assetUrl } from "../../assets";
 
 export function mountAuthRoutes(app: App, db: Db, config: Config) {
   app.get("/login", (c) => {
@@ -16,8 +17,8 @@ export function mountAuthRoutes(app: App, db: Db, config: Config) {
           <meta charset="utf-8" />
           <meta name="viewport" content="width=device-width, initial-scale=1" />
           <title>Login - Lists Admin</title>
-          <link rel="stylesheet" href="/static/styles.css" />
-          <script src="/static/app.js" defer></script>
+          <link rel="stylesheet" href={assetUrl("/static/styles.css")} />
+          <script src={assetUrl("/static/app.js")} defer></script>
         </head>
         <body class="font-sans flex items-center justify-center min-h-screen m-0 bg-gray-50">
           <div class="bg-white p-8 rounded-lg border border-gray-200 w-80">
@@ -62,8 +63,8 @@ export function mountAuthRoutes(app: App, db: Db, config: Config) {
           <head>
             <meta charset="utf-8" />
             <title>Login - Lists Admin</title>
-            <link rel="stylesheet" href="/static/styles.css" />
-            <script src="/static/app.js" defer></script>
+            <link rel="stylesheet" href={assetUrl("/static/styles.css")} />
+            <script src={assetUrl("/static/app.js")} defer></script>
           </head>
           <body class="font-sans flex items-center justify-center min-h-screen m-0 bg-gray-50">
             <div class="bg-white p-8 rounded-lg border border-gray-200 w-80">

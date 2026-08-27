@@ -737,7 +737,8 @@ describe("HTMX application shell", () => {
     const html = await response.text();
 
     expect(response.status).toBe(200);
-    expect(html).toContain('src="/static/app.js"');
+    expect(html).toMatch(/src="\/static\/app\.js\?v=[a-z0-9]+"/);
+    expect(html).toMatch(/href="\/static\/styles\.css\?v=[a-z0-9]+"/);
     expect(html).toContain('hx-boost="true"');
     expect(html).toContain('hx-target="#app-shell"');
     expect(html).toContain('id="global-progress"');

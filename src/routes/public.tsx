@@ -16,6 +16,7 @@ import { buildConfirmUrl } from "../compliance";
 import { renderConfirmation } from "../../emails/render";
 import { SendEmailCommand } from "@aws-sdk/client-sesv2";
 import { sendEmail } from "../services/mailer";
+import { assetUrl } from "../assets";
 
 function Layout({ children }: { children: any }) {
   return (
@@ -24,8 +25,8 @@ function Layout({ children }: { children: any }) {
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>lists</title>
-        <link rel="stylesheet" href="/static/styles.css" />
-        <script src="/static/app.js" defer></script>
+        <link rel="stylesheet" href={assetUrl("/static/styles.css")} />
+        <script src={assetUrl("/static/app.js")} defer></script>
       </head>
       <body class="public-page font-sans text-gray-900 bg-gray-50 m-0 p-0" hx-boost="true" hx-target="#app-shell" hx-select="#app-shell" hx-swap="outerHTML transition:true" hx-push-url="true" hx-indicator="#global-progress">
         <div id="global-progress" class="htmx-indicator" role="progressbar" aria-label="Loading"></div>
