@@ -1,5 +1,6 @@
 import { Html } from "@elysia/html";
 import { schema } from "../../db";
+import { assetUrl } from "../../assets";
 
 // ---------------------------------------------------------------------------
 // Flash helpers
@@ -48,8 +49,8 @@ export function AdminLayout({
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>{title} - Lists Admin</title>
-        <link rel="stylesheet" href="/static/styles.css" />
-        <script src="/static/app.js" defer></script>
+        <link rel="stylesheet" href={assetUrl("/static/styles.css")} />
+        <script src={assetUrl("/static/app.js")} defer></script>
       </head>
       <body
         class="font-sans text-gray-900 bg-gray-50 m-0 p-0 leading-relaxed"

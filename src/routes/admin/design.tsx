@@ -2,6 +2,7 @@ import { Html } from "@elysia/html";
 import type { App } from "../../http";
 import { AdminLayout, VerdictChips, CampaignBadge } from "./layout";
 import { Button, LinkButton, Input, Select, Textarea, Label, FormGroup, Table, Th, Td, Card, PageHeader } from "./ui";
+import { assetUrl } from "../../assets";
 
 export function mountDesignRoutes(app: App) {
   app.get("/design", (c) => {
@@ -11,7 +12,7 @@ export function mountDesignRoutes(app: App) {
           <meta charset="UTF-8" />
           <meta name="viewport" content="width=device-width, initial-scale=1.0" />
           <title>Design System - lists</title>
-          <link rel="stylesheet" href="/static/styles.css" />
+          <link rel="stylesheet" href={assetUrl("/static/styles.css")} />
         </head>
         <body class="font-sans text-gray-900 bg-gray-50 m-0 p-0 leading-relaxed">
           <div class="max-w-4xl mx-auto px-6 py-12">
