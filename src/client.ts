@@ -1,8 +1,5 @@
 import "htmx.org";
 
-const htmx = (window as any).htmx;
-if (htmx) htmx.config.globalViewTransitions = true;
-
 function markCurrentNavigation() {
   const path = window.location.pathname.replace(/\/$/, "") || "/";
   document.querySelectorAll<HTMLAnchorElement>("nav a.nav-link").forEach((link) => {
