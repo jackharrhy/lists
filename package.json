@@ -43,6 +43,8 @@
     "@types/aws-lambda": "^8.10.161",
     "drizzle-orm": "^0.45.1",
     "elysia": "^1.4.30",
+    "fast-xml-parser": "^5.11.1",
+    "fflate": "^0.8.3",
     "htmx.org": "^2.0.10",
     "mailparser": "^3.9.4",
     "marked": "^17.0.4",

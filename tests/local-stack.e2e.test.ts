@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { SendMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
+import { gzipSync } from "fflate";
 
 const localTest = process.env.LOCAL_E2E === "1" ? test : test.skip;
 const appUrl = process.env.LOCAL_APP_URL ?? "http://localhost:8080";
@@ -106,5 +107,60 @@ localTest("compose stack captures outbound mail and processes inbound S3/SQS mai
     const response = await fetch(`${appUrl}/admin/inbound`, { headers: { cookie } });
     const html = await response.text();
     return response.ok && html.includes(subject) ? true : undefined;
+  }, 35_000);
+});
+
+localTest("compose stack processes a compressed DMARC report from S3/SQS", async () => {
+  const run = crypto.randomUUID().slice(0, 8);
+  const messageId = `dmarc-${run}`;
+  const reportId = `local-report-${run}`;
+  const key = `dmarc/${messageId}.eml`;
+  const cookie = await login();
+  const xml = `<feedback>
+    <report_metadata><org_name>Local Receiver ${run}</org_name><email>dmarc@example.test</email><report_id>${reportId}</report_id><date_range><begin>1787702400</begin><end>1787788800</end></date_range></report_metadata>
+    <policy_published><domain>lists.local</domain><p>quarantine</p><sp>quarantine</sp><np>reject</np></policy_published>
+    <record><row><source_ip>192.0.2.44</source_ip><count>12</count><policy_evaluated><disposition>none</disposition><dkim>pass</dkim><spf>pass</spf></policy_evaluated></row><identifiers><header_from>lists.local</header_from><envelope_from>mail.lists.local</envelope_from></identifiers><auth_results><dkim><domain>lists.local</domain><result>pass</result></dkim><spf><domain>mail.lists.local</domain><result>pass</result></spf></auth_results></record>
+  </feedback>`;
+  const compressed = gzipSync(Buffer.from(xml));
+  const rawEmail = [
+    "From: DMARC Reporter <dmarc@example.test>",
+    "To: reports@dmarc.lists.local",
+    `Subject: DMARC aggregate ${reportId}`,
+    `Message-ID: <${messageId}@example.test>`,
+    "MIME-Version: 1.0",
+    'Content-Type: application/gzip; name="report.xml.gz"',
+    'Content-Disposition: attachment; filename="report.xml.gz"',
+    "Content-Transfer-Encoding: base64",
+    "",
+    Buffer.from(compressed).toString("base64"),
+  ].join("\r\n");
+
+  const s3 = new S3Client({ region: "us-east-1", endpoint: motoUrl, credentials, forcePathStyle: true });
+  await s3.send(new PutObjectCommand({ Bucket: "lists-inbound", Key: key, Body: rawEmail }));
+  const sqs = new SQSClient({ region: "us-east-1", endpoint: motoUrl, credentials });
+  await sqs.send(new SendMessageCommand({
+    QueueUrl: `${motoUrl}/123456789012/lists-inbound`,
+    MessageBody: JSON.stringify({
+      kind: "dmarc",
+      messageId,
+      timestamp: new Date().toISOString(),
+      source: "dmarc@example.test",
+      from: ["dmarc@example.test"],
+      to: ["reports@dmarc.lists.local"],
+      subject: `DMARC aggregate ${reportId}`,
+      spamVerdict: "PASS",
+      virusVerdict: "PASS",
+      spfVerdict: "PASS",
+      dkimVerdict: "PASS",
+      dmarcVerdict: "PASS",
+      s3Key: key,
+      action: { type: "S3", bucketName: "lists-inbound", objectKeyPrefix: "dmarc/", objectKey: key },
+    }),
+  }));
+
+  await eventually(async () => {
+    const response = await fetch(`${appUrl}/admin/dmarc`, { headers: { cookie } });
+    const html = await response.text();
+    return response.ok && html.includes(`Local Receiver ${run}`) && html.includes("192.0.2.44") ? true : undefined;
   }, 35_000);
 });
