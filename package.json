@@ -17,40 +17,40 @@
     "check": "bun run typecheck && bun test && bun run build:assets"
   },
   "devDependencies": {
-    "@tailwindcss/cli": "^4.2.1",
-    "@types/bun": "latest",
+    "@tailwindcss/cli": "^4.3.3",
+    "@types/bun": "^1.4.0",
     "@types/mailparser": "^3.4.6",
-    "@types/nodemailer": "^7.0.11",
-    "@types/react": "^19.2.14",
+    "@types/nodemailer": "^8.0.1",
+    "@types/react": "^19.2.18",
     "@types/sharp": "^0.32.0",
     "@types/sns-validator": "^0.3.3",
     "aws-sdk-client-mock": "^4.1.0",
-    "drizzle-kit": "^0.31.9",
-    "tailwindcss": "^4.2.1"
+    "drizzle-kit": "^0.31.10",
+    "tailwindcss": "^4.3.3"
   },
   "peerDependencies": {
-    "typescript": "^5"
+    "typescript": "^7.0.2"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.1009.0",
-    "@aws-sdk/client-sesv2": "^3.1009.0",
-    "@aws-sdk/client-sqs": "^3.1009.0",
-    "@aws-sdk/s3-request-presigner": "^3.1009.0",
+    "@aws-sdk/client-s3": "^3.1120.0",
+    "@aws-sdk/client-sesv2": "^3.1120.0",
+    "@aws-sdk/client-sqs": "^3.1120.0",
+    "@aws-sdk/s3-request-presigner": "^3.1120.0",
     "@elysia/html": "^1.4.1",
     "@elysia/static": "^1.4.11",
-    "@react-email/components": "^1.0.9",
-    "@react-email/render": "^2.0.4",
-    "@types/aws-lambda": "^8.10.161",
-    "drizzle-orm": "^0.45.1",
+    "@react-email/components": "^1.0.12",
+    "@react-email/render": "^2.1.0",
+    "@types/aws-lambda": "^8.10.162",
+    "drizzle-orm": "^0.45.2",
     "elysia": "^1.4.30",
     "fast-xml-parser": "^5.11.1",
     "fflate": "^0.8.3",
     "htmx.org": "^2.0.10",
-    "mailparser": "^3.9.4",
-    "marked": "^17.0.4",
-    "nodemailer": "^8.0.3",
-    "sharp": "^0.34.5",
+    "mailparser": "^3.9.17",
+    "marked": "^18.0.11",
+    "nodemailer": "^9.0.6",
+    "sharp": "^0.35.4",
     "sns-validator": "^0.3.5",
-    "zod": "^4.3.6"
+    "zod": "^4.4.3"
   }
 }
