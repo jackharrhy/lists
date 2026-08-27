@@ -1,93 +1,17 @@
 @import "tailwindcss";
 
-@theme {
-  --font-sans: "Instrument Sans", "Avenir Next", "Segoe UI", system-ui, sans-serif;
-  --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
-  --color-gray-50: oklch(0.985 0.004 275); --color-gray-100: oklch(0.958 0.008 275);
-  --color-gray-200: oklch(0.91 0.014 275); --color-gray-300: oklch(0.84 0.022 275);
-  --color-gray-400: oklch(0.68 0.035 275); --color-gray-500: oklch(0.53 0.04 275);
-  --color-gray-600: oklch(0.43 0.04 275); --color-gray-700: oklch(0.34 0.035 275);
-  --color-gray-800: oklch(0.25 0.03 275); --color-gray-900: oklch(0.19 0.025 275);
-  --color-gray-950: oklch(0.135 0.02 275);
-  --color-blue-50: oklch(0.97 0.025 275); --color-blue-100: oklch(0.93 0.05 275);
-  --color-blue-200: oklch(0.86 0.09 275); --color-blue-300: oklch(0.77 0.14 275);
-  --color-blue-400: oklch(0.68 0.18 275); --color-blue-500: oklch(0.59 0.21 275);
-  --color-blue-600: oklch(0.51 0.22 275); --color-blue-700: oklch(0.44 0.19 275);
-  --color-blue-800: oklch(0.37 0.15 275); --color-blue-900: oklch(0.31 0.11 275);
-  --color-green-50: oklch(0.975 0.025 155); --color-green-100: oklch(0.94 0.06 155);
-  --color-green-600: oklch(0.5 0.15 155); --color-green-700: oklch(0.42 0.12 155);
-  --color-green-800: oklch(0.35 0.09 155);
-  --color-amber-50: oklch(0.98 0.025 80); --color-amber-100: oklch(0.94 0.07 80);
-  --color-amber-600: oklch(0.56 0.15 70); --color-amber-800: oklch(0.4 0.1 65);
-  --color-red-50: oklch(0.97 0.025 25); --color-red-100: oklch(0.93 0.055 25);
-  --color-red-600: oklch(0.55 0.21 25); --color-red-700: oklch(0.47 0.18 25);
-  --color-red-800: oklch(0.39 0.14 25);
-  --color-purple-100: oklch(0.93 0.055 305); --color-purple-800: oklch(0.4 0.14 305);
-  --shadow-soft: 0 1px 2px oklch(0.2 0.03 275 / 0.04), 0 12px 32px oklch(0.2 0.03 275 / 0.07);
-  --shadow-lift: 0 2px 4px oklch(0.2 0.03 275 / 0.05), 0 18px 48px oklch(0.2 0.03 275 / 0.12);
+/* HTMX behavior only; visuals remain Tailwind's original defaults. */
+#global-progress {
+  position: fixed;
+  z-index: 100;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  opacity: 0;
+  pointer-events: none;
+  background: var(--color-blue-600);
 }
 
-@layer base {
-  :root { color-scheme: light; accent-color: var(--color-blue-600); }
-  * { box-sizing: border-box; }
-  html { min-width: 320px; background: var(--color-gray-50); scroll-behavior: smooth; }
-  body {
-    min-height: 100vh;
-    background: radial-gradient(circle at 8% -12%, oklch(0.9 0.08 280 / 0.6), transparent 34rem), radial-gradient(circle at 92% 4%, oklch(0.93 0.06 155 / 0.42), transparent 30rem), var(--color-gray-50);
-    text-rendering: optimizeLegibility;
-  }
-  ::selection { color: var(--color-gray-950); background: oklch(0.85 0.1 275 / 0.7); }
-  a, button, input, select, textarea { transition: 160ms ease; }
-  button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 3px solid oklch(0.62 0.2 275 / 0.3); outline-offset: 2px; }
-  table { border-collapse: separate; border-spacing: 0; }
-  tr:last-child td { border-bottom: 0; }
-  tbody tr { transition: background-color 140ms ease; }
-  tbody tr:hover { background: oklch(0.97 0.012 275); }
-
-  /* Public pages intentionally retain the quiet production design. */
-  body.public-page {
-    --font-sans: ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
-    --color-gray-50: oklch(98.5% 0.002 247.839);
-    --color-gray-100: oklch(96.7% 0.003 264.542);
-    --color-gray-200: oklch(92.8% 0.006 264.531);
-    --color-gray-300: oklch(87.2% 0.01 258.338);
-    --color-gray-400: oklch(70.7% 0.022 261.325);
-    --color-gray-500: oklch(55.1% 0.027 264.364);
-    --color-gray-600: oklch(44.6% 0.03 256.802);
-    --color-gray-700: oklch(37.3% 0.034 259.733);
-    --color-gray-800: oklch(27.8% 0.033 256.848);
-    --color-gray-900: oklch(21% 0.034 264.665);
-    --color-blue-50: oklch(97% 0.014 254.604);
-    --color-blue-100: oklch(93.2% 0.032 255.585);
-    --color-blue-200: oklch(88.2% 0.059 254.128);
-    --color-blue-300: oklch(80.9% 0.105 251.813);
-    --color-blue-400: oklch(70.7% 0.165 254.624);
-    --color-blue-500: oklch(62.3% 0.214 259.815);
-    --color-blue-600: oklch(54.6% 0.245 262.881);
-    --color-blue-700: oklch(48.8% 0.243 264.376);
-    --color-blue-800: oklch(42.4% 0.199 265.638);
-    --color-blue-900: oklch(37.9% 0.146 265.522);
-    background: var(--color-gray-50);
-    text-rendering: auto;
-  }
-}
-
-@layer components {
-  .app-surface { background: oklch(1 0 0 / 0.82); border: 1px solid oklch(0.86 0.018 275 / 0.8); box-shadow: var(--shadow-soft); backdrop-filter: blur(18px); }
-  .filter-bar { padding: 0.9rem; border: 1px solid var(--color-gray-200); border-radius: 1rem; background: oklch(1 0 0 / 0.68); box-shadow: 0 1px 2px oklch(0.2 0.03 275 / 0.03); }
-  .nav-link { display: inline-flex; align-items: center; min-height: 2.25rem; padding-inline: 0.7rem; border-radius: 0.65rem; color: var(--color-gray-500); font-size: 0.82rem; font-weight: 600; text-decoration: none; }
-  .nav-link:hover { color: var(--color-gray-950); background: oklch(0.94 0.025 275 / 0.8); }
-  .nav-link[aria-current="page"] { color: var(--color-blue-700); background: var(--color-blue-50); }
-  .stat-card { position: relative; overflow: hidden; min-width: 9rem; padding: 1.25rem 1.4rem; border: 1px solid oklch(0.86 0.02 275 / 0.8); border-radius: 1.15rem; background: oklch(1 0 0 / 0.78); box-shadow: var(--shadow-soft); }
-  .stat-card::after { content: ""; position: absolute; inset: auto -1.5rem -2.5rem auto; width: 6rem; height: 6rem; border-radius: 999px; background: oklch(0.72 0.15 275 / 0.13); }
-  #global-progress { position: fixed; z-index: 100; top: 0; left: 0; width: 100%; height: 3px; opacity: 0; pointer-events: none; transform: scaleX(0.12); transform-origin: left; background: linear-gradient(90deg, oklch(0.62 0.22 275), oklch(0.72 0.17 155)); box-shadow: 0 0 18px oklch(0.62 0.22 275 / 0.55); transition: opacity 120ms ease, transform 2.5s cubic-bezier(.1,.7,.2,1); }
-  #global-progress.htmx-request { opacity: 1; transform: scaleX(0.86); }
-  .htmx-swapping { opacity: 0; }
-  .htmx-settling { opacity: 1; }
-  #app-shell { transition: opacity 140ms ease; }
-  .htmx-request button[type="submit"] { cursor: wait; opacity: 0.72; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
-}
+#global-progress.htmx-request { opacity: 1; }
+.htmx-request button[type="submit"] { cursor: wait; opacity: 0.7; }

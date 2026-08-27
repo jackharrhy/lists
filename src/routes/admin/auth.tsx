@@ -19,11 +19,9 @@ export function mountAuthRoutes(app: App, db: Db, config: Config) {
           <link rel="stylesheet" href="/static/styles.css" />
           <script src="/static/app.js" defer></script>
         </head>
-        <body class="font-sans flex items-center justify-center min-h-screen m-0 p-5">
-          <div class="app-surface p-8 rounded-2xl w-full max-w-sm">
-            <div class="mx-auto mb-5 grid place-items-center size-11 rounded-xl bg-gray-950 text-white font-bold shadow-sm">L</div>
-            <h1 class="m-0 mb-1 text-2xl tracking-tight text-center font-bold">Welcome back</h1>
-            <p class="mt-0 mb-6 text-sm text-gray-500 text-center">Sign in to your mailing workspace.</p>
+        <body class="font-sans flex items-center justify-center min-h-screen m-0 bg-gray-50">
+          <div class="bg-white p-8 rounded-lg border border-gray-200 w-80">
+            <h1 class="m-0 mb-4 text-xl text-center font-bold">Lists Admin</h1>
             {flash && (
               <div class="bg-green-100 border border-green-300 text-green-800 px-3 py-2 rounded-md mb-4 text-sm text-center">{flash}</div>
             )}
@@ -34,16 +32,16 @@ export function mountAuthRoutes(app: App, db: Db, config: Config) {
                 placeholder="Email"
                 required
                 autofocus
-                class="w-full px-3.5 py-3 border border-gray-200 rounded-xl text-sm font-[inherit] mb-4 shadow-sm focus:outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 box-border"
+                class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-4 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 box-border"
               />
               <input
                 type="password"
                 name="password"
                 placeholder="Password"
                 required
-                class="w-full px-3.5 py-3 border border-gray-200 rounded-xl text-sm font-[inherit] mb-5 shadow-sm focus:outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 box-border"
+                class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-4 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 box-border"
               />
-              <button type="submit" class="w-full px-3 py-3 bg-gray-950 text-white text-sm font-semibold rounded-xl hover:bg-blue-600 cursor-pointer border-none shadow-sm">
+              <button type="submit" class="w-full px-3 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none">
                 Log in
               </button>
             </form>
@@ -67,10 +65,9 @@ export function mountAuthRoutes(app: App, db: Db, config: Config) {
             <link rel="stylesheet" href="/static/styles.css" />
             <script src="/static/app.js" defer></script>
           </head>
-          <body class="font-sans flex items-center justify-center min-h-screen m-0 p-5">
-            <div class="app-surface p-8 rounded-2xl w-full max-w-sm">
-              <div class="mx-auto mb-5 grid place-items-center size-11 rounded-xl bg-gray-950 text-white font-bold shadow-sm">L</div>
-              <h1 class="m-0 mb-4 text-2xl tracking-tight text-center font-bold">Try that again</h1>
+          <body class="font-sans flex items-center justify-center min-h-screen m-0 bg-gray-50">
+            <div class="bg-white p-8 rounded-lg border border-gray-200 w-80">
+              <h1 class="m-0 mb-4 text-xl text-center font-bold">Lists Admin</h1>
               <p class="text-red-600 text-sm mb-3 text-center">{message}</p>
               <form method="post" action="/admin/login">
                 <input
@@ -79,16 +76,16 @@ export function mountAuthRoutes(app: App, db: Db, config: Config) {
                   placeholder="Email"
                   required
                   autofocus
-                  class="w-full px-3.5 py-3 border border-gray-200 rounded-xl text-sm font-[inherit] mb-4 shadow-sm focus:outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 box-border"
+                  class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-4 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 box-border"
                 />
                 <input
                   type="password"
                   name="password"
                   placeholder="Password"
                   required
-                  class="w-full px-3.5 py-3 border border-gray-200 rounded-xl text-sm font-[inherit] mb-5 shadow-sm focus:outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 box-border"
+                  class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-4 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 box-border"
                 />
-                <button type="submit" class="w-full px-3 py-3 bg-gray-950 text-white text-sm font-semibold rounded-xl hover:bg-blue-600 cursor-pointer border-none shadow-sm">
+                <button type="submit" class="w-full px-3 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none">
                   Log in
                 </button>
               </form>
