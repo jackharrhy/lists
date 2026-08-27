@@ -758,5 +758,9 @@ describe("HTMX application shell", () => {
     expect(html).toContain('hx-select="#app-shell"');
     expect(html).toContain('hx-get="/admin/subscribers"');
     expect(html).toContain("keyup changed delay:350ms");
+    expect(html).toContain('class="bg-gray-900 py-3 mb-6"');
+    expect(html).toContain(">Dashboard</a>");
+    expect(html).not.toContain("app-surface");
+    expect(html).not.toContain("backdrop-blur");
   });
 });
