@@ -2,6 +2,7 @@ import {
   sqliteTable,
   text,
   integer,
+  index,
 } from "drizzle-orm/sqlite-core";
 
 export const users = sqliteTable("users", {
@@ -144,6 +145,62 @@ export const deliveryEvents = sqliteTable("delivery_events", {
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
 });
+
+export const dmarcReports = sqliteTable("dmarc_reports", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  reportKey: text("report_key").notNull().unique(),
+  reporterOrg: text("reporter_org").notNull(),
+  reporterEmail: text("reporter_email"),
+  externalReportId: text("external_report_id").notNull(),
+  domain: text("domain").notNull(),
+  dateBegin: text("date_begin").notNull(),
+  dateEnd: text("date_end").notNull(),
+  policy: text("policy").notNull(),
+  subdomainPolicy: text("subdomain_policy"),
+  nonexistentSubdomainPolicy: text("nonexistent_subdomain_policy"),
+  adkim: text("adkim").notNull().default("r"),
+  aspf: text("aspf").notNull().default("r"),
+  testing: text("testing"),
+  discoveryMethod: text("discovery_method"),
+  messageCount: integer("message_count").notNull(),
+  createdAt: text("created_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+}, (table) => [
+  index("dmarc_reports_domain_range_idx").on(table.domain, table.dateBegin, table.dateEnd),
+]);
+
+export const dmarcReportRecords = sqliteTable("dmarc_report_records", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  reportId: integer("report_id").notNull().references(() => dmarcReports.id, { onDelete: "cascade" }),
+  sourceIp: text("source_ip").notNull(),
+  count: integer("count").notNull(),
+  disposition: text("disposition").notNull(),
+  dkimResult: text("dkim_result").notNull(),
+  spfResult: text("spf_result").notNull(),
+  dmarcPass: integer("dmarc_pass", { mode: "boolean" }).notNull(),
+  headerFrom: text("header_from").notNull(),
+  envelopeFrom: text("envelope_from"),
+  envelopeTo: text("envelope_to"),
+  overrideReasons: text("override_reasons").notNull().default("[]"),
+  authResults: text("auth_results").notNull().default("{}"),
+}, (table) => [
+  index("dmarc_records_report_idx").on(table.reportId),
+  index("dmarc_records_source_idx").on(table.sourceIp),
+]);
+
+export const dmarcIngestions = sqliteTable("dmarc_ingestions", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  sesMessageId: text("ses_message_id").notNull().unique(),
+  rawS3Key: text("raw_s3_key").notNull(),
+  status: text("status", { enum: ["processing", "parsed", "rejected"] }).notNull().default("processing"),
+  error: text("error"),
+  reportId: integer("report_id").references(() => dmarcReports.id, { onDelete: "set null" }),
+  receivedAt: text("received_at").notNull(),
+  processedAt: text("processed_at"),
+}, (table) => [
+  index("dmarc_ingestions_status_idx").on(table.status),
+]);
 
 export const messages = sqliteTable("messages", {
   id: integer("id").primaryKey({ autoIncrement: true }),

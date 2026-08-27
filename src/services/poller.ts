@@ -11,8 +11,10 @@ import type { Db } from "../db";
 import { schema } from "../db";
 import { logEvent } from "./events";
 import { awsClientConfig, s3ClientConfig } from "./aws";
+import { ingestDmarcEmail } from "./dmarc-ingest";
 
 type SQSPayload = {
+  kind?: "reply" | "dmarc";
   messageId: string;
   rfc822MessageId?: string;
   inReplyTo?: string;
@@ -72,6 +74,19 @@ export async function startPoller(db: Db, config: Config) {
             payload.s3Key ||
             payload.action.objectKey ||
             payload.action.objectKeyPrefix + payload.messageId;
+
+          const kind = payload.kind ?? (payload.to.some((address) => /@dmarc\./i.test(address)) ? "dmarc" : "reply");
+          if (kind === "dmarc") {
+            const parsed = await fetchAndParseEmail(s3, config.s3Bucket, s3Key);
+            if (!parsed) throw new Error(`DMARC email body is unavailable in S3 (${s3Key})`);
+            const ingestion = ingestDmarcEmail(db, payload, parsed, s3Key);
+            console.log(`DMARC message ${payload.messageId}: ${ingestion.status}`);
+            await sqs.send(new DeleteMessageCommand({
+              QueueUrl: queueUrl,
+              ReceiptHandle: msg.ReceiptHandle,
+            }));
+            continue;
+          }
 
           // Parse raw email from S3 for body content and reliable headers
           let bodyText: string | null = null;

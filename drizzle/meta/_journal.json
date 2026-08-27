@@ -120,6 +120,13 @@
       "when": 1787857200000,
       "tag": "0016_durable-deliveries",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1787859600000,
+      "tag": "0017_dmarc-reports",
+      "breakpoints": true
     }
   ]
 }

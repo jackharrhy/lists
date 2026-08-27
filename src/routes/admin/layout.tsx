@@ -75,6 +75,7 @@ export function AdminLayout({
                 <a href="/admin/lists" class="text-gray-400 text-sm no-underline hover:text-white">Lists</a>
                 <a href="/admin/campaigns" class="text-gray-400 text-sm no-underline hover:text-white">Campaigns</a>
                 <a href="/admin/inbound" class="text-gray-400 text-sm no-underline hover:text-white">Inbound</a>
+                {isAdmin && <a href="/admin/dmarc" class="text-gray-400 text-sm no-underline hover:text-white">DMARC</a>}
               </div>
 
               <span class="text-gray-700">|</span>
