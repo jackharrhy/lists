@@ -112,10 +112,37 @@ export const campaignSends = sqliteTable("campaign_sends", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   campaignId: integer("campaign_id").notNull().references(() => campaigns.id),
   subscriberId: integer("subscriber_id").notNull().references(() => subscribers.id),
+  idempotencyKey: text("idempotency_key").unique(),
   sesMessageId: text("ses_message_id"),
   rfc822MessageId: text("rfc822_message_id"),
-  status: text("status", { enum: ["pending", "sent", "bounced"] }).notNull().default("pending"),
+  status: text("status", { enum: [
+    "pending", "attempting", "accepted", "delivered", "delivery_delayed",
+    "deferred", "rejected", "failed", "bounced", "complained", "sent",
+  ] }).notNull().default("pending"),
   sentAt: text("sent_at"),
+  attemptCount: integer("attempt_count").notNull().default(0),
+  nextAttemptAt: text("next_attempt_at"),
+  lastAttemptAt: text("last_attempt_at"),
+  acceptedAt: text("accepted_at"),
+  deliveredAt: text("delivered_at"),
+  lastError: text("last_error"),
+  diagnosticCode: text("diagnostic_code"),
+  bounceType: text("bounce_type"),
+  complaintType: text("complaint_type"),
+  updatedAt: text("updated_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+});
+
+export const deliveryEvents = sqliteTable("delivery_events", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  providerEventId: text("provider_event_id").notNull().unique(),
+  sesMessageId: text("ses_message_id"),
+  eventType: text("event_type").notNull(),
+  payload: text("payload").notNull(),
+  receivedAt: text("received_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
 });
 
 export const messages = sqliteTable("messages", {

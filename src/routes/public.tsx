@@ -221,6 +221,10 @@ export function publicRoutes(db: Db, config: Config) {
             },
           },
           ConfigurationSetName: config.sesConfigSet || undefined,
+          EmailTags: [
+            { Name: "subscriber_id", Value: String(subscriber.id) },
+            { Name: "message_kind", Value: "confirmation" },
+          ],
         }).input,
       );
       domainsSent.push(domain);

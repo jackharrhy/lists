@@ -1011,7 +1011,8 @@ export function mountCampaignRoutes(app: App, db: Db, config: Config) {
                 <tr>
                   <Th>Subscriber ID</Th>
                   <Th>Status</Th>
-                  <Th>Sent At</Th>
+                  <Th>Attempts</Th>
+                  <Th>Accepted / Delivered</Th>
                   <Th>SES Message ID</Th>
                 </tr>
               </thead>
@@ -1020,7 +1021,13 @@ export function mountCampaignRoutes(app: App, db: Db, config: Config) {
                   <tr>
                     <Td>{send.subscriberId}</Td>
                     <Td>{send.status}</Td>
-                    <Td>{fmtDateTime(send.sentAt)}</Td>
+                    <Td>{send.attemptCount}</Td>
+                    <Td>
+                      <span class="block">{fmtDateTime(send.acceptedAt ?? send.sentAt)}</span>
+                      {send.deliveredAt && <span class="block text-xs text-green-700">Delivered {fmtDateTime(send.deliveredAt)}</span>}
+                      {send.nextAttemptAt && <span class="block text-xs text-amber-700">Retry {fmtDateTime(send.nextAttemptAt)}</span>}
+                      {send.lastError && <span class="block text-xs text-red-700" title={send.diagnosticCode ?? undefined}>{send.lastError}</span>}
+                    </Td>
                     <Td class="text-xs">{send.sesMessageId ?? "—"}</Td>
                   </tr>
                 ))}

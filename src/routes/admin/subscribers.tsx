@@ -675,6 +675,10 @@ export function mountSubscriberRoutes(app: App, db: Db, config: Config) {
           },
         },
         ConfigurationSetName: config.sesConfigSet || undefined,
+        EmailTags: [
+          { Name: "subscriber_id", Value: String(sub.id) },
+          { Name: "message_kind", Value: "confirmation" },
+        ],
       }).input,
     );
 
