@@ -27,6 +27,11 @@ function getValidSession(token: string): SessionData | null {
   return session;
 }
 
+export function getSessionUser(db: Db, token: string | undefined) {
+  const session = token ? getValidSession(token) : null;
+  return session ? db.select().from(schema.users).where(eq(schema.users.id, session.userId)).get() ?? null : null;
+}
+
 export function adminAuth(db: Db) {
   return new Elysia({ name: "admin-auth" })
     .resolve(({ cookie }) => {

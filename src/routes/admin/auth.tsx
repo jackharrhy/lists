@@ -27,6 +27,9 @@ export function mountAuthRoutes(app: App, db: Db, config: Config) {
               <div class="bg-green-100 border border-green-300 text-green-800 px-3 py-2 rounded-md mb-4 text-sm text-center">{flash}</div>
             )}
             <form method="post" action="/admin/login">
+              {(c.query as Record<string, string | undefined>).returnTo && (
+                <input type="hidden" name="returnTo" value={(c.query as Record<string, string | undefined>).returnTo} />
+              )}
               <input
                 type="email"
                 name="email"
@@ -56,6 +59,9 @@ export function mountAuthRoutes(app: App, db: Db, config: Config) {
     const body = c.body as Record<string, any>;
     const email = body["email"] as string;
     const password = body["password"] as string;
+    const requestedReturnTo = String(body["returnTo"] ?? "");
+    const returnTo = requestedReturnTo.startsWith("/") && !requestedReturnTo.startsWith("//")
+      ? requestedReturnTo : "/admin/";
 
     const renderError = (message: string) =>
       c.html(
@@ -117,7 +123,7 @@ export function mountAuthRoutes(app: App, db: Db, config: Config) {
       sameSite: "lax",
       maxAge: 86400,
     });
-    return c.redirect("/admin/");
+    return c.redirect(returnTo);
   });
 
   app.post("/logout", (c) => {

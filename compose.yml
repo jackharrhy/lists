@@ -64,7 +64,6 @@ services:
       S3_MEDIA_BUCKET: lists-media
       S3_MEDIA_BASE_URL: ${S3_MEDIA_BASE_URL:-http://localhost:5000/lists-media}
       SMTP_URL: smtp://mailpit:1025
-      API_TOKEN: local-api-token
       BASE_URL: ${BASE_URL:-http://localhost:8080}
       FROM_DOMAIN: lists.local
       DB_PATH: /data/lists.db

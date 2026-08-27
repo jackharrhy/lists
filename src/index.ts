@@ -11,6 +11,8 @@ import { startPoller } from "./services/poller";
 import { startScheduler } from "./services/scheduler";
 import { bootstrapOwner } from "./bootstrap";
 import { startDeliveryWorker } from "./services/delivery-worker";
+import { mcpRoutes } from "./routes/mcp";
+import { oauthRoutes } from "./routes/oauth";
 
 const config = loadConfig();
 const db = createDb(config.dbPath);
@@ -23,9 +25,11 @@ app
   .use(staticPlugin({ assets: "public", prefix: "/static" }))
   .get("/health", () => ({ ok: true }))
   .get("/", ({ redirect }) => redirect("/subscribe", 302))
+  .use(oauthRoutes(db, config))
   .use(publicRoutes(db, config))
   .group("/webhooks", (app) => app.use(webhookRoutes(db)))
   .group("/api", (app) => app.use(apiRoutes(db, config)))
+  .group("/mcp", (app) => app.use(mcpRoutes(db, config)))
   .group("/admin", (app) => app.use(adminRoutes(db, config)));
 
 startPoller(db, config).catch((err) => {

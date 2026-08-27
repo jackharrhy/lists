@@ -50,6 +50,56 @@ export const userLists = sqliteTable("user_lists", {
     .references(() => lists.id),
 });
 
+export const apiTokens = sqliteTable("api_tokens", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  tokenHash: text("token_hash").notNull().unique(),
+  tokenPrefix: text("token_prefix").notNull(),
+  scopes: text("scopes").notNull(),
+  expiresAt: text("expires_at"),
+  lastUsedAt: text("last_used_at"),
+  revokedAt: text("revoked_at"),
+  createdAt: text("created_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+}, (table) => [
+  index("api_tokens_user_idx").on(table.userId),
+  index("api_tokens_hash_idx").on(table.tokenHash),
+]);
+
+export const oauthClients = sqliteTable("oauth_clients", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  clientId: text("client_id").notNull().unique(),
+  clientName: text("client_name").notNull(),
+  redirectUris: text("redirect_uris").notNull(),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+});
+
+export const oauthAuthorizationCodes = sqliteTable("oauth_authorization_codes", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  codeHash: text("code_hash").notNull().unique(),
+  clientId: text("client_id").notNull().references(() => oauthClients.clientId, { onDelete: "cascade" }),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  redirectUri: text("redirect_uri").notNull(),
+  scopes: text("scopes").notNull(),
+  codeChallenge: text("code_challenge").notNull(),
+  expiresAt: text("expires_at").notNull(),
+  usedAt: text("used_at"),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+}, (table) => [index("oauth_codes_hash_idx").on(table.codeHash)]);
+
+export const oauthRefreshTokens = sqliteTable("oauth_refresh_tokens", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  tokenHash: text("token_hash").notNull().unique(),
+  clientId: text("client_id").notNull().references(() => oauthClients.clientId, { onDelete: "cascade" }),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  scopes: text("scopes").notNull(),
+  expiresAt: text("expires_at").notNull(),
+  revokedAt: text("revoked_at"),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+}, (table) => [index("oauth_refresh_hash_idx").on(table.tokenHash)]);
+
 export const subscriberLists = sqliteTable("subscriber_lists", {
   subscriberId: integer("subscriber_id")
     .notNull()

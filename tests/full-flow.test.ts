@@ -20,7 +20,6 @@ const testConfig: Config = {
   awsRegion: "us-east-1",
   sqsQueueUrl: "https://sqs.us-east-1.amazonaws.com/123/test-queue",
   s3Bucket: "test-bucket",
-  apiToken: "test-token",
   dbPath: ":memory:",
   fromDomain: "example.com",
   baseUrl: "http://localhost:8080",

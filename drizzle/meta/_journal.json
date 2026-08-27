@@ -127,6 +127,20 @@
       "when": 1787859600000,
       "tag": "0017_dmarc-reports",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1787865000000,
+      "tag": "0018_api-auth",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1787865600000,
+      "tag": "0019_oauth",
+      "breakpoints": true
     }
   ]
 }

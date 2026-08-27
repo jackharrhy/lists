@@ -2,7 +2,6 @@ export type Config = {
   awsRegion: string;
   sqsQueueUrl: string;
   s3Bucket: string;
-  apiToken: string;
   dbPath: string;
   fromDomain: string;
   baseUrl: string;
@@ -12,6 +11,7 @@ export type Config = {
   ownerEmail: string;
   ownerPassword: string;
   publicSubscriptionsEnabled?: boolean;
+  oauthDynamicRegistrationEnabled?: boolean;
   awsEndpointUrl?: string;
   smtpUrl?: string;
 };
@@ -27,7 +27,6 @@ export function loadConfig(): Config {
     awsRegion: process.env.AWS_REGION ?? "us-east-1",
     sqsQueueUrl: required("SQS_QUEUE_URL"),
     s3Bucket: required("S3_BUCKET"),
-    apiToken: required("API_TOKEN"),
     dbPath: process.env.DB_PATH ?? "lists.db",
     fromDomain: process.env.FROM_DOMAIN ?? "jackharrhy.dev",
     baseUrl: required("BASE_URL"),
@@ -37,6 +36,7 @@ export function loadConfig(): Config {
     ownerEmail: process.env.OWNER_EMAIL ?? "",
     ownerPassword: process.env.OWNER_PASSWORD ?? "",
     publicSubscriptionsEnabled: process.env.PUBLIC_SUBSCRIPTIONS_ENABLED === "true",
+    oauthDynamicRegistrationEnabled: process.env.OAUTH_DYNAMIC_REGISTRATION_ENABLED === "true",
     awsEndpointUrl: process.env.AWS_ENDPOINT_URL || undefined,
     smtpUrl: process.env.SMTP_URL || undefined,
   };

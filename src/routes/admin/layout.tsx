@@ -85,6 +85,7 @@ export function AdminLayout({
                 <a href="/admin/tags" class="text-gray-500 text-xs no-underline hover:text-white">Tags</a>
                 <a href="/admin/import" class="text-gray-500 text-xs no-underline hover:text-white">Import</a>
                 {isAdmin && <a href="/admin/users" class="text-gray-500 text-xs no-underline hover:text-white">Users</a>}
+                <a href="/admin/tokens" class="text-gray-500 text-xs no-underline hover:text-white">API</a>
                 <a href="/design" class="text-gray-600 text-xs no-underline hover:text-white">Design</a>
               </div>
 
