@@ -1,4 +1,5 @@
-import { Hono } from "hono";
+import { Html } from "@elysia/html";
+import type { App } from "../../http";
 import { eq, desc, and, inArray, like, sql } from "drizzle-orm";
 import type { Db } from "../../db";
 import { schema } from "../../db";
@@ -16,17 +17,17 @@ const EVENT_GROUPS = [
   { value: "admin", label: "Admin" },
 ];
 
-export function mountActivityRoutes(app: Hono, db: Db, _config: Config) {
+export function mountActivityRoutes(app: App, db: Db, _config: Config) {
   app.get("/activity", (c) => {
-    const user = c.get("user") as User;
+    const user = c.user as User;
     const listAccess = getAccessibleListIds(db, user);
 
     // Query params
-    const page = Math.max(1, parseInt(c.req.query("page") ?? "1", 10) || 1);
+    const page = Math.max(1, parseInt(c.query.page ?? "1", 10) || 1);
     const offset = (page - 1) * PAGE_SIZE;
-    const filterGroup = c.req.query("group") ?? "";
-    const filterSubscriber = c.req.query("subscriber") ?? "";
-    const filterCampaign = c.req.query("campaign") ?? "";
+    const filterGroup = c.query.group ?? "";
+    const filterSubscriber = c.query.subscriber ?? "";
+    const filterCampaign = c.query.campaign ?? "";
 
     // Base select
     const baseSelect = {
@@ -56,7 +57,8 @@ export function mountActivityRoutes(app: Hono, db: Db, _config: Config) {
     }
 
     // Apply member access scoping
-    let events: typeof schema.events.$inferSelect[] & { userName: string | null }[];
+    type EventRow = typeof schema.events.$inferSelect & { userName: string | null };
+    let events: EventRow[];
 
     if (listAccess === "all") {
       const q = db
@@ -91,23 +93,23 @@ export function mountActivityRoutes(app: Hono, db: Db, _config: Config) {
       const accessConditions = [];
       if (campaignIds.length > 0) accessConditions.push(inArray(schema.events.campaignId, campaignIds));
       if (subscriberIds.length > 0) accessConditions.push(inArray(schema.events.subscriberId, subscriberIds));
-      if (accessConditions.length === 0) { events = []; return; }
+      if (accessConditions.length === 0) {
+        events = [];
+      } else {
+        const q = db
+          .select(baseSelect)
+          .from(schema.events)
+          .leftJoin(schema.users, eq(schema.events.userId, schema.users.id))
+          .where(and(
+            ...conditions,
+            sql`(${schema.events.campaignId} IN ${campaignIds.length ? campaignIds : [-1]} OR ${schema.events.subscriberId} IN ${subscriberIds.length ? subscriberIds : [-1]})`,
+          ))
+          .orderBy(desc(schema.events.createdAt))
+          .limit(PAGE_SIZE + 1)
+          .offset(offset);
 
-      const memberConditions = [...conditions, sql`(${accessConditions.map(() => "?").join(" OR ")})`];
-      // simplified: just union
-      const q = db
-        .select(baseSelect)
-        .from(schema.events)
-        .leftJoin(schema.users, eq(schema.events.userId, schema.users.id))
-        .where(and(
-          ...conditions,
-          sql`(${schema.events.campaignId} IN ${campaignIds.length ? campaignIds : [-1]} OR ${schema.events.subscriberId} IN ${subscriberIds.length ? subscriberIds : [-1]})`,
-        ))
-        .orderBy(desc(schema.events.createdAt))
-        .limit(PAGE_SIZE + 1)
-        .offset(offset);
-
-      events = q.all() as any;
+        events = q.all() as EventRow[];
+      }
     }
 
     const hasMore = events.length > PAGE_SIZE;
@@ -167,7 +169,7 @@ export function mountActivityRoutes(app: Hono, db: Db, _config: Config) {
         </PageHeader>
 
         {/* Filters */}
-        <form method="get" action="/admin/activity" class="flex items-end gap-3 mb-6 flex-wrap">
+        <form method="get" action="/admin/activity" hx-get="/admin/activity" hx-trigger="change from:select" class="filter-bar flex items-end gap-3 mb-6 flex-wrap">
           <div>
             <label class="block text-xs font-medium text-gray-500 mb-1">Type</label>
             <Select name="group" size="sm">

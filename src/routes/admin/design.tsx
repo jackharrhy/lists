@@ -1,8 +1,9 @@
-import { Hono } from "hono";
+import { Html } from "@elysia/html";
+import type { App } from "../../http";
 import { AdminLayout, VerdictChips, CampaignBadge } from "./layout";
 import { Button, LinkButton, Input, Select, Textarea, Label, FormGroup, Table, Th, Td, Card, PageHeader } from "./ui";
 
-export function mountDesignRoutes(app: Hono) {
+export function mountDesignRoutes(app: App) {
   app.get("/design", (c) => {
     return c.html(
       <html>

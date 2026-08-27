@@ -11,6 +11,8 @@ export type Config = {
   s3MediaBaseUrl: string;
   ownerEmail: string;
   ownerPassword: string;
+  awsEndpointUrl?: string;
+  smtpUrl?: string;
 };
 
 export function loadConfig(): Config {
@@ -33,5 +35,7 @@ export function loadConfig(): Config {
     s3MediaBaseUrl: process.env.S3_MEDIA_BASE_URL ?? "",
     ownerEmail: process.env.OWNER_EMAIL ?? "",
     ownerPassword: process.env.OWNER_PASSWORD ?? "",
+    awsEndpointUrl: process.env.AWS_ENDPOINT_URL || undefined,
+    smtpUrl: process.env.SMTP_URL || undefined,
   };
 }

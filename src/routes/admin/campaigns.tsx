@@ -1,4 +1,5 @@
-import { Hono } from "hono";
+import { Html } from "@elysia/html";
+import type { App } from "../../http";
 import { z } from "zod";
 import { eq, desc, and, inArray, like, sql } from "drizzle-orm";
 import { marked } from "marked";
@@ -17,11 +18,11 @@ import { Button, LinkButton, Input, Select, Textarea, Label, FormGroup, Table, T
 
 const CAMPAIGNS_PAGE_SIZE = 25;
 
-export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
+export function mountCampaignRoutes(app: App, db: Db, config: Config) {
   // ---- Preview endpoints (raw HTML, no AdminLayout) -----------------------
 
   app.get("/campaigns/:id/preview", async (c) => {
-    const id = Number(c.req.param("id"));
+    const id = Number(c.params.id);
     const campaign = db.select().from(schema.campaigns).where(eq(schema.campaigns.id, id)).get();
     if (!campaign) return c.notFound();
 
@@ -41,7 +42,7 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
       email: "subscriber@example.com",
     };
 
-    const subscriberId = c.req.query("subscriberId");
+    const subscriberId = c.query.subscriberId;
     if (subscriberId) {
       const sub = db.select().from(schema.subscribers).where(eq(schema.subscribers.id, Number(subscriberId))).get();
       if (sub) {
@@ -75,7 +76,7 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
   });
 
   app.post("/campaigns/preview", async (c) => {
-    const raw = await c.req.json().catch(() => ({}));
+    const raw = (c.body ?? {}) as Record<string, unknown>;
     const parsed = CampaignPreviewSchema.safeParse(raw);
     if (!parsed.success) return c.text("Bad Request", 400);
     const { bodyMarkdown, subject, listName } = parsed.data;
@@ -97,9 +98,9 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
   });
 
   app.post("/campaigns/upload-image", async (c) => {
-    const body = await c.req.parseBody();
+    const body = c.body as Record<string, any>;
     const file = body["image"];
-    if (!file || typeof file === "string") {
+    if (!(file instanceof File)) {
       return c.json({ error: "No image provided" }, 400);
     }
 
@@ -123,15 +124,15 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
 
   // Campaigns
   app.get("/campaigns", (c) => {
-    const user = c.get("user") as User;
+    const user = c.user as User;
     const flash = getFlash(c);
     const listAccess = getAccessibleListIds(db, user);
 
     // Query params
-    const page = Math.max(1, parseInt(c.req.query("page") ?? "1", 10) || 1);
+    const page = Math.max(1, parseInt(c.query.page ?? "1", 10) || 1);
     const offset = (page - 1) * CAMPAIGNS_PAGE_SIZE;
-    const filterStatus = c.req.query("status") ?? "";
-    const filterSearch = c.req.query("search") ?? "";
+    const filterStatus = c.query.status ?? "";
+    const filterSearch = c.query.search ?? "";
 
     // Build where conditions
     const filterConditions = [];
@@ -216,7 +217,7 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
         </PageHeader>
 
         {/* Filters */}
-        <form method="get" action="/admin/campaigns" class="flex items-end gap-3 mb-6 flex-wrap">
+        <form method="get" action="/admin/campaigns" hx-get="/admin/campaigns" hx-trigger="keyup changed delay:350ms from:input[name='search'], change from:select" class="filter-bar flex items-end gap-3 mb-6 flex-wrap">
           <div>
             <label class="block text-xs font-medium text-gray-500 mb-1">Status</label>
             <Select name="status" size="sm">
@@ -227,7 +228,7 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
           </div>
           <div>
             <label class="block text-xs font-medium text-gray-500 mb-1">Search</label>
-            <Input type="text" name="search" size="sm" value={filterSearch} placeholder="Subject…" class="w-48" />
+            <Input type="text" name="search" size="sm" value={filterSearch} autofocus={!!filterSearch} placeholder="Subject…" class="w-48" />
           </div>
           <input type="hidden" name="page" value="1" />
           <Button type="submit" size="filter">Filter</Button>
@@ -265,7 +266,7 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
             ))}
             {campaigns.length === 0 && (
               <tr>
-                <Td class="text-gray-400" colspan="5">No campaigns found.</Td>
+                <Td class="text-gray-400" colspan={5}>No campaigns found.</Td>
               </tr>
             )}
           </tbody>
@@ -293,7 +294,7 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
   });
 
   app.get("/campaigns/new", (c) => {
-    const user = c.get("user") as User;
+    const user = c.user as User;
     const flash = getFlash(c);
     const listAccess = getAccessibleListIds(db, user);
 
@@ -483,8 +484,8 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
           </div>
         </div>
 
-        <script dangerouslySetInnerHTML={{ __html: `var subscribers = ${JSON.stringify(allSubscribers.map(s => ({ id: s.id, email: s.email, firstName: s.firstName, lastName: s.lastName })))};` }} />
-        <script dangerouslySetInnerHTML={{ __html: `
+        <script>{`var subscribers = ${JSON.stringify(allSubscribers.map(s => ({ id: s.id, email: s.email, firstName: s.firstName, lastName: s.lastName })))};`}</script>
+        <script>{`
           (function() {
             // Mode switching
             var mode = document.getElementById('audienceMode');
@@ -672,8 +673,8 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
               timer = setTimeout(updatePreview, 500);
             });
           })();
-        `}} />
-        <script dangerouslySetInnerHTML={{ __html: `
+        `}</script>
+        <script>{`
           (function() {
             var dropZone = document.getElementById('imageDropZone');
             var fileInput = document.getElementById('imageFileInput');
@@ -752,27 +753,29 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
             closeBtn.addEventListener('click', function() { modal.classList.add('hidden'); });
             modal.addEventListener('click', function(e) { if (e.target === modal) modal.classList.add('hidden'); });
           })();
-        `}} />
+        `}</script>
       </AdminLayout>,
     );
   });
 
   app.post("/campaigns/new", async (c) => {
-    const user = c.get("user") as User;
-    const body = await c.req.parseBody();
+    const user = c.user as User;
+    const body = c.body as Record<string, any>;
     const fromAddress = String(body["fromAddress"] ?? "").trim();
     const fromName = String(body["fromName"] ?? "").trim() || null;
     const subject = String(body["subject"] ?? "").trim();
     const bodyMarkdown = String(body["bodyMarkdown"] ?? "");
 
     const validModes = ["list", "all", "tag", "specific"] as const;
-    let audienceMode = validModes.includes(body["audienceMode"] as any) ? body["audienceMode"] as string : "list";
+    let audienceMode: (typeof validModes)[number] = validModes.includes(body["audienceMode"] as any)
+      ? body["audienceMode"] as (typeof validModes)[number]
+      : "list";
 
     if (audienceMode === "all" && !["owner", "admin"].includes(user.role)) {
       audienceMode = "list"; // fallback
     }
 
-    let audienceType: string = audienceMode === "specific" ? "subscribers" : audienceMode;
+    let audienceType: "list" | "all" | "tag" | "subscribers" = audienceMode === "specific" ? "subscribers" : audienceMode;
     let audienceId: number | null = null;
     let audienceData: string | null = null;
 
@@ -838,9 +841,9 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
   });
 
   app.get("/campaigns/:id", async (c) => {
-    const user = c.get("user") as User;
+    const user = c.user as User;
     const flash = getFlash(c);
-    const id = Number(c.req.param("id"));
+    const id = Number(c.params.id);
     const campaign = db.select().from(schema.campaigns).where(eq(schema.campaigns.id, id)).get();
     if (!campaign) return c.notFound();
 
@@ -1041,14 +1044,14 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
           class="w-full border border-gray-200 rounded-lg"
           style="min-height: 600px;"
         />
-        <script dangerouslySetInnerHTML={{ __html: `
+        <script>{`
           document.getElementById('previewSubscriber').addEventListener('change', function() {
             var subId = this.value;
             var src = '/admin/campaigns/${id}/preview';
             if (subId) src += '?subscriberId=' + subId;
             document.getElementById('previewFrame').src = src;
           });
-        `}} />
+        `}</script>
 
         {inboundReplies.length > 0 && (
           <>
@@ -1085,9 +1088,9 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
   });
 
   app.get("/campaigns/:id/edit", (c) => {
-    const user = c.get("user") as User;
+    const user = c.user as User;
     const flash = getFlash(c);
-    const id = Number(c.req.param("id"));
+    const id = Number(c.params.id);
     const campaign = db.select().from(schema.campaigns).where(eq(schema.campaigns.id, id)).get();
     if (!campaign) return c.notFound();
     if (campaign.status !== "draft" && campaign.status !== "failed" && campaign.status !== "scheduled") {
@@ -1282,8 +1285,8 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
               </form>
             </Card>
         </div>
-        <script dangerouslySetInnerHTML={{ __html: `var subscribers = ${JSON.stringify(allSubscribers.map(s => ({ id: s.id, email: s.email, firstName: s.firstName, lastName: s.lastName })))};` }} />
-        <script dangerouslySetInnerHTML={{ __html: `
+        <script>{`var subscribers = ${JSON.stringify(allSubscribers.map(s => ({ id: s.id, email: s.email, firstName: s.firstName, lastName: s.lastName })))};`}</script>
+        <script>{`
           (function() {
             // Mode switching
             var mode = document.getElementById('audienceMode');
@@ -1450,7 +1453,7 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
               timer = setTimeout(updatePreview, 500);
             });
           })();
-        `}} />
+        `}</script>
 
         {/* Image upload modal */}
         <div id="imageModal" class="hidden fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
@@ -1469,7 +1472,7 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
           </div>
         </div>
 
-        <script dangerouslySetInnerHTML={{ __html: `
+        <script>{`
           (function() {
             var dropZone = document.getElementById('imageDropZone');
             var fileInput = document.getElementById('imageFileInput');
@@ -1546,34 +1549,36 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
             closeBtn.addEventListener('click', function() { modal.classList.add('hidden'); });
             modal.addEventListener('click', function(e) { if (e.target === modal) modal.classList.add('hidden'); });
           })();
-        `}} />
+        `}</script>
       </AdminLayout>,
     );
   });
 
   app.post("/campaigns/:id/edit", async (c) => {
-    const user = c.get("user") as User;
-    const id = Number(c.req.param("id"));
+    const user = c.user as User;
+    const id = Number(c.params.id);
     const campaign = db.select().from(schema.campaigns).where(eq(schema.campaigns.id, id)).get();
     if (!campaign) return c.notFound();
     if (campaign.status !== "draft" && campaign.status !== "failed") {
       return c.redirect(`/admin/campaigns/${id}`);
     }
 
-    const body = await c.req.parseBody();
+    const body = c.body as Record<string, any>;
     const fromAddress = String(body["fromAddress"] ?? "").trim();
     const fromName = String(body["fromName"] ?? "").trim() || null;
     const subject = String(body["subject"] ?? "").trim();
     const bodyMarkdown = String(body["bodyMarkdown"] ?? "");
 
     const validModes = ["list", "all", "tag", "specific"] as const;
-    let audienceMode = validModes.includes(body["audienceMode"] as any) ? body["audienceMode"] as string : "list";
+    let audienceMode: (typeof validModes)[number] = validModes.includes(body["audienceMode"] as any)
+      ? body["audienceMode"] as (typeof validModes)[number]
+      : "list";
 
     if (audienceMode === "all" && !["owner", "admin"].includes(user.role)) {
       audienceMode = "list"; // fallback
     }
 
-    let audienceType: string = audienceMode === "specific" ? "subscribers" : audienceMode;
+    let audienceType: "list" | "all" | "tag" | "subscribers" = audienceMode === "specific" ? "subscribers" : audienceMode;
     let audienceId: number | null = null;
     let audienceData: string | null = null;
 
@@ -1620,7 +1625,7 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
   });
 
   app.post("/campaigns/:id/send", async (c) => {
-    const id = Number(c.req.param("id"));
+    const id = Number(c.params.id);
     try {
       await sendCampaign(db, config, id);
     } catch (err) {
@@ -1631,7 +1636,7 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
   });
 
   app.post("/campaigns/:id/retry", async (c) => {
-    const id = Number(c.req.param("id"));
+    const id = Number(c.params.id);
     try {
       await sendCampaign(db, config, id);
     } catch (err) {
@@ -1642,7 +1647,7 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
   });
 
   app.post("/campaigns/:id/reset", (c) => {
-    const id = Number(c.req.param("id"));
+    const id = Number(c.params.id);
     db.update(schema.campaigns)
       .set({ status: "draft", lastError: null })
       .where(eq(schema.campaigns.id, id))
@@ -1652,7 +1657,7 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
   });
 
   app.post("/campaigns/:id/unschedule", (c) => {
-    const id = Number(c.req.param("id"));
+    const id = Number(c.params.id);
     db.update(schema.campaigns)
       .set({ status: "draft", scheduledAt: null })
       .where(eq(schema.campaigns.id, id))
@@ -1662,8 +1667,8 @@ export function mountCampaignRoutes(app: Hono, db: Db, config: Config) {
   });
 
   app.post("/campaigns/:id/delete", async (c) => {
-    const user = c.get("user") as User;
-    const id = Number(c.req.param("id"));
+    const user = c.user as User;
+    const id = Number(c.params.id);
     const campaign = db.select().from(schema.campaigns).where(eq(schema.campaigns.id, id)).get();
 
     await deleteCampaignS3Images(id, config);

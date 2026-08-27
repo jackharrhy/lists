@@ -1,8 +1,9 @@
-import { Hono } from "hono";
+import { Html } from "@elysia/html";
+import type { App } from "../../http";
 import { eq, desc, sql, and, inArray, like, isNull, isNotNull } from "drizzle-orm";
 import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { SESv2Client, SendEmailCommand } from "@aws-sdk/client-sesv2";
+import { SendEmailCommand } from "@aws-sdk/client-sesv2";
 import * as nodemailer from "nodemailer";
 import type { Db } from "../../db";
 import { schema } from "../../db";
@@ -11,21 +12,23 @@ import { getAccessibleListIds } from "../../auth";
 import { logEvent } from "../../services/events";
 import { AdminLayout, extractEmail, fmtDateTime, VerdictChips, setFlash, getFlash, type User } from "./layout";
 import { Button, Input, LinkButton, Select, Textarea, Label, FormGroup, Table, Th, Td, PageHeader } from "./ui";
+import { sendEmail } from "../../services/mailer";
+import { s3ClientConfig } from "../../services/aws";
 
 const PAGE_SIZE = 50;
 
-export function mountMessageRoutes(app: Hono, db: Db, config: Config) {
+export function mountMessageRoutes(app: App, db: Db, config: Config) {
   app.get("/inbound", (c) => {
-    const user = c.get("user") as User;
+    const user = c.user as User;
     const flash = getFlash(c);
     const listAccess = getAccessibleListIds(db, user);
 
     // Query params
-    const page = Math.max(1, parseInt(c.req.query("page") ?? "1", 10) || 1);
+    const page = Math.max(1, parseInt(c.query.page ?? "1", 10) || 1);
     const offset = (page - 1) * PAGE_SIZE;
-    const filterSearch = c.req.query("search") ?? "";
-    const filterRead = c.req.query("read") ?? "";
-    const filterCampaign = c.req.query("campaign") ?? "";
+    const filterSearch = c.query.search ?? "";
+    const filterRead = c.query.read ?? "";
+    const filterCampaign = c.query.campaign ?? "";
 
     // Build filter conditions for thread root messages
     // Thread roots: parentId IS NULL AND direction = "inbound"
@@ -185,10 +188,10 @@ export function mountMessageRoutes(app: Hono, db: Db, config: Config) {
         </PageHeader>
 
         {/* Filters */}
-        <form method="get" action="/admin/inbound" class="flex items-end gap-3 mb-6 flex-wrap">
+        <form method="get" action="/admin/inbound" hx-get="/admin/inbound" hx-trigger="keyup changed delay:350ms from:input[name='search'], change from:select" class="filter-bar flex items-end gap-3 mb-6 flex-wrap">
           <div>
             <label class="block text-xs font-medium text-gray-500 mb-1">Search</label>
-            <Input type="text" name="search" size="sm" value={filterSearch} placeholder="Subject or from…" class="w-48" />
+            <Input type="text" name="search" size="sm" value={filterSearch} autofocus={!!filterSearch} placeholder="Subject or from…" class="w-48" />
           </div>
           <div>
             <label class="block text-xs font-medium text-gray-500 mb-1">Read</label>
@@ -255,7 +258,7 @@ export function mountMessageRoutes(app: Hono, db: Db, config: Config) {
             ))}
             {rootMessages.length === 0 && (
               <tr>
-                <Td class="text-gray-400 text-sm py-4" {...{ colspan: "6" }}>No messages match the current filters.</Td>
+                <Td class="text-gray-400 text-sm py-4" colspan={6}>No messages match the current filters.</Td>
               </tr>
             )}
           </tbody>
@@ -283,9 +286,9 @@ export function mountMessageRoutes(app: Hono, db: Db, config: Config) {
   });
 
   app.get("/inbound/:id", async (c) => {
-    const user = c.get("user") as User;
+    const user = c.user as User;
     const flash = getFlash(c);
-    const id = Number(c.req.param("id"));
+    const id = Number(c.params.id);
     const msg = db.select().from(schema.messages).where(eq(schema.messages.id, id)).get();
     if (!msg) return c.notFound();
 
@@ -439,7 +442,7 @@ export function mountMessageRoutes(app: Hono, db: Db, config: Config) {
   });
 
   app.post("/inbound/:id/toggle-read", (c) => {
-    const id = Number(c.req.param("id"));
+    const id = Number(c.params.id);
     const msg = db.select().from(schema.messages).where(eq(schema.messages.id, id)).get();
     if (!msg) return c.notFound();
     db.update(schema.messages)
@@ -450,8 +453,8 @@ export function mountMessageRoutes(app: Hono, db: Db, config: Config) {
   });
 
   app.post("/inbound/:id/delete", (c) => {
-    const user = c.get("user") as User;
-    const id = Number(c.req.param("id"));
+    const user = c.user as User;
+    const id = Number(c.params.id);
     const msg = db.select().from(schema.messages).where(eq(schema.messages.id, id)).get();
 
     logEvent(db, {
@@ -472,11 +475,11 @@ export function mountMessageRoutes(app: Hono, db: Db, config: Config) {
   });
 
   app.get("/inbound/:id/raw", async (c) => {
-    const id = Number(c.req.param("id"));
+    const id = Number(c.params.id);
     const msg = db.select().from(schema.messages).where(eq(schema.messages.id, id)).get();
     if (!msg || !msg.s3Key) return c.notFound();
 
-    const s3 = new S3Client({ region: config.awsRegion });
+    const s3 = new S3Client(s3ClientConfig(config));
     const command = new GetObjectCommand({
       Bucket: config.s3Bucket,
       Key: msg.s3Key,
@@ -486,12 +489,12 @@ export function mountMessageRoutes(app: Hono, db: Db, config: Config) {
   });
 
   app.post("/inbound/:id/reply", async (c) => {
-    const user = c.get("user") as User;
-    const id = Number(c.req.param("id"));
+    const user = c.user as User;
+    const id = Number(c.params.id);
     const msg = db.select().from(schema.messages).where(eq(schema.messages.id, id)).get();
     if (!msg) return c.notFound();
 
-    const body = await c.req.parseBody();
+    const body = c.body as Record<string, any>;
     const fromAddr = String(body["fromAddr"] ?? "").trim();
     const toAddr = String(body["toAddr"] ?? "").trim();
     const subject = String(body["subject"] ?? "").replace(/[\r\n]/g, " ").trim();
@@ -518,8 +521,7 @@ export function mountMessageRoutes(app: Hono, db: Db, config: Config) {
       },
     });
 
-    const ses = new SESv2Client({ region: config.awsRegion });
-    const result = await ses.send(
+    const result = await sendEmail(config,
       new SendEmailCommand({
         Content: {
           Raw: {
@@ -527,7 +529,7 @@ export function mountMessageRoutes(app: Hono, db: Db, config: Config) {
           },
         },
         ConfigurationSetName: config.sesConfigSet || undefined,
-      }),
+      }).input,
     );
 
     db.insert(schema.messages)

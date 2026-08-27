@@ -2,7 +2,7 @@ import { test, expect, describe, beforeEach } from "bun:test";
 import { mockClient } from "aws-sdk-client-mock";
 import { SESv2Client, SendEmailCommand } from "@aws-sdk/client-sesv2";
 import { eq, and, desc } from "drizzle-orm";
-import { Hono } from "hono";
+import { createHttpApp, type App } from "../src/http";
 
 import { createTestDb, seedList } from "./helpers";
 import { sendCampaign } from "../src/services/sender";
@@ -102,7 +102,7 @@ describe("Full campaign send flow", () => {
 // 2. Campaign send failure flow
 // ---------------------------------------------------------------------------
 describe("Campaign send failure flow", () => {
-  test("records bounced send when SES rejects a single subscriber", async () => {
+  test("marks the campaign failed when SES rejects every recipient", async () => {
     const db = createTestDb();
     const list = seedList(db, { slug: "newsletter", fromDomain: "example.com" });
 
@@ -124,21 +124,21 @@ describe("Campaign send failure flow", () => {
       .returning()
       .get();
 
-    // mock SES to reject — the per-subscriber error is caught internally;
-    // the campaign still completes as "sent" but each individual send is "bounced"
     sesMock
       .on(SendEmailCommand)
       .rejects(new Error("SES rate limit exceeded"));
 
-    await sendCampaign(db, testConfig, campaign.id);
+    await expect(sendCampaign(db, testConfig, campaign.id)).rejects.toThrow(
+      "failed for 1 recipient",
+    );
 
-    // campaign completes (per-subscriber errors are caught, not propagated)
     const updated = db
       .select()
       .from(schema.campaigns)
       .where(eq(schema.campaigns.id, campaign.id))
       .get();
-    expect(updated!.status).toBe("sent");
+    expect(updated!.status).toBe("failed");
+    expect(updated!.lastError).toContain("SES rate limit exceeded");
 
     // campaignSends should have an entry with status "bounced"
     const sends = db
@@ -375,7 +375,7 @@ describe("Inbound message processing", () => {
 // ---------------------------------------------------------------------------
 // 6. Per-list unsubscribe flow
 // ---------------------------------------------------------------------------
-describe("Per-list unsubscribe flow via Hono", () => {
+describe("Per-list unsubscribe flow via App", () => {
   test("GET /unsubscribe/:token/:listId unsubscribes from one list only", async () => {
     const db = createTestDb();
     const listA = seedList(db, {
@@ -395,8 +395,8 @@ describe("Per-list unsubscribe flow via Hono", () => {
     ]);
     confirmSubscriber(db, subscriber.unsubscribeToken);
 
-    const app = new Hono();
-    app.route("/", publicRoutes(db, testConfig));
+    const app = createHttpApp();
+    app.use(publicRoutes(db, testConfig));
 
     const res = await app.request(
       `/unsubscribe/${subscriber.unsubscribeToken}/${listA.id}`,
@@ -407,6 +407,7 @@ describe("Per-list unsubscribe flow via Hono", () => {
     const html = await res.text();
     expect(html).toContain("List A");
     expect(html).toContain("Manage all your subscriptions");
+    expect(html).toContain("still subscribed to 1 other list");
 
     // list-a should be unsubscribed
     const subListA = db
@@ -454,8 +455,8 @@ describe("Per-list unsubscribe flow via Hono", () => {
     ]);
     confirmSubscriber(db, subscriber.unsubscribeToken);
 
-    const app = new Hono();
-    app.route("/", publicRoutes(db, testConfig));
+    const app = createHttpApp();
+    app.use(publicRoutes(db, testConfig));
 
     const res = await app.request(
       `/unsubscribe/${subscriber.unsubscribeToken}/${listA.id}`,
@@ -527,6 +528,28 @@ describe("audienceData format regression", () => {
     // This should throw because JSON.parse returns an object, not an array
     await expect(sendCampaign(db, testConfig, brokenCampaign.id)).rejects.toThrow();
   });
+
+  test("an empty subscriber audience completes without invalid SQL", async () => {
+    const db = createTestDb();
+    const campaign = db
+      .insert(schema.campaigns)
+      .values({
+        audienceType: "subscribers",
+        audienceData: "[]",
+        subject: "Nobody",
+        bodyMarkdown: "test",
+        fromAddress: "test@example.com",
+        status: "draft",
+      })
+      .returning()
+      .get();
+
+    await sendCampaign(db, testConfig, campaign.id);
+
+    const updated = db.select().from(schema.campaigns).where(eq(schema.campaigns.id, campaign.id)).get();
+    expect(updated!.status).toBe("sent");
+    expect(sesMock.commandCalls(SendEmailCommand)).toHaveLength(0);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -575,8 +598,8 @@ describe("GET /campaigns/:id/preview", () => {
 
     const { sessionToken } = createOwnerAndSession(db);
 
-    const app = new Hono();
-    app.route("/admin", adminRoutes(db, testConfig));
+    const app = createHttpApp();
+    app.group("/admin", (app) => app.use(adminRoutes(db, testConfig)));
 
     const res = await app.request(`/admin/campaigns/${campaign.id}/preview`, {
       headers: { Cookie: `session=${sessionToken}` },
@@ -629,8 +652,8 @@ describe("GET /campaigns/:id/preview?subscriberId=N", () => {
 
     const { sessionToken } = createOwnerAndSession(db);
 
-    const app = new Hono();
-    app.route("/admin", adminRoutes(db, testConfig));
+    const app = createHttpApp();
+    app.group("/admin", (app) => app.use(adminRoutes(db, testConfig)));
 
     const res = await app.request(
       `/admin/campaigns/${campaign.id}/preview?subscriberId=${sub.id}`,
@@ -656,8 +679,8 @@ describe("POST /campaigns/preview", () => {
     const db = createTestDb();
     const { sessionToken } = createOwnerAndSession(db);
 
-    const app = new Hono();
-    app.route("/admin", adminRoutes(db, testConfig));
+    const app = createHttpApp();
+    app.group("/admin", (app) => app.use(adminRoutes(db, testConfig)));
 
     const res = await app.request("/admin/campaigns/preview", {
       method: "POST",
@@ -851,8 +874,8 @@ describe("Reply uses RFC 822 Message-ID for threading headers", () => {
 
     sesMock.on(SendEmailCommand).resolves({ MessageId: "ses-reply-msg-id" });
 
-    const app = new Hono();
-    app.route("/admin", adminRoutes(db, testConfig));
+    const app = createHttpApp();
+    app.group("/admin", (app) => app.use(adminRoutes(db, testConfig)));
 
     const formBody = new URLSearchParams({
       fromAddr: "admin@example.com",
@@ -924,8 +947,8 @@ describe("Reply omits threading headers when rfc822MessageId is null", () => {
 
     sesMock.on(SendEmailCommand).resolves({ MessageId: "ses-noreply-msg-id" });
 
-    const app = new Hono();
-    app.route("/admin", adminRoutes(db, testConfig));
+    const app = createHttpApp();
+    app.group("/admin", (app) => app.use(adminRoutes(db, testConfig)));
 
     const formBody = new URLSearchParams({
       fromAddr: "admin@example.com",

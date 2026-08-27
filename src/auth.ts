@@ -1,6 +1,4 @@
-import { getCookie } from "hono/cookie";
-import { bearerAuth } from "hono/bearer-auth";
-import { createMiddleware } from "hono/factory";
+import { Elysia } from "elysia";
 import { eq, and } from "drizzle-orm";
 import type { Db } from "./db";
 import { schema } from "./db";
@@ -30,45 +28,38 @@ function getValidSession(token: string): SessionData | null {
 }
 
 export function adminAuth(db: Db) {
-  return createMiddleware(async (c, next) => {
-    const token = getCookie(c, "session");
-    if (!token) return c.redirect("/admin/login");
-
-    const session = getValidSession(token);
-    if (!session) return c.redirect("/admin/login");
-
-    const user = db
-      .select()
-      .from(schema.users)
-      .where(eq(schema.users.id, session.userId))
-      .get();
-
-    if (!user) return c.redirect("/admin/login");
-
-    c.set("user", user);
-    return next();
-  });
+  return new Elysia({ name: "admin-auth" })
+    .resolve(({ cookie }) => {
+      const token = cookie.session?.value;
+      const session = typeof token === "string" ? getValidSession(token) : null;
+      const user = session
+        ? db.select().from(schema.users).where(eq(schema.users.id, session.userId)).get()
+        : null;
+      return { user };
+    })
+    .onBeforeHandle(({ user, redirect }) => {
+      if (!user) return redirect("/admin/login", 302);
+    })
+    .as("scoped");
 }
 
 export function requireRole(...roles: string[]) {
-  return createMiddleware(async (c, next) => {
-    const user = c.get("user") as { role: string } | undefined;
+  return ({ user, status }: { user?: { role: string }; status: (code: number, body?: string) => unknown }) => {
     if (!user || !roles.includes(user.role)) {
-      return c.text("Forbidden", 403);
+      return status(403, "Forbidden");
     }
-    return next();
-  });
+  };
 }
 
 export function requireListAccess(
   db: Db,
   getListId: (c: any) => number,
 ) {
-  return createMiddleware(async (c, next) => {
-    const user = c.get("user") as { id: number; role: string } | undefined;
-    if (!user) return c.text("Forbidden", 403);
+  return (c: any) => {
+    const user = c.user as { id: number; role: string } | undefined;
+    if (!user) return c.status(403, "Forbidden");
 
-    if (user.role === "owner" || user.role === "admin") return next();
+    if (user.role === "owner" || user.role === "admin") return;
 
     const listId = getListId(c);
     const access = db
@@ -82,9 +73,8 @@ export function requireListAccess(
       )
       .get();
 
-    if (!access) return c.text("Forbidden", 403);
-    return next();
-  });
+    if (!access) return c.status(403, "Forbidden");
+  };
 }
 
 export function getAccessibleListIds(
@@ -103,5 +93,9 @@ export function getAccessibleListIds(
 }
 
 export function apiAuth(token: string) {
-  return bearerAuth({ token });
+  return ({ request, status }: { request: Request; status: (code: number, body?: string) => unknown }) => {
+    if (request.headers.get("authorization") !== `Bearer ${token}`) {
+      return status(401, "Unauthorized");
+    }
+  };
 }

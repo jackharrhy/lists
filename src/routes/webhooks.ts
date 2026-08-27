@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { createHttpApp } from "../http";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import MessageValidator from "sns-validator";
@@ -9,7 +9,7 @@ const snsValidator = new MessageValidator();
 
 async function verifySnsSignature(rawBody: unknown): Promise<boolean> {
   return new Promise((resolve) => {
-    snsValidator.validate(rawBody, (err: Error | null) => {
+    snsValidator.validate(rawBody as Record<string, unknown>, (err: Error | null) => {
       resolve(!err);
     });
   });
@@ -118,17 +118,17 @@ const SesLegacyNotification = z.object({
 // ---------------------------------------------------------------------------
 
 export function webhookRoutes(db: Db) {
-  const app = new Hono();
+  const app = createHttpApp();
 
   app.post("/ses", async (c) => {
-    const messageType = c.req.header("x-amz-sns-message-type");
+    const messageType = c.headers["x-amz-sns-message-type"];
     if (!messageType) {
       return c.text("Missing SNS message type header", 400);
     }
 
     let rawBody: unknown;
     try {
-      rawBody = await c.req.json();
+      rawBody = c.body;
     } catch {
       return c.text("Invalid JSON", 400);
     }

@@ -1,4 +1,5 @@
-import { Hono } from "hono";
+import { Html } from "@elysia/html";
+import { createHttpApp } from "../http";
 import { eq } from "drizzle-orm";
 import { type Db, schema } from "../db";
 import type { Config } from "../config";
@@ -13,7 +14,8 @@ import {
 } from "../services/subscriber";
 import { buildConfirmUrl } from "../compliance";
 import { renderConfirmation } from "../../emails/render";
-import { SESv2Client, SendEmailCommand } from "@aws-sdk/client-sesv2";
+import { SendEmailCommand } from "@aws-sdk/client-sesv2";
+import { sendEmail } from "../services/mailer";
 
 function Layout({ children }: { children: any }) {
   return (
@@ -23,10 +25,19 @@ function Layout({ children }: { children: any }) {
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>lists</title>
         <link rel="stylesheet" href="/static/styles.css" />
+        <script src="/static/app.js" defer></script>
       </head>
-      <body class="font-sans text-gray-900 bg-gray-50 m-0 p-0">
-        <div class="max-w-lg mx-auto px-6 py-12">
-          {children}
+      <body class="font-sans text-gray-900 m-0 p-0" hx-boost="true" hx-target="#app-shell" hx-select="#app-shell" hx-swap="outerHTML transition:true" hx-push-url="true" hx-indicator="#global-progress">
+        <div id="global-progress" class="htmx-indicator" role="progressbar" aria-label="Loading"></div>
+        <div id="app-shell">
+          <header class="max-w-3xl mx-auto px-5 sm:px-8 pt-7 flex items-center justify-between">
+            <a href="/subscribe" class="flex items-center gap-2.5 text-gray-950 font-bold no-underline"><span class="grid place-items-center size-9 rounded-xl bg-gray-950 text-white shadow-sm">L</span>lists</a>
+            <span class="text-xs font-semibold text-gray-400">Thoughtful email, occasionally.</span>
+          </header>
+          <main class="max-w-3xl mx-auto px-5 sm:px-8 py-12 sm:py-20">
+            {children}
+          </main>
+          <footer class="max-w-3xl mx-auto px-5 sm:px-8 pb-10 text-xs text-gray-400">Built with care on the open web.</footer>
         </div>
       </body>
     </html>
@@ -34,7 +45,7 @@ function Layout({ children }: { children: any }) {
 }
 
 export function publicRoutes(db: Db, config: Config) {
-  const app = new Hono();
+  const app = createHttpApp();
 
   // GET /subscribe - landing page with subscribe form
   app.get("/subscribe", (c) => {
@@ -52,20 +63,23 @@ export function publicRoutes(db: Db, config: Config) {
 
     return c.html(
       <Layout>
-        <h1 class="text-2xl font-bold mb-2">Lists</h1>
-        <p class="text-gray-600 mb-8">
+        <div class="mb-9">
+          <span class="inline-flex items-center gap-2 rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-[0.7rem] font-bold uppercase tracking-[0.12em] text-blue-700 mb-5"><span class="size-1.5 rounded-full bg-blue-500"></span>Independent mailing lists</span>
+          <h1 class="text-4xl sm:text-6xl font-bold tracking-[-0.04em] leading-[0.98] text-gray-950 mb-5">Notes worth<br/><span class="text-blue-600">opening.</span></h1>
+          <p class="text-base sm:text-lg text-gray-600 leading-relaxed max-w-xl mb-0">
           Email lists affiliated with{" "}
-          <a href="https://jackharrhy.dev" class="text-blue-600 hover:text-blue-800">Jack Harrhy</a>.
+          <a href="https://jackharrhy.dev" class="text-blue-600 font-semibold hover:text-blue-800">Jack Harrhy</a>.
           Subscribe to hear about things being worked on, written about, or found interesting.
-        </p>
+          </p>
+        </div>
 
         {domains.length > 0 ? (
           <>
-          <details class="mb-6">
-            <summary class="cursor-pointer text-sm font-medium text-blue-600 hover:text-blue-800 select-none">
-              Subscribe to a list
+          <details class="app-surface rounded-2xl p-5 sm:p-7 mb-6" open>
+            <summary class="cursor-pointer text-lg font-bold text-gray-950 select-none marker:text-blue-500">
+              Choose what lands in your inbox
             </summary>
-            <form method="post" action="/subscribe" class="mt-4 space-y-4">
+            <form method="post" action="/subscribe" class="mt-6 space-y-5" hx-disabled-elt="find button">
               <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">
                   Email
@@ -73,7 +87,7 @@ export function publicRoutes(db: Db, config: Config) {
                     type="email"
                     name="email"
                     required
-                    class="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    class="mt-2 w-full px-3.5 py-3 border border-gray-200 bg-white rounded-xl text-sm shadow-sm focus:outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500"
                   />
                 </label>
               </div>
@@ -83,7 +97,7 @@ export function publicRoutes(db: Db, config: Config) {
                   <input
                     type="text"
                     name="firstName"
-                    class="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    class="mt-2 w-full px-3.5 py-3 border border-gray-200 bg-white rounded-xl text-sm shadow-sm focus:outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500"
                   />
                 </label>
               </div>
@@ -93,19 +107,19 @@ export function publicRoutes(db: Db, config: Config) {
                   <input
                     type="text"
                     name="lastName"
-                    class="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    class="mt-2 w-full px-3.5 py-3 border border-gray-200 bg-white rounded-xl text-sm shadow-sm focus:outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500"
                   />
                 </label>
               </div>
 
               {domains.map(([domain, lists]) => (
-                <div class="space-y-2">
+                <div class="space-y-2.5">
                   {multipleDomains && (
                     <p class="text-xs font-medium text-gray-400 uppercase tracking-wide">{domain}</p>
                   )}
                   {lists.map((list) => (
-                    <label class="flex items-start gap-2 text-sm text-gray-800">
-                      <input type="checkbox" name="lists" value={list.slug} data-domain={list.fromDomain} class="rounded mt-0.5" />
+                    <label class="flex items-start gap-3 text-sm text-gray-800 border border-gray-200 bg-white/70 rounded-xl p-3.5 cursor-pointer hover:border-blue-200 hover:bg-blue-50/40">
+                      <input type="checkbox" name="lists" value={list.slug} data-domain={list.fromDomain} class="rounded mt-0.5 size-4" />
                       <span>
                         <span class="font-medium">{list.name}</span>
                         {list.description ? <span class="text-gray-500"> - {list.description}</span> : ""}
@@ -123,14 +137,14 @@ export function publicRoutes(db: Db, config: Config) {
 
               <button
                 type="submit"
-                class="w-full px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none"
+                class="w-full px-4 py-3 bg-gray-950 text-white text-sm font-semibold rounded-xl hover:bg-blue-600 cursor-pointer border-none shadow-sm disabled:opacity-60"
               >
                 Subscribe
               </button>
             </form>
           </details>
           {multipleDomains && (
-            <script dangerouslySetInnerHTML={{ __html: `
+            <script>{`
               document.querySelectorAll('input[name="lists"]').forEach(function(cb) {
                 cb.addEventListener('change', function() {
                   var checked = document.querySelectorAll('input[name="lists"]:checked');
@@ -140,7 +154,7 @@ export function publicRoutes(db: Db, config: Config) {
                   if (hint) hint.classList.toggle('hidden', domains.size < 2);
                 });
               });
-            `}} />
+            `}</script>
           )}
         </>
         ) : (
@@ -152,7 +166,7 @@ export function publicRoutes(db: Db, config: Config) {
 
   // POST /subscribe - process subscription
   app.post("/subscribe", async (c) => {
-    const body = await c.req.parseBody({ all: true });
+    const body = c.body as Record<string, any>;
     const email = String(body["email"] ?? "").trim();
     const firstName = String(body["firstName"] ?? "").trim().slice(0, 255) || null;
     const lastName = String(body["lastName"] ?? "").trim().slice(0, 255) || null;
@@ -198,7 +212,6 @@ export function publicRoutes(db: Db, config: Config) {
     }
 
     // Send one confirmation per domain
-    const ses = new SESv2Client({ region: config.awsRegion });
     const domainsSent: string[] = [];
 
     for (const [domain, lists] of byDomain) {
@@ -206,7 +219,7 @@ export function publicRoutes(db: Db, config: Config) {
       const confirmUrl = buildConfirmUrl(config.baseUrl, subscriber.unsubscribeToken, domain);
       const { html } = await renderConfirmation({ confirmUrl, listNames });
 
-      await ses.send(
+      await sendEmail(config,
         new SendEmailCommand({
           FromEmailAddress: `noreply@${domain}`,
           Destination: { ToAddresses: [email] },
@@ -217,7 +230,7 @@ export function publicRoutes(db: Db, config: Config) {
             },
           },
           ConfigurationSetName: config.sesConfigSet || undefined,
-        }),
+        }).input,
       );
       domainsSent.push(domain);
     }
@@ -246,8 +259,8 @@ export function publicRoutes(db: Db, config: Config) {
 
   // GET /confirm/:token/:domain - per-domain confirm
   app.get("/confirm/:token/:domain", (c) => {
-    const token = c.req.param("token");
-    const domain = c.req.param("domain");
+    const token = c.params.token;
+    const domain = c.params.domain;
     const ok = confirmSubscriberDomain(db, token, domain);
 
     if (ok) {
@@ -278,7 +291,7 @@ export function publicRoutes(db: Db, config: Config) {
 
   // GET /confirm/:token - legacy fallback (confirms all)
   app.get("/confirm/:token", (c) => {
-    const token = c.req.param("token");
+    const token = c.params.token;
     const ok = confirmSubscriber(db, token);
 
     if (ok) {
@@ -309,15 +322,15 @@ export function publicRoutes(db: Db, config: Config) {
 
   // GET /unsubscribe/:token/:listId - per-list unsubscribe
   app.get("/unsubscribe/:token/:listId", (c) => {
-    const token = c.req.param("token");
-    const listId = parseInt(c.req.param("listId"), 10);
+    const token = c.params.token;
+    const listId = parseInt(c.params.listId, 10);
     if (isNaN(listId)) return c.text("Bad Request", 400);
     const list = db.select().from(schema.lists).where(eq(schema.lists.id, listId)).get();
     const ok = unsubscribeFromList(db, token, listId);
 
     if (ok) {
       const prefs = getSubscriberPreferences(db, token);
-      const otherActive = prefs?.lists.filter((l) => l.status === "confirmed") ?? [];
+      const otherActive = prefs?.lists.filter((l) => l.subscriptionStatus === "confirmed") ?? [];
 
       return c.html(
         <Layout>
@@ -352,8 +365,8 @@ export function publicRoutes(db: Db, config: Config) {
 
   // POST /unsubscribe/:token/:listId - RFC 8058 one-click per-list
   app.post("/unsubscribe/:token/:listId", (c) => {
-    const token = c.req.param("token");
-    const listId = parseInt(c.req.param("listId"), 10);
+    const token = c.params.token;
+    const listId = parseInt(c.params.listId, 10);
     if (isNaN(listId)) return c.text("Bad Request", 400);
     unsubscribeFromList(db, token, listId);
     return c.text("Unsubscribed", 200);
@@ -361,7 +374,7 @@ export function publicRoutes(db: Db, config: Config) {
 
   // GET /unsubscribe/:token - legacy, unsubscribe from all
   app.get("/unsubscribe/:token", (c) => {
-    const token = c.req.param("token");
+    const token = c.params.token;
     const ok = unsubscribeAll(db, token);
 
     if (ok) {
@@ -393,14 +406,14 @@ export function publicRoutes(db: Db, config: Config) {
 
   // POST /unsubscribe/:token - RFC 8058 one-click, legacy all
   app.post("/unsubscribe/:token", (c) => {
-    const token = c.req.param("token");
+    const token = c.params.token;
     unsubscribeAll(db, token);
     return c.text("Unsubscribed", 200);
   });
 
   // GET /preferences/:token
   app.get("/preferences/:token", (c) => {
-    const token = c.req.param("token");
+    const token = c.params.token;
     const prefs = getSubscriberPreferences(db, token);
 
     if (!prefs) {
@@ -454,8 +467,8 @@ export function publicRoutes(db: Db, config: Config) {
 
   // POST /preferences/:token
   app.post("/preferences/:token", async (c) => {
-    const token = c.req.param("token");
-    const body = await c.req.parseBody({ all: true });
+    const token = c.params.token;
+    const body = c.body as Record<string, any>;
 
     const rawIds = Array.isArray(body["listIds"]) ? body["listIds"] : [body["listIds"]].filter(Boolean);
     const listIds = rawIds.map(Number).filter(n => Number.isInteger(n) && n > 0);

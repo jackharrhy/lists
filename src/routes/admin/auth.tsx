@@ -1,13 +1,13 @@
-import { Hono } from "hono";
+import { Html } from "@elysia/html";
+import type { App } from "../../http";
 import { eq } from "drizzle-orm";
-import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 import type { Db } from "../../db";
 import { schema } from "../../db";
 import type { Config } from "../../config";
 import { createSession, destroySession } from "../../auth";
 import { setFlash, getFlash } from "./layout";
 
-export function mountAuthRoutes(app: Hono, db: Db, config: Config) {
+export function mountAuthRoutes(app: App, db: Db, config: Config) {
   app.get("/login", (c) => {
     const flash = getFlash(c);
     return c.html(
@@ -17,10 +17,13 @@ export function mountAuthRoutes(app: Hono, db: Db, config: Config) {
           <meta name="viewport" content="width=device-width, initial-scale=1" />
           <title>Login - Lists Admin</title>
           <link rel="stylesheet" href="/static/styles.css" />
+          <script src="/static/app.js" defer></script>
         </head>
-        <body class="font-sans flex items-center justify-center min-h-screen m-0 bg-gray-50">
-          <div class="bg-white p-8 rounded-lg border border-gray-200 w-80">
-            <h1 class="m-0 mb-4 text-xl text-center font-bold">Lists Admin</h1>
+        <body class="font-sans flex items-center justify-center min-h-screen m-0 p-5">
+          <div class="app-surface p-8 rounded-2xl w-full max-w-sm">
+            <div class="mx-auto mb-5 grid place-items-center size-11 rounded-xl bg-gray-950 text-white font-bold shadow-sm">L</div>
+            <h1 class="m-0 mb-1 text-2xl tracking-tight text-center font-bold">Welcome back</h1>
+            <p class="mt-0 mb-6 text-sm text-gray-500 text-center">Sign in to your mailing workspace.</p>
             {flash && (
               <div class="bg-green-100 border border-green-300 text-green-800 px-3 py-2 rounded-md mb-4 text-sm text-center">{flash}</div>
             )}
@@ -31,16 +34,16 @@ export function mountAuthRoutes(app: Hono, db: Db, config: Config) {
                 placeholder="Email"
                 required
                 autofocus
-                class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-4 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 box-border"
+                class="w-full px-3.5 py-3 border border-gray-200 rounded-xl text-sm font-[inherit] mb-4 shadow-sm focus:outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 box-border"
               />
               <input
                 type="password"
                 name="password"
                 placeholder="Password"
                 required
-                class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-4 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 box-border"
+                class="w-full px-3.5 py-3 border border-gray-200 rounded-xl text-sm font-[inherit] mb-5 shadow-sm focus:outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 box-border"
               />
-              <button type="submit" class="w-full px-3 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none">
+              <button type="submit" class="w-full px-3 py-3 bg-gray-950 text-white text-sm font-semibold rounded-xl hover:bg-blue-600 cursor-pointer border-none shadow-sm">
                 Log in
               </button>
             </form>
@@ -51,7 +54,7 @@ export function mountAuthRoutes(app: Hono, db: Db, config: Config) {
   });
 
   app.post("/login", async (c) => {
-    const body = await c.req.parseBody();
+    const body = c.body as Record<string, any>;
     const email = body["email"] as string;
     const password = body["password"] as string;
 
@@ -62,10 +65,12 @@ export function mountAuthRoutes(app: Hono, db: Db, config: Config) {
             <meta charset="utf-8" />
             <title>Login - Lists Admin</title>
             <link rel="stylesheet" href="/static/styles.css" />
+            <script src="/static/app.js" defer></script>
           </head>
-          <body class="font-sans flex items-center justify-center min-h-screen m-0 bg-gray-50">
-            <div class="bg-white p-8 rounded-lg border border-gray-200 w-80">
-              <h1 class="m-0 mb-4 text-xl text-center font-bold">Lists Admin</h1>
+          <body class="font-sans flex items-center justify-center min-h-screen m-0 p-5">
+            <div class="app-surface p-8 rounded-2xl w-full max-w-sm">
+              <div class="mx-auto mb-5 grid place-items-center size-11 rounded-xl bg-gray-950 text-white font-bold shadow-sm">L</div>
+              <h1 class="m-0 mb-4 text-2xl tracking-tight text-center font-bold">Try that again</h1>
               <p class="text-red-600 text-sm mb-3 text-center">{message}</p>
               <form method="post" action="/admin/login">
                 <input
@@ -74,16 +79,16 @@ export function mountAuthRoutes(app: Hono, db: Db, config: Config) {
                   placeholder="Email"
                   required
                   autofocus
-                  class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-4 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 box-border"
+                  class="w-full px-3.5 py-3 border border-gray-200 rounded-xl text-sm font-[inherit] mb-4 shadow-sm focus:outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 box-border"
                 />
                 <input
                   type="password"
                   name="password"
                   placeholder="Password"
                   required
-                  class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-4 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 box-border"
+                  class="w-full px-3.5 py-3 border border-gray-200 rounded-xl text-sm font-[inherit] mb-5 shadow-sm focus:outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 box-border"
                 />
-                <button type="submit" class="w-full px-3 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none">
+                <button type="submit" class="w-full px-3 py-3 bg-gray-950 text-white text-sm font-semibold rounded-xl hover:bg-blue-600 cursor-pointer border-none shadow-sm">
                   Log in
                 </button>
               </form>
@@ -107,21 +112,22 @@ export function mountAuthRoutes(app: Hono, db: Db, config: Config) {
     if (!valid) return renderError("Invalid email or password.");
 
     const token = createSession(user.id);
-    setCookie(c, "session", token, {
+    c.cookie.session!.set({
+      value: token,
       path: "/",
       httpOnly: true,
-      sameSite: "Lax",
+      sameSite: "lax",
       maxAge: 86400,
     });
     return c.redirect("/admin/");
   });
 
   app.post("/logout", (c) => {
-    const token = getCookie(c, "session");
-    if (token) {
+    const token = c.cookie.session!.value;
+    if (typeof token === "string") {
       destroySession(token);
     }
-    deleteCookie(c, "session", { path: "/" });
+    c.cookie.session!.remove();
     setFlash(c, "Signed out.");
     return c.redirect("/admin/login");
   });

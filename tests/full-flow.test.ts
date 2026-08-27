@@ -2,7 +2,7 @@ import { test, expect, describe, beforeEach } from "bun:test";
 import { mockClient } from "aws-sdk-client-mock";
 import { SESv2Client, SendEmailCommand } from "@aws-sdk/client-sesv2";
 import { eq, and } from "drizzle-orm";
-import { Hono } from "hono";
+import { createHttpApp, type App } from "../src/http";
 
 import { createTestDb, seedList, type TestDb } from "./helpers";
 import { publicRoutes } from "../src/routes/public";
@@ -38,9 +38,9 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 function createApp(db: TestDb, config: Config = testConfig) {
-  const app = new Hono();
-  app.route("/", publicRoutes(db, config));
-  app.route("/admin", adminRoutes(db, config));
+  const app = createHttpApp();
+  app.use(publicRoutes(db, config));
+  app.group("/admin", (app) => app.use(adminRoutes(db, config)));
   return app;
 }
 
@@ -58,7 +58,7 @@ async function seedOwner(db: TestDb) {
     .get();
 }
 
-async function login(app: Hono, email = "owner@example.com", password = "password") {
+async function login(app: App, email = "owner@example.com", password = "password") {
   const res = await app.request("/admin/login", {
     method: "POST",
     body: new URLSearchParams({ email, password }),
@@ -69,7 +69,7 @@ async function login(app: Hono, email = "owner@example.com", password = "passwor
 }
 
 async function authPost(
-  app: Hono,
+  app: App,
   path: string,
   cookie: string,
   formData: Record<string, string>,
@@ -84,7 +84,7 @@ async function authPost(
   });
 }
 
-async function authGet(app: Hono, path: string, cookie: string) {
+async function authGet(app: App, path: string, cookie: string) {
   return app.request(path, {
     method: "GET",
     headers: { Cookie: cookie },
@@ -155,6 +155,48 @@ describe("Full HTTP flow: campaign create+send (list audience)", () => {
     expect(sends).toHaveLength(1);
     expect(sends[0].subscriberId).toBe(sub.id);
     expect(sends[0].status).toBe("sent");
+  });
+});
+
+describe("Full HTTP flow: create list", () => {
+  test("owner can create a list and the audit event records that owner", async () => {
+    const db = createTestDb();
+    const owner = await seedOwner(db);
+    const app = createApp(db);
+    const cookie = await login(app);
+
+    const response = await authPost(app, "/admin/lists/new", cookie, {
+      slug: "new-list",
+      name: "New List",
+      fromDomain: "example.com",
+      fromAddress: "news@example.com",
+    });
+
+    expect(response.status).toBe(302);
+    expect(db.select().from(schema.lists).where(eq(schema.lists.slug, "new-list")).get()).toBeDefined();
+    const event = db.select().from(schema.events).where(eq(schema.events.type, "admin.list_created")).get();
+    expect(event!.userId).toBe(owner.id);
+  });
+
+  test("member cannot create a list by posting directly", async () => {
+    const db = createTestDb();
+    const passwordHash = await Bun.password.hash("password");
+    db.insert(schema.users).values({
+      email: "member@example.com",
+      passwordHash,
+      role: "member",
+    }).run();
+    const app = createApp(db);
+    const cookie = await login(app, "member@example.com", "password");
+
+    const response = await authPost(app, "/admin/lists/new", cookie, {
+      slug: "forbidden-list",
+      name: "Forbidden List",
+      fromDomain: "example.com",
+    });
+
+    expect(response.status).toBe(403);
+    expect(db.select().from(schema.lists).all()).toHaveLength(0);
   });
 });
 
@@ -682,5 +724,39 @@ describe("Inbound list groups by thread", () => {
     // The reply count for the thread should be 2 (outbound reply + follow-up inbound)
     // Look for "2" in the replies column -- the thread has 3 messages total, minus 1 root = 2
     expect(html).toContain(">2<");
+  });
+});
+
+describe("HTMX application shell", () => {
+  test("public pages load the local HTMX bundle and retain progressive form actions", async () => {
+    const db = createTestDb();
+    seedList(db, { slug: "newsletter", name: "Newsletter", fromDomain: "example.com" });
+    const app = createApp(db);
+
+    const response = await app.request("/subscribe");
+    const html = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(html).toContain('src="/static/app.js"');
+    expect(html).toContain('hx-boost="true"');
+    expect(html).toContain('hx-target="#app-shell"');
+    expect(html).toContain('id="global-progress"');
+    expect(html).toContain('method="post" action="/subscribe"');
+  });
+
+  test("admin pages expose boosted navigation and live filters", async () => {
+    const db = createTestDb();
+    await seedOwner(db);
+    const app = createApp(db);
+    const cookie = await login(app);
+
+    const response = await authGet(app, "/admin/subscribers", cookie);
+    const html = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(html).toContain('id="app-shell"');
+    expect(html).toContain('hx-select="#app-shell"');
+    expect(html).toContain('hx-get="/admin/subscribers"');
+    expect(html).toContain("keyup changed delay:350ms");
   });
 });

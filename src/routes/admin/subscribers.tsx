@@ -1,6 +1,7 @@
-import { Hono } from "hono";
+import { Html } from "@elysia/html";
+import type { App } from "../../http";
 import { eq, desc, and, inArray, like, sql } from "drizzle-orm";
-import { SESv2Client, SendEmailCommand } from "@aws-sdk/client-sesv2";
+import { SendEmailCommand } from "@aws-sdk/client-sesv2";
 import type { Db } from "../../db";
 import { schema } from "../../db";
 import type { Config } from "../../config";
@@ -11,21 +12,22 @@ import { buildConfirmUrl } from "../../compliance";
 import { logEvent } from "../../services/events";
 import { AdminLayout, displayName, fmtDate, fmtDateTime, setFlash, getFlash, type User } from "./layout";
 import { Button, LinkButton, Input, Select, Label, FormGroup, Table, Th, Td, Card, PageHeader } from "./ui";
+import { sendEmail } from "../../services/mailer";
 
 const PAGE_SIZE = 50;
 
-export function mountSubscriberRoutes(app: Hono, db: Db, config: Config) {
+export function mountSubscriberRoutes(app: App, db: Db, config: Config) {
   app.get("/subscribers", (c) => {
-    const user = c.get("user") as User;
+    const user = c.user as User;
     const flash = getFlash(c);
     const listAccess = getAccessibleListIds(db, user);
 
     // Query params
-    const page = Math.max(1, parseInt(c.req.query("page") ?? "1", 10) || 1);
+    const page = Math.max(1, parseInt(c.query.page ?? "1", 10) || 1);
     const offset = (page - 1) * PAGE_SIZE;
-    const filterSearch = c.req.query("search") ?? "";
-    const filterStatus = c.req.query("status") ?? "";
-    const filterConfirmed = c.req.query("confirmed") ?? "";
+    const filterSearch = c.query.search ?? "";
+    const filterStatus = c.query.status ?? "";
+    const filterConfirmed = c.query.confirmed ?? "";
 
     // Build where conditions
     const conditions: any[] = [];
@@ -130,10 +132,10 @@ export function mountSubscriberRoutes(app: Hono, db: Db, config: Config) {
         </PageHeader>
 
         {/* Filters */}
-        <form method="get" action="/admin/subscribers" class="flex items-end gap-3 mb-6 flex-wrap">
+        <form method="get" action="/admin/subscribers" hx-get="/admin/subscribers" hx-trigger="keyup changed delay:350ms from:input[name='search'], change from:select" class="filter-bar flex items-end gap-3 mb-6 flex-wrap">
           <div>
             <label class="block text-xs font-medium text-gray-500 mb-1">Search</label>
-            <Input type="text" name="search" size="sm" value={filterSearch} placeholder="Email or name…" class="w-48" />
+            <Input type="text" name="search" size="sm" value={filterSearch} autofocus={!!filterSearch} placeholder="Email or name…" class="w-48" />
           </div>
           <div>
             <label class="block text-xs font-medium text-gray-500 mb-1">Status</label>
@@ -214,7 +216,7 @@ export function mountSubscriberRoutes(app: Hono, db: Db, config: Config) {
   });
 
   app.get("/subscribers/new", (c) => {
-    const user = c.get("user") as User;
+    const user = c.user as User;
     const flash = getFlash(c);
     const listAccess = getAccessibleListIds(db, user);
 
@@ -269,8 +271,8 @@ export function mountSubscriberRoutes(app: Hono, db: Db, config: Config) {
   });
 
   app.post("/subscribers/new", async (c) => {
-    const user = c.get("user") as User;
-    const body = await c.req.parseBody({ all: true });
+    const user = c.user as User;
+    const body = c.body as Record<string, any>;
     const email = body["email"] as string;
     const firstName = (body["firstName"] as string) || null;
     const lastName = (body["lastName"] as string) || null;
@@ -300,9 +302,9 @@ export function mountSubscriberRoutes(app: Hono, db: Db, config: Config) {
   });
 
   app.get("/subscribers/:id", (c) => {
-    const user = c.get("user") as User;
+    const user = c.user as User;
     const flash = getFlash(c);
-    const id = Number(c.req.param("id"));
+    const id = Number(c.params.id);
     const sub = db.select().from(schema.subscribers).where(eq(schema.subscribers.id, id)).get();
     if (!sub) return c.notFound();
 
@@ -568,14 +570,14 @@ export function mountSubscriberRoutes(app: Hono, db: Db, config: Config) {
   });
 
   app.post("/subscribers/:id/edit", async (c) => {
-    const user = c.get("user") as User;
-    const id = Number(c.req.param("id"));
-    const body = await c.req.parseBody({ all: true });
+    const user = c.user as User;
+    const id = Number(c.params.id);
+    const body = c.body as Record<string, any>;
     const email = String(body["email"] ?? "").trim().toLowerCase();
     const firstName = String(body["firstName"] ?? "").trim() || null;
     const lastName = String(body["lastName"] ?? "").trim() || null;
     const rawStatus = String(body["status"] ?? "active");
-    const status = ["active", "blocklisted"].includes(rawStatus) ? rawStatus : "active";
+    const status: "active" | "blocklisted" = rawStatus === "blocklisted" ? "blocklisted" : "active";
 
     db.update(schema.subscribers)
       .set({ email, firstName, lastName, status })
@@ -594,8 +596,8 @@ export function mountSubscriberRoutes(app: Hono, db: Db, config: Config) {
   });
 
   app.post("/subscribers/:id/delete", (c) => {
-    const user = c.get("user") as User;
-    const id = Number(c.req.param("id"));
+    const user = c.user as User;
+    const id = Number(c.params.id);
     const sub = db.select().from(schema.subscribers).where(eq(schema.subscribers.id, id)).get();
 
     logEvent(db, {
@@ -626,12 +628,12 @@ export function mountSubscriberRoutes(app: Hono, db: Db, config: Config) {
   });
 
   app.post("/subscribers/:id/send-confirm", async (c) => {
-    const user = c.get("user") as User;
-    const id = Number(c.req.param("id"));
+    const user = c.user as User;
+    const id = Number(c.params.id);
     const sub = db.select().from(schema.subscribers).where(eq(schema.subscribers.id, id)).get();
     if (!sub) return c.notFound();
 
-    const body = await c.req.parseBody();
+    const body = c.body as Record<string, any>;
     const domain = body["domain"] ? String(body["domain"]).trim() : null;
 
     // find unconfirmed lists for this subscriber, filtered by domain if provided
@@ -662,8 +664,7 @@ export function mountSubscriberRoutes(app: Hono, db: Db, config: Config) {
     const confirmUrl = buildConfirmUrl(config.baseUrl, sub.unsubscribeToken, sendingDomain);
     const { html } = await renderConfirmation({ confirmUrl, listNames });
 
-    const ses = new SESv2Client({ region: config.awsRegion });
-    await ses.send(
+    await sendEmail(config,
       new SendEmailCommand({
         FromEmailAddress: `noreply@${sendingDomain}`,
         Destination: { ToAddresses: [sub.email] },
@@ -674,7 +675,7 @@ export function mountSubscriberRoutes(app: Hono, db: Db, config: Config) {
           },
         },
         ConfigurationSetName: config.sesConfigSet || undefined,
-      }),
+      }).input,
     );
 
     logEvent(db, {
@@ -689,11 +690,12 @@ export function mountSubscriberRoutes(app: Hono, db: Db, config: Config) {
   });
 
   app.post("/subscribers/:id/list/:listId/add", async (c) => {
-    const subId = Number(c.req.param("id"));
-    const listId = Number(c.req.param("listId"));
-    const body = await c.req.parseBody();
+    const subId = Number(c.params.id);
+    const listId = Number(c.params.listId);
+    const body = c.body as Record<string, any>;
     const rawListStatus = String(body["listStatus"] ?? "unconfirmed");
-    const listStatus = ["unconfirmed", "confirmed", "unsubscribed"].includes(rawListStatus) ? rawListStatus : "unconfirmed";
+    const listStatus: "unconfirmed" | "confirmed" | "unsubscribed" =
+      rawListStatus === "confirmed" || rawListStatus === "unsubscribed" ? rawListStatus : "unconfirmed";
     db.insert(schema.subscriberLists)
       .values({ subscriberId: subId, listId, status: listStatus })
       .onConflictDoNothing()
@@ -703,11 +705,12 @@ export function mountSubscriberRoutes(app: Hono, db: Db, config: Config) {
   });
 
   app.post("/subscribers/:id/list/:listId/status", async (c) => {
-    const subId = Number(c.req.param("id"));
-    const listId = Number(c.req.param("listId"));
-    const body = await c.req.parseBody();
+    const subId = Number(c.params.id);
+    const listId = Number(c.params.listId);
+    const body = c.body as Record<string, any>;
     const rawListStatus = String(body["listStatus"] ?? "unconfirmed");
-    const listStatus = ["unconfirmed", "confirmed", "unsubscribed"].includes(rawListStatus) ? rawListStatus : "unconfirmed";
+    const listStatus: "unconfirmed" | "confirmed" | "unsubscribed" =
+      rawListStatus === "confirmed" || rawListStatus === "unsubscribed" ? rawListStatus : "unconfirmed";
     db.update(schema.subscriberLists)
       .set({ status: listStatus })
       .where(
@@ -722,8 +725,8 @@ export function mountSubscriberRoutes(app: Hono, db: Db, config: Config) {
   });
 
   app.post("/subscribers/:id/list/:listId/remove", (c) => {
-    const subId = Number(c.req.param("id"));
-    const listId = Number(c.req.param("listId"));
+    const subId = Number(c.params.id);
+    const listId = Number(c.params.listId);
     db.delete(schema.subscriberLists)
       .where(
         and(
@@ -737,8 +740,8 @@ export function mountSubscriberRoutes(app: Hono, db: Db, config: Config) {
   });
 
   app.post("/subscribers/:id/tags/add", async (c) => {
-    const id = Number(c.req.param("id"));
-    const body = await c.req.parseBody();
+    const id = Number(c.params.id);
+    const body = c.body as Record<string, any>;
     const tagId = Number(body["tagId"]);
 
     if (tagId) {
@@ -752,8 +755,8 @@ export function mountSubscriberRoutes(app: Hono, db: Db, config: Config) {
   });
 
   app.post("/subscribers/:id/tags/:tagId/remove", (c) => {
-    const id = Number(c.req.param("id"));
-    const tagId = Number(c.req.param("tagId"));
+    const id = Number(c.params.id);
+    const tagId = Number(c.params.tagId);
 
     db.delete(schema.subscriberTags)
       .where(

@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { createHttpApp } from "../../http";
 import type { Db } from "../../db";
 import type { Config } from "../../config";
 import { adminAuth } from "../../auth";
@@ -14,12 +14,12 @@ import { mountImportRoutes } from "./import";
 import { mountUserRoutes } from "./users";
 
 export function adminRoutes(db: Db, config: Config) {
-  const app = new Hono();
+  const app = createHttpApp();
 
   mountAuthRoutes(app, db, config);
 
   // Protected routes
-  app.use("/*", adminAuth(db));
+  app.use(adminAuth(db));
 
   mountCampaignRoutes(app, db, config);
   mountDashboardRoutes(app, db, config);

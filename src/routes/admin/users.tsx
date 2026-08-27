@@ -1,4 +1,5 @@
-import { Hono } from "hono";
+import { Html } from "@elysia/html";
+import type { App } from "../../http";
 import { eq, desc } from "drizzle-orm";
 import type { Db } from "../../db";
 import { schema } from "../../db";
@@ -8,9 +9,10 @@ import { logEvent } from "../../services/events";
 import { AdminLayout, fmtDate, fmtDateTime, setFlash, getFlash, type User } from "./layout";
 import { Button, LinkButton, Input, Select, Label, FormGroup, Table, Th, Td, Card, PageHeader } from "./ui";
 
-export function mountUserRoutes(app: Hono, db: Db, config: Config) {
-  app.get("/users/new", requireRole("owner", "admin"), (c) => {
-    const user = c.get("user") as User;
+export function mountUserRoutes(app: App, db: Db, config: Config) {
+  app.guard({ beforeHandle: requireRole("owner", "admin") }, (app) => {
+  app.get("/users/new", (c) => {
+    const user = c.user as User;
     const flash = getFlash(c);
     const allLists = db.select().from(schema.lists).all();
 
@@ -54,15 +56,16 @@ export function mountUserRoutes(app: Hono, db: Db, config: Config) {
     );
   });
 
-  app.post("/users/new", requireRole("owner", "admin"), async (c) => {
-    const user = c.get("user") as User;
-    const body = await c.req.parseBody({ all: true });
+  app.post("/users/new", async (c) => {
+    const user = c.user as User;
+    const body = c.body as Record<string, any>;
     const email = String(body["email"] ?? "").trim().toLowerCase();
     const name = String(body["name"] ?? "").trim() || null;
     const password = String(body["password"] ?? "");
     const rawRole = String(body["role"] ?? "member");
     const allowedRoles = user.role === "owner" ? ["owner", "admin", "member"] : ["admin", "member"];
-    const role = allowedRoles.includes(rawRole) ? rawRole : "member";
+    const role: "owner" | "admin" | "member" =
+      allowedRoles.includes(rawRole) ? rawRole as "owner" | "admin" | "member" : "member";
 
     if (!email || !password) {
       return c.redirect("/admin/users/new");
@@ -97,10 +100,10 @@ export function mountUserRoutes(app: Hono, db: Db, config: Config) {
     return c.redirect("/admin/users");
   });
 
-  app.get("/users/:id", requireRole("owner", "admin"), (c) => {
-    const currentUser = c.get("user") as User;
+  app.get("/users/:id", (c) => {
+    const currentUser = c.user as User;
     const flash = getFlash(c);
-    const id = Number(c.req.param("id"));
+    const id = Number(c.params.id);
     const targetUser = db.select().from(schema.users).where(eq(schema.users.id, id)).get();
     if (!targetUser) return c.notFound();
 
@@ -165,10 +168,10 @@ export function mountUserRoutes(app: Hono, db: Db, config: Config) {
     );
   });
 
-  app.post("/users/:id/edit", requireRole("owner", "admin"), async (c) => {
-    const currentUser = c.get("user") as User;
-    const id = Number(c.req.param("id"));
-    const body = await c.req.parseBody({ all: true });
+  app.post("/users/:id/edit", async (c) => {
+    const currentUser = c.user as User;
+    const id = Number(c.params.id);
+    const body = c.body as Record<string, any>;
     const name = String(body["name"] ?? "").trim() || null;
     const role = String(body["role"] ?? "member");
     const password = String(body["password"] ?? "").trim();
@@ -205,9 +208,9 @@ export function mountUserRoutes(app: Hono, db: Db, config: Config) {
     return c.redirect(`/admin/users/${id}`);
   });
 
-  app.post("/users/:id/delete", requireRole("owner", "admin"), (c) => {
-    const currentUser = c.get("user") as User;
-    const id = Number(c.req.param("id"));
+  app.post("/users/:id/delete", (c) => {
+    const currentUser = c.user as User;
+    const id = Number(c.params.id);
 
     // Can't delete yourself
     if (currentUser.id === id) {
@@ -233,8 +236,8 @@ export function mountUserRoutes(app: Hono, db: Db, config: Config) {
     return c.redirect("/admin/users");
   });
 
-  app.get("/users", requireRole("owner", "admin"), (c) => {
-    const user = c.get("user") as User;
+  app.get("/users", (c) => {
+    const user = c.user as User;
     const flash = getFlash(c);
     const allUsers = db
       .select()
@@ -271,5 +274,7 @@ export function mountUserRoutes(app: Hono, db: Db, config: Config) {
         </Table>
       </AdminLayout>,
     );
+  });
+  return app;
   });
 }

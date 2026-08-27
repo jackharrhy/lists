@@ -1,3 +1,4 @@
+/** @jsxRuntime automatic */
 /** @jsxImportSource react */
 import { Hr, Link, Text } from "@react-email/components";
 
