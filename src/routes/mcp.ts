@@ -35,6 +35,16 @@ function rpcError(id: unknown, code: number, message: string) {
   return { jsonrpc: "2.0", id: id ?? null, error: { code, message } };
 }
 
+function unauthorized(config: Config) {
+  return new Response(JSON.stringify(rpcError(null, -32001, "Unauthorized")), {
+    status: 401,
+    headers: {
+      "content-type": "application/json",
+      "www-authenticate": `Bearer resource_metadata="${config.baseUrl}/.well-known/oauth-protected-resource"`,
+    },
+  });
+}
+
 async function callTool(db: Db, config: Config, principal: Principal, name: string, args: any) {
   const ctx = { db, config, principal };
   const value = name === "lists_list" ? listLists(ctx)
@@ -56,11 +66,7 @@ export function mcpRoutes(db: Db, config: Config) {
   const app = createHttpApp();
   app.post("/", async (c) => {
     const principal = authenticateBearer(db, c.request);
-    if (!principal) {
-      return new Response(JSON.stringify(rpcError(null, -32001, "Unauthorized")), {
-        status: 401, headers: { "content-type": "application/json", "www-authenticate": `Bearer resource_metadata="${config.baseUrl}/.well-known/oauth-protected-resource"` },
-      });
-    }
+    if (!principal) return unauthorized(config);
     const parsed = RpcRequest.safeParse(c.body);
     if (!parsed.success) return c.json(rpcError(null, -32600, "Invalid Request"), 400);
     const request = parsed.data;
@@ -80,6 +86,8 @@ export function mcpRoutes(db: Db, config: Config) {
     }
     return c.json(rpcError(request.id, -32601, "Method not found"), 404);
   });
-  app.get("/", () => new Response("Method Not Allowed", { status: 405, headers: { Allow: "POST" } }));
+  app.get("/", (c) => authenticateBearer(db, c.request)
+    ? new Response("Method Not Allowed", { status: 405, headers: { Allow: "POST" } })
+    : unauthorized(config));
   return app;
 }

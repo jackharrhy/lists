@@ -1,0 +1,5 @@
+[mcp_servers.lists]
+url = "https://lists.jackharrhy.dev/mcp"
+enabled = true
+required = false
+default_tools_approval_mode = "writes"

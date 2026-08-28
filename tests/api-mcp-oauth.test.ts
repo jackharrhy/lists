@@ -30,6 +30,15 @@ function setup() {
 function bearer(token: string) { return { Authorization: `Bearer ${token}` }; }
 
 describe("scoped API and MCP", () => {
+  test("advertises OAuth metadata for an unauthenticated MCP GET probe", async () => {
+    const { app } = setup();
+    const response = await app.request("/mcp/");
+    expect(response.status).toBe(401);
+    expect(response.headers.get("www-authenticate")).toBe(
+      'Bearer resource_metadata="http://localhost/.well-known/oauth-protected-resource"',
+    );
+  });
+
   test("only exposes the versioned REST contract", async () => {
     const { app, db, user } = setup();
     const { token } = mintApiToken(db, user.id, "reader", ["subscribers:read"]);

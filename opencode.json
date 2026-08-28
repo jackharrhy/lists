@@ -1,0 +1,10 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "lists": {
+      "type": "remote",
+      "url": "https://lists.jackharrhy.dev/mcp",
+      "enabled": true
+    }
+  }
+}
