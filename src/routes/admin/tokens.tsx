@@ -72,7 +72,8 @@ export function mountTokenRoutes(app: App, db: Db) {
     const scopes = raw.map(String).filter((scope): scope is ApiScope => API_SCOPES.includes(scope as ApiScope));
     if (!name || scopes.length === 0) return c.text("Name and at least one scope are required", 400);
     const result = mintApiToken(db, user.id, name, scopes);
-    return c.html(TokenPage({ db, user, revealedToken: result.token }), 201);
+    c.set.status = 201;
+    return c.html(TokenPage({ db, user, revealedToken: result.token }));
   });
   app.post("/tokens/:id/revoke", (c) => {
     const user = c.user as User;

@@ -8,6 +8,12 @@ import { getSessionUser } from "../auth";
 import { API_SCOPES, type ApiScope } from "../services/access";
 import { hashToken, mintApiToken } from "../services/api-tokens";
 import { registerOauthClient } from "../services/oauth-clients";
+import {
+  oauthAuthorizationDecision,
+  oauthAuthorizationQuery,
+  oauthRegistrationInput,
+  oauthTokenInput,
+} from "./oauth-contracts";
 
 function base64Url(bytes: ArrayBuffer) {
   return Buffer.from(bytes).toString("base64url");
@@ -23,7 +29,10 @@ function validScopes(raw: string): ApiScope[] {
 }
 
 export function oauthRoutes(db: Db, config: Config) {
-  const app = createHttpApp();
+  const app = createHttpApp()
+    .onError(({ code, status }) => {
+      if (code === "VALIDATION") return status(400, { error: "invalid_request" });
+    });
 
   app.get("/.well-known/oauth-protected-resource", () => ({
     resource: `${config.baseUrl}/mcp`, authorization_servers: [config.baseUrl],
@@ -41,16 +50,15 @@ export function oauthRoutes(db: Db, config: Config) {
 
   app.post("/oauth/register", (c) => {
     if (!config.oauthDynamicRegistrationEnabled) return c.json({ error: "registration_not_supported" }, 403);
-    const body = c.body as Record<string, unknown>;
-    const redirectUris = Array.isArray(body.redirect_uris) ? body.redirect_uris.map(String) : [];
+    const redirectUris = c.body.redirect_uris;
     try {
-      const client = registerOauthClient(db, String(body.client_name ?? "MCP client"), redirectUris);
+      const client = registerOauthClient(db, c.body.client_name ?? "MCP client", redirectUris);
       return c.json({ client_id: client.clientId, client_name: client.clientName, redirect_uris: redirectUris, token_endpoint_auth_method: "none" }, 201);
     } catch { return c.json({ error: "invalid_redirect_uri" }, 400); }
-  });
+  }, { body: oauthRegistrationInput });
 
   app.get("/oauth/authorize", (c) => {
-    const q = c.query as Record<string, string | undefined>;
+    const q = c.query;
     const returnTo = `/oauth/authorize?${new URLSearchParams(Object.entries(q).filter((entry): entry is [string, string] => Boolean(entry[1]))).toString()}`;
     const user = getSessionUser(db, typeof c.cookie.session?.value === "string" ? c.cookie.session.value : undefined);
     if (!user) return c.redirect(`/admin/login?returnTo=${encodeURIComponent(returnTo)}`, 302);
@@ -73,42 +81,41 @@ export function oauthRoutes(db: Db, config: Config) {
         </main>
       </body></html>,
     );
-  });
+  }, { query: oauthAuthorizationQuery });
 
   app.post("/oauth/authorize", (c) => {
     const user = getSessionUser(db, typeof c.cookie.session?.value === "string" ? c.cookie.session.value : undefined);
     if (!user) return c.text("Unauthorized", 401);
-    const body = c.body as Record<string, unknown>;
-    const clientId = String(body.client_id ?? ""), redirectUri = String(body.redirect_uri ?? ""), state = String(body.state ?? "");
+    const body = c.body;
+    const clientId = body.client_id, redirectUri = body.redirect_uri, state = body.state ?? "";
     const client = db.select().from(schema.oauthClients).where(eq(schema.oauthClients.clientId, clientId)).get();
     if (!client || !(JSON.parse(client.redirectUris) as string[]).includes(redirectUri)
-      || String(body.response_type ?? "") !== "code"
-      || String(body.code_challenge_method ?? "") !== "S256"
-      || !String(body.code_challenge ?? "")) return c.text("Invalid authorization request", 400);
+      || body.response_type !== "code"
+      || body.code_challenge_method !== "S256"
+      || !body.code_challenge) return c.text("Invalid authorization request", 400);
     const redirect = new URL(redirectUri);
-    if (String(body.decision) !== "allow") {
+    if (body.decision !== "allow") {
       redirect.searchParams.set("error", "access_denied"); if (state) redirect.searchParams.set("state", state);
       return c.redirect(redirect.toString(), 302);
     }
-    const scopes = validScopes(String(body.scope ?? ""));
+    const scopes = validScopes(body.scope ?? "");
     if (scopes.length === 0) return c.text("At least one supported scope is required", 400);
     const code = randomSecret("lst_code_");
     db.insert(schema.oauthAuthorizationCodes).values({
       codeHash: hashToken(code), clientId, userId: user.id, redirectUri, scopes: JSON.stringify(scopes),
-      codeChallenge: String(body.code_challenge ?? ""), expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
+      codeChallenge: body.code_challenge, expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
     }).run();
     redirect.searchParams.set("code", code); if (state) redirect.searchParams.set("state", state);
     return c.redirect(redirect.toString(), 302);
-  });
+  }, { body: oauthAuthorizationDecision });
 
   app.post("/oauth/token", async (c) => {
-    const body = c.body as Record<string, unknown>;
-    const grantType = String(body.grant_type ?? "");
-    if (grantType === "authorization_code") {
+    const body = c.body;
+    if (body.grant_type === "authorization_code") {
       const code = db.select().from(schema.oauthAuthorizationCodes).where(and(
-        eq(schema.oauthAuthorizationCodes.codeHash, hashToken(String(body.code ?? ""))), isNull(schema.oauthAuthorizationCodes.usedAt),
+        eq(schema.oauthAuthorizationCodes.codeHash, hashToken(body.code)), isNull(schema.oauthAuthorizationCodes.usedAt),
       )).get();
-      if (!code || code.expiresAt <= new Date().toISOString() || code.clientId !== String(body.client_id ?? "") || code.redirectUri !== String(body.redirect_uri ?? "") || await pkceChallenge(String(body.code_verifier ?? "")) !== code.codeChallenge) {
+      if (!code || code.expiresAt <= new Date().toISOString() || code.clientId !== body.client_id || code.redirectUri !== body.redirect_uri || await pkceChallenge(body.code_verifier) !== code.codeChallenge) {
         return c.json({ error: "invalid_grant" }, 400);
       }
       db.update(schema.oauthAuthorizationCodes).set({ usedAt: new Date().toISOString() }).where(eq(schema.oauthAuthorizationCodes.id, code.id)).run();
@@ -118,16 +125,15 @@ export function oauthRoutes(db: Db, config: Config) {
       db.insert(schema.oauthRefreshTokens).values({ tokenHash: hashToken(refresh), clientId: code.clientId, userId: code.userId, scopes: code.scopes, expiresAt: new Date(Date.now() + 30 * 86400_000).toISOString() }).run();
       return c.json({ access_token: access.token, token_type: "Bearer", expires_in: 3600, refresh_token: refresh, scope: scopes.join(" ") });
     }
-    if (grantType === "refresh_token") {
+    if (body.grant_type === "refresh_token") {
       const refresh = db.select().from(schema.oauthRefreshTokens).where(and(
-        eq(schema.oauthRefreshTokens.tokenHash, hashToken(String(body.refresh_token ?? ""))), isNull(schema.oauthRefreshTokens.revokedAt),
+        eq(schema.oauthRefreshTokens.tokenHash, hashToken(body.refresh_token)), isNull(schema.oauthRefreshTokens.revokedAt),
       )).get();
-      if (!refresh || refresh.expiresAt <= new Date().toISOString() || refresh.clientId !== String(body.client_id ?? "")) return c.json({ error: "invalid_grant" }, 400);
+      if (!refresh || refresh.expiresAt <= new Date().toISOString() || refresh.clientId !== body.client_id) return c.json({ error: "invalid_grant" }, 400);
       const scopes = JSON.parse(refresh.scopes) as ApiScope[];
       const access = mintApiToken(db, refresh.userId, `OAuth ${refresh.clientId.slice(0, 16)}`, scopes, new Date(Date.now() + 60 * 60_000).toISOString());
       return c.json({ access_token: access.token, token_type: "Bearer", expires_in: 3600, scope: scopes.join(" ") });
     }
-    return c.json({ error: "unsupported_grant_type" }, 400);
-  });
+  }, { body: oauthTokenInput });
   return app;
 }

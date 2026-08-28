@@ -61,30 +61,24 @@ export function requireRole(...roles: string[]) {
   };
 }
 
-export function requireListAccess(
+export function canAccessList(
   db: Db,
-  getListId: (c: any) => number,
-) {
-  return (c: any) => {
-    const user = c.user as { id: number; role: string } | undefined;
-    if (!user) return c.status(403, "Forbidden");
+  user: { id: number; role: string },
+  listId: number,
+): boolean {
+  if (user.role === "owner" || user.role === "admin") return true;
+  const access = db
+    .select()
+    .from(schema.userLists)
+    .where(
+      and(
+        eq(schema.userLists.userId, user.id),
+        eq(schema.userLists.listId, listId),
+      ),
+    )
+    .get();
 
-    if (user.role === "owner" || user.role === "admin") return;
-
-    const listId = getListId(c);
-    const access = db
-      .select()
-      .from(schema.userLists)
-      .where(
-        and(
-          eq(schema.userLists.userId, user.id),
-          eq(schema.userLists.listId, listId),
-        ),
-      )
-      .get();
-
-    if (!access) return c.status(403, "Forbidden");
-  };
+  return Boolean(access);
 }
 
 export function getAccessibleListIds(

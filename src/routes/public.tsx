@@ -161,12 +161,12 @@ export function publicRoutes(db: Db, config: Config) {
   // POST /subscribe - process subscription
   app.post("/subscribe", async (c) => {
     if (!publicSubscriptionsEnabled) {
+      c.set.status = 503;
       return c.html(
         <Layout>
           <h1 class="text-2xl font-bold mb-2">Subscriptions unavailable</h1>
           <p class="text-gray-600">Public subscriptions are temporarily unavailable.</p>
         </Layout>,
-        503,
       );
     }
 
@@ -185,10 +185,12 @@ export function publicRoutes(db: Db, config: Config) {
 
     const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!email || !emailRe.test(email)) {
-      return c.html(<Layout><h1>Invalid email</h1><p>Please enter a valid email address.</p></Layout>, 400);
+      c.set.status = 400;
+      return c.html(<Layout><h1>Invalid email</h1><p>Please enter a valid email address.</p></Layout>);
     }
 
     if (listSlugs.length === 0) {
+      c.set.status = 400;
       return c.html(
         <Layout>
           <h1 class="text-2xl font-bold mb-6">Subscribe</h1>
@@ -199,7 +201,6 @@ export function publicRoutes(db: Db, config: Config) {
             Back
           </a>
         </Layout>,
-        400,
       );
     }
 
@@ -284,6 +285,7 @@ export function publicRoutes(db: Db, config: Config) {
       );
     }
 
+    c.set.status = 400;
     return c.html(
       <Layout>
         <h1 class="text-2xl font-bold mb-6">Invalid link</h1>
@@ -293,7 +295,6 @@ export function publicRoutes(db: Db, config: Config) {
           </p>
         </div>
       </Layout>,
-      400,
     );
   });
 
@@ -315,6 +316,7 @@ export function publicRoutes(db: Db, config: Config) {
       );
     }
 
+    c.set.status = 400;
     return c.html(
       <Layout>
         <h1 class="text-2xl font-bold mb-6">Invalid link</h1>
@@ -324,7 +326,6 @@ export function publicRoutes(db: Db, config: Config) {
           </p>
         </div>
       </Layout>,
-      400,
     );
   });
 
@@ -360,6 +361,7 @@ export function publicRoutes(db: Db, config: Config) {
       );
     }
 
+    c.set.status = 400;
     return c.html(
       <Layout>
         <h1 class="text-2xl font-bold mb-6">Invalid link</h1>
@@ -367,7 +369,6 @@ export function publicRoutes(db: Db, config: Config) {
           <p class="text-sm text-gray-700">This unsubscribe link is invalid.</p>
         </div>
       </Layout>,
-      400,
     );
   });
 
@@ -401,6 +402,7 @@ export function publicRoutes(db: Db, config: Config) {
       );
     }
 
+    c.set.status = 400;
     return c.html(
       <Layout>
         <h1 class="text-2xl font-bold mb-6">Invalid link</h1>
@@ -408,7 +410,6 @@ export function publicRoutes(db: Db, config: Config) {
           <p class="text-sm text-gray-700">This unsubscribe link is invalid.</p>
         </div>
       </Layout>,
-      400,
     );
   });
 
@@ -425,6 +426,7 @@ export function publicRoutes(db: Db, config: Config) {
     const prefs = getSubscriberPreferences(db, token);
 
     if (!prefs) {
+      c.set.status = 400;
       return c.html(
         <Layout>
           <h1 class="text-2xl font-bold mb-6">Invalid link</h1>
@@ -434,7 +436,6 @@ export function publicRoutes(db: Db, config: Config) {
             </p>
           </div>
         </Layout>,
-        400,
       );
     }
 

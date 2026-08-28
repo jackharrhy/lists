@@ -38,6 +38,7 @@
     "@aws-sdk/s3-request-presigner": "^3.1120.0",
     "@elysia/html": "^1.4.1",
     "@elysia/static": "^1.4.11",
+    "@elysiajs/openapi": "^1.4.15",
     "@react-email/components": "^1.0.12",
     "@react-email/render": "^2.1.0",
     "@types/aws-lambda": "^8.10.162",

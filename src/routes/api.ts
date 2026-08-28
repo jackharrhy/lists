@@ -1,85 +1,135 @@
+import { Elysia } from "elysia";
 import { z } from "zod";
-import { createHttpApp } from "../http";
 import { type Db } from "../db";
 import type { Config } from "../config";
-import { type Principal } from "../services/access";
-import { authenticateBearer } from "../services/request-auth";
+import { AccessDeniedError } from "../services/access";
+import { InvalidOperationError, NotFoundError, type OperationContext } from "../operations";
 import { operationCatalog } from "../operations/catalog";
+import {
+  apiErrorOutput,
+  campaignDetailOutput,
+  campaignCreateInput,
+  campaignOutput,
+  campaignSendInput,
+  dataOutput,
+  deliverabilityOutput,
+  dmarcOutput,
+  idInput,
+  listOutput,
+  paginationInput,
+  subscriberCreateInput,
+  subscriberCreatedOutput,
+  subscriberDeletedOutput,
+  subscriberListInput,
+  subscriberOutput,
+  subscriberSummaryOutput,
+} from "../operations/contracts";
+import { bearerAuth } from "./api-auth";
 
-function errorResponse(c: any, error: unknown) {
-  const status = error instanceof z.ZodError ? 400
-    : typeof error === "object" && error && "status" in error
-      ? Number((error as { status: number }).status) : 500;
-  const message = error instanceof Error ? error.message : "Internal server error";
-  if (status >= 500) console.error(error);
-  return c.json({ error: message }, status);
-}
+const confirmationQuery = z.object({ confirm: z.literal("true") }).strict();
+const errorResponses = {
+  400: apiErrorOutput,
+  401: apiErrorOutput,
+  403: apiErrorOutput,
+  404: apiErrorOutput,
+  500: apiErrorOutput,
+} as const;
+const authenticatedRoute = { security: [{ bearerAuth: [] }] };
 
 export function apiRoutes(db: Db, config: Config) {
-  const app = createHttpApp()
-    .derive(({ request }) => ({ principal: authenticateBearer(db, request) }))
-    .onBeforeHandle(({ principal, status }) => {
-      if (!principal) return status(401, "Unauthorized");
-    });
-  const context = (principal: Principal) => ({ db, config, principal });
+  const context = (principal: OperationContext["principal"]): OperationContext => ({ db, config, principal });
 
-  app.get("/v1/lists", async (c) => {
-    try { return c.json({ data: await operationCatalog.listsList.execute(context(c.principal!), {}) }); }
-    catch (error) { return errorResponse(c, error); }
-  });
-  app.get("/v1/subscribers", async (c) => {
-    try {
-      const q = c.query as Record<string, string | undefined>;
-      return c.json({ data: await operationCatalog.subscribersList.execute(context(c.principal!), q) });
-    } catch (error) { return errorResponse(c, error); }
-  });
-  app.get("/v1/subscribers/:id", async (c) => {
-    try { return c.json({ data: await operationCatalog.subscriberGet.execute(context(c.principal!), { id: c.params.id }) }); }
-    catch (error) { return errorResponse(c, error); }
-  });
-  app.post("/v1/subscribers", async (c) => {
-    try {
-      return c.json({ data: await operationCatalog.subscriberCreate.execute(context(c.principal!), c.body) }, 201);
-    } catch (error) { return errorResponse(c, error); }
-  });
-  app.delete("/v1/subscribers/:id", async (c) => {
-    try {
-      return c.json({ data: await operationCatalog.subscriberDelete.execute(context(c.principal!), {
-        id: c.params.id, confirm: c.query.confirm === "true",
-      }) });
-    }
-    catch (error) { return errorResponse(c, error); }
-  });
-  app.get("/v1/campaigns", async (c) => {
-    try {
-      const q = c.query as Record<string, string | undefined>;
-      return c.json({ data: await operationCatalog.campaignsList.execute(context(c.principal!), q) });
-    } catch (error) { return errorResponse(c, error); }
-  });
-  app.get("/v1/campaigns/:id", async (c) => {
-    try { return c.json({ data: await operationCatalog.campaignGet.execute(context(c.principal!), { id: c.params.id }) }); }
-    catch (error) { return errorResponse(c, error); }
-  });
-  app.post("/v1/campaigns", async (c) => {
-    try { return c.json({ data: await operationCatalog.campaignCreateDraft.execute(context(c.principal!), c.body) }, 201); }
-    catch (error) { return errorResponse(c, error); }
-  });
-  app.post("/v1/campaigns/:id/send", async (c) => {
-    try {
-      const body = c.body as Record<string, unknown>;
-      return c.json({ data: await operationCatalog.campaignSend.execute(context(c.principal!), {
-        id: c.params.id, confirm: body.confirm,
-      }) });
-    } catch (error) { return errorResponse(c, error); }
-  });
-  app.get("/v1/deliverability", async (c) => {
-    try { return c.json({ data: await operationCatalog.deliverabilitySummary.execute(context(c.principal!), {}) }); }
-    catch (error) { return errorResponse(c, error); }
-  });
-  app.get("/v1/dmarc", async (c) => {
-    try { return c.json({ data: await operationCatalog.dmarcSummary.execute(context(c.principal!), {}) }); }
-    catch (error) { return errorResponse(c, error); }
-  });
-
-  return app;
+  return new Elysia({ name: "api-v1" })
+    .use(bearerAuth(db))
+    .onError(({ code, error, status }) => {
+      if (code === "VALIDATION") return status(400, { error: error.message });
+      if (error instanceof AccessDeniedError) return status(403, { error: error.message });
+      if (error instanceof NotFoundError) return status(404, { error: error.message });
+      if (error instanceof InvalidOperationError) return status(400, { error: error.message });
+      console.error(error);
+      return status(500, { error: "Internal server error" });
+    })
+    .guard({ authenticated: true }, (app) => app
+      .get("/v1/lists", async ({ principal }) => ({
+        data: await operationCatalog.listsList.run(context(principal), {}),
+      }), {
+        response: { 200: dataOutput(z.array(listOutput)), ...errorResponses },
+        detail: { summary: "List mailing lists", tags: ["Lists"], ...authenticatedRoute },
+      })
+      .get("/v1/subscribers", async ({ principal, query }) => ({
+        data: await operationCatalog.subscribersList.run(context(principal), query),
+      }), {
+        query: subscriberListInput,
+        response: { 200: dataOutput(z.array(subscriberSummaryOutput)), ...errorResponses },
+        detail: { summary: "List subscribers", tags: ["Subscribers"], ...authenticatedRoute },
+      })
+      .get("/v1/subscribers/:id", async ({ principal, params }) => ({
+        data: await operationCatalog.subscriberGet.run(context(principal), params),
+      }), {
+        params: idInput,
+        response: { 200: dataOutput(subscriberOutput), ...errorResponses },
+        detail: { summary: "Get a subscriber", tags: ["Subscribers"], ...authenticatedRoute },
+      })
+      .post("/v1/subscribers", async ({ principal, body, status }) => status(201, {
+        data: await operationCatalog.subscriberCreate.run(context(principal), body),
+      }), {
+        body: subscriberCreateInput,
+        response: { 201: dataOutput(subscriberCreatedOutput), ...errorResponses },
+        detail: { summary: "Create or resubscribe a subscriber", tags: ["Subscribers"], ...authenticatedRoute },
+      })
+      .delete("/v1/subscribers/:id", async ({ principal, params }) => ({
+        data: await operationCatalog.subscriberDelete.run(context(principal), {
+          id: params.id,
+          confirm: true,
+        }),
+      }), {
+        params: idInput,
+        query: confirmationQuery,
+        response: { 200: dataOutput(subscriberDeletedOutput), ...errorResponses },
+        detail: { summary: "Delete a subscriber", tags: ["Subscribers"], ...authenticatedRoute },
+      })
+      .get("/v1/campaigns", async ({ principal, query }) => ({
+        data: await operationCatalog.campaignsList.run(context(principal), query),
+      }), {
+        query: paginationInput,
+        response: { 200: dataOutput(z.array(campaignOutput)), ...errorResponses },
+        detail: { summary: "List campaigns", tags: ["Campaigns"], ...authenticatedRoute },
+      })
+      .get("/v1/campaigns/:id", async ({ principal, params }) => ({
+        data: await operationCatalog.campaignGet.run(context(principal), params),
+      }), {
+        params: idInput,
+        response: { 200: dataOutput(campaignDetailOutput), ...errorResponses },
+        detail: { summary: "Get a campaign", tags: ["Campaigns"], ...authenticatedRoute },
+      })
+      .post("/v1/campaigns", async ({ principal, body, status }) => status(201, {
+        data: await operationCatalog.campaignCreateDraft.run(context(principal), body),
+      }), {
+        body: campaignCreateInput,
+        response: { 201: dataOutput(campaignOutput), ...errorResponses },
+        detail: { summary: "Create a campaign draft", tags: ["Campaigns"], ...authenticatedRoute },
+      })
+      .post("/v1/campaigns/:id/send", async ({ principal, params }) => ({
+        data: await operationCatalog.campaignSend.run(context(principal), {
+          id: params.id,
+          confirm: true,
+        }),
+      }), {
+        params: idInput,
+        body: campaignSendInput.pick({ confirm: true }),
+        response: { 200: dataOutput(campaignDetailOutput), ...errorResponses },
+        detail: { summary: "Send a campaign", tags: ["Campaigns"], ...authenticatedRoute },
+      })
+      .get("/v1/deliverability", async ({ principal }) => ({
+        data: await operationCatalog.deliverabilitySummary.run(context(principal), {}),
+      }), {
+        response: { 200: dataOutput(deliverabilityOutput), ...errorResponses },
+        detail: { summary: "Get a deliverability summary", tags: ["Deliverability"], ...authenticatedRoute },
+      })
+      .get("/v1/dmarc", async ({ principal }) => ({
+        data: await operationCatalog.dmarcSummary.run(context(principal), {}),
+      }), {
+        response: { 200: dataOutput(dmarcOutput), ...errorResponses },
+        detail: { summary: "Get a DMARC summary", tags: ["Deliverability"], ...authenticatedRoute },
+      }));
 }

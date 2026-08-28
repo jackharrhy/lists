@@ -15,32 +15,46 @@ import {
 } from ".";
 import {
   campaignCreateInput,
+  campaignDetailOutput,
+  campaignOutput,
   campaignSendInput,
+  deliverabilityOutput,
+  dmarcOutput,
   emptyInput,
   idInput,
+  listOutput,
   paginationInput,
   subscriberCreateInput,
+  subscriberCreatedOutput,
   subscriberDeleteInput,
+  subscriberDeletedOutput,
   subscriberListInput,
+  subscriberOutput,
+  subscriberSummaryOutput,
 } from "./contracts";
 
-type OperationDefinition<S extends z.ZodType, R> = {
+type OperationDefinition<S extends z.ZodType, O extends z.ZodType> = {
   mcpName: string;
   description: string;
   input: S;
-  execute: (ctx: OperationContext, input: unknown) => Promise<R>;
+  output: O;
+  run: (ctx: OperationContext, input: z.output<S>) => Promise<z.output<O>>;
+  execute: (ctx: OperationContext, input: unknown) => Promise<z.output<O>>;
 };
 
-function defineOperation<S extends z.ZodType, R>(definition: {
+function defineOperation<S extends z.ZodType, O extends z.ZodType>(definition: {
   mcpName: string;
   description: string;
   input: S;
-  run: (ctx: OperationContext, input: z.output<S>) => R | Promise<R>;
-}): OperationDefinition<S, R> {
+  output: O;
+  run: (ctx: OperationContext, input: z.output<S>) => z.output<O> | Promise<z.output<O>>;
+}): OperationDefinition<S, O> {
   return {
     mcpName: definition.mcpName,
     description: definition.description,
     input: definition.input,
+    output: definition.output,
+    run: async (ctx, input) => definition.run(ctx, input),
     execute: async (ctx, input) => definition.run(ctx, definition.input.parse(input)),
   };
 }
@@ -50,66 +64,77 @@ export const operationCatalog = {
     mcpName: "lists_list",
     description: "List mailing lists visible to the authenticated user.",
     input: emptyInput,
+    output: z.array(listOutput),
     run: (ctx) => listLists(ctx),
   }),
   subscribersList: defineOperation({
     mcpName: "subscribers_list",
     description: "List subscribers without exposing unsubscribe tokens.",
     input: subscriberListInput,
+    output: z.array(subscriberSummaryOutput),
     run: (ctx, input) => listSubscribers(ctx, input),
   }),
   subscriberGet: defineOperation({
     mcpName: "subscriber_get",
     description: "Get a subscriber and visible list memberships.",
     input: idInput,
+    output: subscriberOutput,
     run: (ctx, input) => getSubscriber(ctx, input.id),
   }),
   subscriberCreate: defineOperation({
     mcpName: "subscriber_create",
     description: "Create or resubscribe a subscriber to one or more lists. Memberships start unconfirmed.",
     input: subscriberCreateInput,
+    output: subscriberCreatedOutput,
     run: createSubscriberOperation,
   }),
   subscriberDelete: defineOperation({
     mcpName: "subscriber_delete",
     description: "Delete one subscriber and dependent records. Requires confirm=true.",
     input: subscriberDeleteInput,
+    output: subscriberDeletedOutput,
     run: (ctx, input) => deleteSubscriber(ctx, input.id, input.confirm),
   }),
   campaignsList: defineOperation({
     mcpName: "campaigns_list",
     description: "List visible campaigns.",
     input: paginationInput,
+    output: z.array(campaignOutput),
     run: (ctx, input) => listCampaigns(ctx, input),
   }),
   campaignGet: defineOperation({
     mcpName: "campaign_get",
     description: "Get a campaign and its delivery counts.",
     input: idInput,
+    output: campaignDetailOutput,
     run: (ctx, input) => getCampaign(ctx, input.id),
   }),
   campaignCreateDraft: defineOperation({
     mcpName: "campaign_create_draft",
     description: "Create a campaign draft. This never sends mail.",
     input: campaignCreateInput,
+    output: campaignOutput,
     run: createCampaignDraft,
   }),
   campaignSend: defineOperation({
     mcpName: "campaign_send",
     description: "Send a campaign. Requires confirm=true.",
     input: campaignSendInput,
+    output: campaignDetailOutput,
     run: (ctx, input) => sendCampaignOperation(ctx, input.id, input.confirm),
   }),
   deliverabilitySummary: defineOperation({
     mcpName: "deliverability_summary",
     description: "Summarize delivery lifecycle states and provider events.",
     input: emptyInput,
+    output: deliverabilityOutput,
     run: (ctx) => getDeliverabilitySummary(ctx),
   }),
   dmarcSummary: defineOperation({
     mcpName: "dmarc_summary",
     description: "Summarize DMARC reports for visible sending domains.",
     input: emptyInput,
+    output: dmarcOutput,
     run: (ctx) => getDmarcSummary(ctx),
   }),
 } as const;
@@ -122,4 +147,5 @@ export const mcpTools = Object.values(operationCatalog).map((operation) => ({
   name: operation.mcpName,
   description: operation.description,
   inputSchema: z.toJSONSchema(operation.input, { target: "draft-7" }),
+  outputSchema: z.toJSONSchema(operation.output, { target: "draft-7" }),
 }));

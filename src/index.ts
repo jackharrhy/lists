@@ -14,6 +14,7 @@ import { rescheduleInterruptedCampaigns, startDeliveryWorker } from "./services/
 import { mcpRoutes } from "./routes/mcp";
 import { oauthRoutes } from "./routes/oauth";
 import { cleanupExpiredAuthRecords } from "./services/auth-maintenance";
+import { apiOpenApi } from "./openapi";
 
 const config = loadConfig();
 const db = createDb(config.dbPath);
@@ -28,6 +29,7 @@ const app = createHttpApp();
 mountDesignRoutes(app);
 
 app
+  .use(apiOpenApi())
   .use(staticPlugin({ assets: "public", prefix: "/static" }))
   .get("/health", () => ({ ok: true }))
   .get("/", ({ redirect }) => redirect("/subscribe", 302))

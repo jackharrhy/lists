@@ -1,4 +1,5 @@
 import { Elysia } from "elysia";
+import { html } from "@elysia/html";
 
 export type HttpUser = {
   id: number;
@@ -11,17 +12,15 @@ export type HttpUser = {
 
 export function createHttpApp() {
   const app = new Elysia()
-    .onError(({ error }) => {
-      console.error(error);
+    .use(html())
+    .onError(({ code, error }) => {
+      const status = "status" in error ? Number(error.status) : 500;
+      if (code === "INTERNAL_SERVER_ERROR" || status >= 500) console.error(error);
     })
     .derive(() => ({
       user: null as HttpUser | null,
     }))
     .decorate({
-      html: (body: unknown, status = 200) => new Response(String(body), {
-        status,
-        headers: { "content-type": "text/html; charset=utf-8" },
-      }),
       text: (body: string, status = 200) => new Response(body, { status }),
       json: (body: unknown, status = 200) => Response.json(body, { status }),
       notFound: () => new Response("Not Found", { status: 404 }),

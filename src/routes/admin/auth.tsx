@@ -63,8 +63,9 @@ export function mountAuthRoutes(app: App, db: Db, config: Config) {
     const returnTo = requestedReturnTo.startsWith("/") && !requestedReturnTo.startsWith("//")
       ? requestedReturnTo : "/admin/";
 
-    const renderError = (message: string) =>
-      c.html(
+    const renderError = (message: string) => {
+      c.set.status = 401;
+      return c.html(
         <html lang="en">
           <head>
             <meta charset="utf-8" />
@@ -99,8 +100,8 @@ export function mountAuthRoutes(app: App, db: Db, config: Config) {
             </div>
           </body>
         </html>,
-        401,
       );
+    };
 
     if (!email || !password) return renderError("Email and password are required.");
 

@@ -7,6 +7,7 @@ import { oauthRoutes } from "../src/routes/oauth";
 import { createSession } from "../src/auth";
 import { mintApiToken } from "../src/services/api-tokens";
 import { operationCatalog } from "../src/operations/catalog";
+import { apiOpenApi } from "../src/openapi";
 import { createTestDb, seedList } from "./helpers";
 import * as schema from "../src/db/schema";
 import type { Config } from "../src/config";
@@ -23,6 +24,7 @@ function setup() {
   const user = db.insert(schema.users).values({ email: "owner@example.com", passwordHash: "hash", role: "owner" }).returning().get();
   seedList(db, { slug: "news", name: "News" });
   const app = createHttpApp();
+  app.use(apiOpenApi());
   app.use(oauthRoutes(db, config));
   app.group("/api", (group) => group.use(apiRoutes(db, config)));
   app.group("/mcp", (group) => group.use(mcpRoutes(db, config)));
@@ -60,6 +62,18 @@ describe("scoped API and MCP", () => {
     expect((await app.request("/api/v1/subscribers", { headers: bearer(token) })).status).toBe(200);
   });
 
+  test("publishes the typed REST contract as OpenAPI", async () => {
+    const { app } = setup();
+    const response = await app.request("/openapi/json");
+    expect(response.status).toBe(200);
+    const document = await response.json() as any;
+    const createSubscriber = document.paths["/api/v1/subscribers"].post;
+    expect(createSubscriber.security).toEqual([{ bearerAuth: [] }]);
+    expect(createSubscriber.requestBody.content["application/json"].schema.required).toEqual(["email", "lists"]);
+    expect(createSubscriber.responses[201].content["application/json"].schema.properties.data).toBeDefined();
+    expect(document.components.securitySchemes.bearerAuth.scheme).toBe("bearer");
+  });
+
   test("REST and MCP call the same list operation with the same token", async () => {
     const { app, db, user } = setup();
     const { token } = mintApiToken(db, user.id, "agent", ["lists:read"]);
@@ -95,6 +109,20 @@ describe("scoped API and MCP", () => {
     const create = body.result.tools.find((tool: any) => tool.name === "subscriber_create");
     expect(create.inputSchema.required).toEqual(["email", "lists"]);
     expect(create.inputSchema.properties.email.format).toBe("email");
+    expect(create.outputSchema.required).toEqual(["id", "email"]);
+  });
+
+  test("uses Elysia validation for malformed JSON-RPC requests", async () => {
+    const { app, db, user } = setup();
+    const { token } = mintApiToken(db, user.id, "agent", ["lists:read"]);
+    const response = await app.request("/mcp/", {
+      method: "POST", headers: { ...bearer(token), "Content-Type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "1.0", method: "tools/list" }),
+    });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      jsonrpc: "2.0", id: null, error: { code: -32600, message: "Invalid Request" },
+    });
   });
 
   test("creates subscribers through the same contract in REST and MCP", async () => {
@@ -244,5 +272,22 @@ describe("OAuth PKCE", () => {
     expect(tokens.access_token).toStartWith("lst_");
     expect(tokens.refresh_token).toStartWith("lst_refresh_");
     expect((await app.request("/api/v1/lists", { headers: bearer(tokens.access_token) })).status).toBe(200);
+  });
+
+  test("rejects malformed protocol inputs before credential logic", async () => {
+    const { app, db } = setup();
+    const registration = await app.request("/oauth/register", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ client_name: "Broken", redirect_uris: ["not-a-url"] }),
+    });
+    expect(registration.status).toBe(400);
+    expect(db.select().from(schema.oauthClients).all()).toEqual([]);
+
+    const token = await app.request("/oauth/token", {
+      method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ grant_type: "authorization_code", code: "missing-fields" }),
+    });
+    expect(token.status).toBe(400);
+    expect(await token.json()).toEqual({ error: "invalid_request" });
   });
 });

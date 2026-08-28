@@ -4,22 +4,22 @@ import { eq, desc, sql, and, inArray } from "drizzle-orm";
 import type { Db } from "../../db";
 import { schema } from "../../db";
 import type { Config } from "../../config";
-import { requireRole, requireListAccess, getAccessibleListIds } from "../../auth";
+import { canAccessList, getAccessibleListIds } from "../../auth";
+import { idInput } from "../../operations/contracts";
+import { z } from "zod";
 import { logEvent } from "../../services/events";
 import { AdminLayout, displayName, fmtDate, fmtDateTime, CampaignBadge, setFlash, getFlash, type User } from "./layout";
 import { Button, LinkButton, Input, Label, FormGroup, Table, Th, Td, Card, PageHeader } from "./ui";
 
+const listFormInput = z.object({
+  slug: z.string(),
+  name: z.string(),
+  description: z.string().optional(),
+  fromDomain: z.string().optional(),
+  fromAddress: z.string().optional(),
+}).strict();
+
 export function mountListRoutes(app: App, db: Db, config: Config) {
-  app.guard({
-    beforeHandle: (c) => {
-      if (c.path.endsWith("/lists/new") || /\/lists\/\d+\/delete$/.test(c.path)) {
-        return requireRole("owner", "admin")(c as any);
-      }
-      if (/\/lists\/\d+(?:\/edit)?$/.test(c.path)) {
-        return requireListAccess(db, (ctx) => Number(ctx.req.param("id")))(c);
-      }
-    },
-  }, (app) => {
   app.get("/lists", (c) => {
     const user = c.user as User;
     const flash = getFlash(c);
@@ -115,16 +115,19 @@ export function mountListRoutes(app: App, db: Db, config: Config) {
         </Card>
       </AdminLayout>,
     );
+  }, {
+    beforeHandle: ({ user, status }) => {
+      if (!user || (user.role !== "owner" && user.role !== "admin")) return status(403, "Forbidden");
+    },
   });
 
   app.post("/lists/new", async (c) => {
     const user = c.user as User;
-    const body = c.body as Record<string, any>;
-    const slug = String(body["slug"] ?? "").trim();
-    const name = String(body["name"] ?? "").trim();
-    const description = String(body["description"] ?? "").trim();
-    const fromDomain = String(body["fromDomain"] ?? config.fromDomain).trim();
-    const fromAddress = String(body["fromAddress"] ?? "").trim();
+    const slug = c.body.slug.trim();
+    const name = c.body.name.trim();
+    const description = c.body.description?.trim() ?? "";
+    const fromDomain = c.body.fromDomain?.trim() || config.fromDomain;
+    const fromAddress = c.body.fromAddress?.trim() ?? "";
 
     if (!slug || !name) {
       return c.redirect("/admin/lists/new");
@@ -138,6 +141,11 @@ export function mountListRoutes(app: App, db: Db, config: Config) {
 
     setFlash(c, "List created.");
     return c.redirect("/admin/lists");
+  }, {
+    body: listFormInput,
+    beforeHandle: ({ user, status }) => {
+      if (!user || (user.role !== "owner" && user.role !== "admin")) return status(403, "Forbidden");
+    },
   });
 
   app.get("/lists/:id", (c) => {
@@ -301,17 +309,21 @@ export function mountListRoutes(app: App, db: Db, config: Config) {
         )}
       </AdminLayout>,
     );
+  }, {
+    params: idInput,
+    beforeHandle: ({ user, params, status }) => {
+      if (!user || !canAccessList(db, user, params.id)) return status(403, "Forbidden");
+    },
   });
 
   app.post("/lists/:id/edit", async (c) => {
     const user = c.user as User;
     const id = Number(c.params.id);
-    const body = c.body as Record<string, any>;
-    const slug = String(body["slug"] ?? "").trim();
-    const name = String(body["name"] ?? "").trim();
-    const description = String(body["description"] ?? "").trim();
-    const fromDomain = String(body["fromDomain"] ?? config.fromDomain).trim();
-    const fromAddress = String(body["fromAddress"] ?? "").trim();
+    const slug = c.body.slug.trim();
+    const name = c.body.name.trim();
+    const description = c.body.description?.trim() ?? "";
+    const fromDomain = c.body.fromDomain?.trim() || config.fromDomain;
+    const fromAddress = c.body.fromAddress?.trim() ?? "";
 
     if (!slug || !name) return c.redirect(`/admin/lists/${id}`);
 
@@ -324,6 +336,12 @@ export function mountListRoutes(app: App, db: Db, config: Config) {
 
     setFlash(c, "List saved.");
     return c.redirect(`/admin/lists/${id}`);
+  }, {
+    params: idInput,
+    body: listFormInput,
+    beforeHandle: ({ user, params, status }) => {
+      if (!user || !canAccessList(db, user, params.id)) return status(403, "Forbidden");
+    },
   });
 
   app.post("/lists/:id/delete", (c) => {
@@ -350,7 +368,11 @@ export function mountListRoutes(app: App, db: Db, config: Config) {
 
     setFlash(c, "List deleted.");
     return c.redirect("/admin/lists");
+  }, {
+    params: idInput,
+    beforeHandle: ({ user, status }) => {
+      if (!user || (user.role !== "owner" && user.role !== "admin")) return status(403, "Forbidden");
+    },
   });
   return app;
-  });
 }

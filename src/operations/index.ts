@@ -118,7 +118,7 @@ export function deleteSubscriber(ctx: OperationContext, id: number, confirm: boo
     tx.delete(schema.events).where(eq(schema.events.subscriberId, id)).run();
     tx.delete(schema.subscribers).where(eq(schema.subscribers.id, id)).run();
   });
-  return { id: subscriber.id, deleted: true };
+  return { id: subscriber.id, deleted: true as const };
 }
 
 export function listCampaigns(ctx: OperationContext, input: { limit?: number; offset?: number } = {}) {
