@@ -1677,29 +1677,29 @@ export function mountCampaignRoutes(app: App, db: Db, config: Config) {
     const user = c.user as User;
     const id = Number(c.params.id);
     const campaign = db.select().from(schema.campaigns).where(eq(schema.campaigns.id, id)).get();
+    if (!campaign) return c.notFound();
 
+    // Media storage is required infrastructure. Do not delete the database
+    // record unless its associated objects can be cleaned up successfully.
     await deleteCampaignS3Images(id, config);
 
-    logEvent(db, {
-      type: "admin.campaign_deleted",
-      detail: campaign?.subject ?? `id=${id}`,
-      campaignId: id,
-      userId: user.id,
+    db.transaction((tx) => {
+      // Preserve related history without retaining foreign keys to the campaign.
+      tx.update(schema.messages).set({ campaignId: null })
+        .where(eq(schema.messages.campaignId, id)).run();
+      tx.update(schema.events).set({ campaignId: null })
+        .where(eq(schema.events.campaignId, id)).run();
+      tx.delete(schema.campaignSends)
+        .where(eq(schema.campaignSends.campaignId, id)).run();
+      tx.delete(schema.campaigns)
+        .where(eq(schema.campaigns.id, id)).run();
+      tx.insert(schema.events).values({
+        type: "admin.campaign_deleted",
+        detail: campaign.subject,
+        userId: user.id,
+        meta: JSON.stringify({ campaignId: id }),
+      }).run();
     });
-
-    // clear linked messages (unlink, don't delete)
-    db.update(schema.messages)
-      .set({ campaignId: null })
-      .where(eq(schema.messages.campaignId, id))
-      .run();
-    // delete sends
-    db.delete(schema.campaignSends)
-      .where(eq(schema.campaignSends.campaignId, id))
-      .run();
-    // delete campaign
-    db.delete(schema.campaigns)
-      .where(eq(schema.campaigns.id, id))
-      .run();
     setFlash(c, "Campaign deleted.");
     return c.redirect("/admin/campaigns");
   });

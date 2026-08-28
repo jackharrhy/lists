@@ -1,6 +1,7 @@
 import { test, expect, describe, beforeEach } from "bun:test";
 import { mockClient } from "aws-sdk-client-mock";
 import { SESv2Client, SendEmailCommand } from "@aws-sdk/client-sesv2";
+import { S3Client, ListObjectsV2Command } from "@aws-sdk/client-s3";
 import { eq, and } from "drizzle-orm";
 import { createHttpApp, type App } from "../src/http";
 
@@ -15,6 +16,7 @@ import {
 } from "../src/services/subscriber";
 
 const sesMock = mockClient(SESv2Client);
+const s3Mock = mockClient(S3Client);
 
 const testConfig: Config = {
   awsRegion: "us-east-1",
@@ -30,6 +32,7 @@ const testConfig: Config = {
 
 beforeEach(() => {
   sesMock.reset();
+  s3Mock.reset();
 });
 
 // ---------------------------------------------------------------------------
@@ -154,6 +157,67 @@ describe("Full HTTP flow: campaign create+send (list audience)", () => {
     expect(sends).toHaveLength(1);
     expect(sends[0].subscriberId).toBe(sub.id);
     expect(sends[0].status).toBe("accepted");
+  });
+});
+
+describe("Full HTTP flow: delete campaign", () => {
+  async function setupCampaignDeletion() {
+    const db = createTestDb();
+    const owner = await seedOwner(db);
+    const list = seedList(db, { slug: "newsletter", fromDomain: "example.com" });
+    const sub = createSubscriber(db, "reader@example.com", "Reader", null, ["newsletter"]);
+    const campaign = db.insert(schema.campaigns).values({
+      audienceType: "list", audienceId: list.id, subject: "Delete me",
+      bodyMarkdown: "Hello", fromAddress: "news@example.com", status: "draft",
+    }).returning().get();
+    db.insert(schema.campaignSends).values({
+      campaignId: campaign.id, subscriberId: sub.id,
+      idempotencyKey: `campaign:${campaign.id}:subscriber:${sub.id}`,
+    }).run();
+    db.insert(schema.events).values({
+      type: "campaign.created", campaignId: campaign.id, userId: owner.id,
+    }).run();
+    const message = db.insert(schema.messages).values({
+      threadId: 1, direction: "outbound", fromAddr: "news@example.com",
+      toAddr: sub.email, subject: "Delete me", campaignId: campaign.id,
+    }).returning().get();
+
+    const config = { ...testConfig, s3MediaBucket: "media-bucket" };
+    const app = createApp(db, config);
+    const cookie = await login(app);
+    return { db, campaign, message, app, cookie };
+  }
+
+  test("keeps database records when required S3 cleanup is denied", async () => {
+    const { db, campaign, app, cookie } = await setupCampaignDeletion();
+
+    s3Mock.on(ListObjectsV2Command).rejects(Object.assign(new Error("Access denied"), {
+      name: "AccessDenied",
+    }));
+    const response = await authPost(app, `/admin/campaigns/${campaign.id}/delete`, cookie, {});
+
+    expect(response.status).toBe(500);
+    expect(db.select().from(schema.campaigns).all()).toHaveLength(1);
+    expect(db.select().from(schema.campaignSends).all()).toHaveLength(1);
+    expect(db.select().from(schema.events).where(eq(schema.events.type, "admin.campaign_deleted")).all()).toEqual([]);
+  });
+
+  test("deletes linked records transactionally after S3 cleanup succeeds", async () => {
+    const { db, campaign, message, app, cookie } = await setupCampaignDeletion();
+    s3Mock.on(ListObjectsV2Command).resolves({ Contents: [] });
+
+    const response = await authPost(app, `/admin/campaigns/${campaign.id}/delete`, cookie, {});
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe("/admin/campaigns");
+    expect(db.select().from(schema.campaigns).all()).toEqual([]);
+    expect(db.select().from(schema.campaignSends).all()).toEqual([]);
+    expect(db.select().from(schema.messages).where(eq(schema.messages.id, message.id)).get()!.campaignId).toBeNull();
+    expect(db.select().from(schema.events).where(eq(schema.events.type, "campaign.created")).get()!.campaignId).toBeNull();
+    const deletionEvent = db.select().from(schema.events)
+      .where(eq(schema.events.type, "admin.campaign_deleted")).get()!;
+    expect(deletionEvent.campaignId).toBeNull();
+    expect(JSON.parse(deletionEvent.meta!)).toEqual({ campaignId: campaign.id });
   });
 });
 
