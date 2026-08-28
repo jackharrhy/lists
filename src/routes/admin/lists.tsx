@@ -1,10 +1,10 @@
 import { Html } from "@elysia/html";
 import type { App } from "../../http";
-import { eq, desc, sql, and, inArray } from "drizzle-orm";
+import { eq, desc, sql, and } from "drizzle-orm";
 import type { Db } from "../../db";
 import { schema } from "../../db";
 import type { Config } from "../../config";
-import { canAccessList, getAccessibleListIds } from "../../auth";
+import { canAccessList, getAccessibleLists } from "../../auth";
 import { idInput } from "../../operations/contracts";
 import { z } from "zod";
 import { logEvent } from "../../services/events";
@@ -23,17 +23,8 @@ export function mountListRoutes(app: App, db: Db, config: Config) {
   app.get("/lists", (c) => {
     const user = c.user as User;
     const flash = getFlash(c);
-    const listAccess = getAccessibleListIds(db, user);
     const isAdmin = user.role === "owner" || user.role === "admin";
-
-    let allLists: (typeof schema.lists.$inferSelect)[];
-    if (listAccess === "all") {
-      allLists = db.select().from(schema.lists).all();
-    } else if (listAccess.length === 0) {
-      allLists = [];
-    } else {
-      allLists = db.select().from(schema.lists).where(inArray(schema.lists.id, listAccess)).all();
-    }
+    const allLists = getAccessibleLists(db, user);
 
     // get subscriber counts per list
     const listCounts = new Map<number, number>();

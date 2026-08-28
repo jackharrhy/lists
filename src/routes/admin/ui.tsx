@@ -107,3 +107,17 @@ export function PageHeader({ title, children }: { title: string; children?: Chil
     </div>
   );
 }
+
+export function Pagination({ previousHref, nextHref, summary }: {
+  previousHref?: string;
+  nextHref?: string;
+  summary: Child;
+}) {
+  return (
+    <div class="flex items-center justify-between mt-2 pt-4 border-t border-gray-100">
+      <div>{previousHref ? <LinkButton href={previousHref} variant="secondary" size="sm">← Previous</LinkButton> : <span />}</div>
+      <span class="text-xs text-gray-400">{summary}</span>
+      <div>{nextHref ? <LinkButton href={nextHref} variant="secondary" size="sm">Next →</LinkButton> : <span />}</div>
+    </div>
+  );
+}

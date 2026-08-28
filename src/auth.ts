@@ -1,5 +1,5 @@
 import { Elysia } from "elysia";
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import type { Db } from "./db";
 import { schema } from "./db";
 import { hashToken } from "./services/api-tokens";
@@ -94,6 +94,13 @@ export function getAccessibleListIds(
     .all();
 
   return rows.map((r) => r.listId);
+}
+
+export function getAccessibleLists(db: Db, user: { id: number; role: string }) {
+  const listIds = getAccessibleListIds(db, user);
+  if (listIds === "all") return db.select().from(schema.lists).all();
+  if (listIds.length === 0) return [];
+  return db.select().from(schema.lists).where(inArray(schema.lists.id, listIds)).all();
 }
 
 export function apiAuth(token: string) {

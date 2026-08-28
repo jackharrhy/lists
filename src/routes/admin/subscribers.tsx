@@ -5,16 +5,50 @@ import { SendEmailCommand } from "@aws-sdk/client-sesv2";
 import type { Db } from "../../db";
 import { schema } from "../../db";
 import type { Config } from "../../config";
-import { getAccessibleListIds } from "../../auth";
+import { getAccessibleListIds, getAccessibleLists } from "../../auth";
 import { createSubscriber, confirmSubscriber } from "../../services/subscriber";
 import { renderConfirmation } from "../../../emails/render";
 import { buildConfirmUrl } from "../../compliance";
 import { logEvent } from "../../services/events";
 import { AdminLayout, displayName, fmtDate, fmtDateTime, setFlash, getFlash, type User } from "./layout";
-import { Button, LinkButton, Input, Select, Label, FormGroup, Table, Th, Td, Card, PageHeader } from "./ui";
+import { Button, LinkButton, Input, Select, Label, FormGroup, Table, Th, Td, Card, PageHeader, Pagination } from "./ui";
 import { sendEmail } from "../../services/mailer";
+import { z } from "zod";
 
 const PAGE_SIZE = 50;
+const SubscriberIdentitySchema = z.object({
+  email: z.email().trim().transform((email) => email.toLowerCase()),
+  firstName: z.string().trim().default("").transform((name) => name || null),
+  lastName: z.string().trim().default("").transform((name) => name || null),
+});
+const CreateSubscriberFormSchema = SubscriberIdentitySchema.extend({
+  skip_confirm: z.literal("1").optional().transform(Boolean),
+  lists: z.union([z.string(), z.array(z.string())]).optional().transform((lists) => lists ? (Array.isArray(lists) ? lists : [lists]) : []),
+});
+const EditSubscriberFormSchema = SubscriberIdentitySchema.extend({
+  status: z.enum(["active", "blocklisted"]).default("active"),
+});
+
+function SubscriberIdentityFields({ subscriber }: {
+  subscriber?: Pick<typeof schema.subscribers.$inferSelect, "email" | "firstName" | "lastName">;
+}) {
+  return (
+    <>
+      <FormGroup>
+        <Label for="email">Email</Label>
+        <Input type="email" id="email" name="email" required value={subscriber?.email ?? ""} />
+      </FormGroup>
+      <FormGroup>
+        <Label for="firstName">First name{subscriber ? "" : " (optional)"}</Label>
+        <Input type="text" id="firstName" name="firstName" value={subscriber?.firstName ?? ""} />
+      </FormGroup>
+      <FormGroup>
+        <Label for="lastName">Last name{subscriber ? "" : " (optional)"}</Label>
+        <Input type="text" id="lastName" name="lastName" value={subscriber?.lastName ?? ""} />
+      </FormGroup>
+    </>
+  );
+}
 
 export function mountSubscriberRoutes(app: App, db: Db, config: Config) {
   app.get("/subscribers", (c) => {
@@ -198,18 +232,11 @@ export function mountSubscriberRoutes(app: App, db: Db, config: Config) {
 
         {/* Pagination */}
         {(total > PAGE_SIZE || page > 1) && (
-          <div class="flex items-center justify-between mt-2 pt-4 border-t border-gray-100">
-            <div>
-              {page > 1
-                ? <LinkButton href={buildUrl({ page: page - 1 })} variant="secondary" size="sm">← Previous</LinkButton>
-                : <span />
-              }
-            </div>
-            <span class="text-xs text-gray-400">Showing {start}–{end} of {total}</span>
-            <div>
-              {end < total && <LinkButton href={buildUrl({ page: page + 1 })} variant="secondary" size="sm">Next →</LinkButton>}
-            </div>
-          </div>
+          <Pagination
+            previousHref={page > 1 ? buildUrl({ page: page - 1 }) : undefined}
+            nextHref={end < total ? buildUrl({ page: page + 1 }) : undefined}
+            summary={<>Showing {start}–{end} of {total}</>}
+          />
         )}
       </AdminLayout>,
     );
@@ -218,34 +245,14 @@ export function mountSubscriberRoutes(app: App, db: Db, config: Config) {
   app.get("/subscribers/new", (c) => {
     const user = c.user as User;
     const flash = getFlash(c);
-    const listAccess = getAccessibleListIds(db, user);
-
-    let allLists: (typeof schema.lists.$inferSelect)[];
-    if (listAccess === "all") {
-      allLists = db.select().from(schema.lists).all();
-    } else if (listAccess.length === 0) {
-      allLists = [];
-    } else {
-      allLists = db.select().from(schema.lists).where(inArray(schema.lists.id, listAccess)).all();
-    }
+    const allLists = getAccessibleLists(db, user);
 
     return c.html(
       <AdminLayout title="Add Subscriber" user={user} flash={flash}>
         <h1 class="text-2xl font-bold mt-0 mb-4">Add Subscriber</h1>
         <Card>
           <form method="post" action="/admin/subscribers/new">
-            <FormGroup>
-              <Label for="email">Email</Label>
-              <Input type="email" id="email" name="email" required />
-            </FormGroup>
-            <FormGroup>
-              <Label for="firstName">First name (optional)</Label>
-              <Input type="text" id="firstName" name="firstName" />
-            </FormGroup>
-            <FormGroup>
-              <Label for="lastName">Last name (optional)</Label>
-              <Input type="text" id="lastName" name="lastName" />
-            </FormGroup>
+            <SubscriberIdentityFields />
             <FormGroup>
               <label class="flex items-center gap-2 text-sm font-medium text-gray-700">
                 <input type="checkbox" name="skip_confirm" value="1" />
@@ -272,17 +279,7 @@ export function mountSubscriberRoutes(app: App, db: Db, config: Config) {
 
   app.post("/subscribers/new", async (c) => {
     const user = c.user as User;
-    const body = c.body as Record<string, any>;
-    const email = body["email"] as string;
-    const firstName = (body["firstName"] as string) || null;
-    const lastName = (body["lastName"] as string) || null;
-    const skipConfirm = body["skip_confirm"] === "1";
-    let listSlugs: string[] = [];
-    if (body["lists"]) {
-      listSlugs = Array.isArray(body["lists"])
-        ? (body["lists"] as string[])
-        : [body["lists"] as string];
-    }
+    const { email, firstName, lastName, skip_confirm: skipConfirm, lists: listSlugs } = c.body;
 
     const subscriber = createSubscriber(db, email, firstName, lastName, listSlugs);
 
@@ -299,7 +296,7 @@ export function mountSubscriberRoutes(app: App, db: Db, config: Config) {
 
     setFlash(c, "Subscriber added.");
     return c.redirect("/admin/subscribers");
-  });
+  }, { body: CreateSubscriberFormSchema });
 
   app.get("/subscribers/:id", (c) => {
     const user = c.user as User;
@@ -309,14 +306,7 @@ export function mountSubscriberRoutes(app: App, db: Db, config: Config) {
     if (!sub) return c.notFound();
 
     const listAccess = getAccessibleListIds(db, user);
-    let allLists: (typeof schema.lists.$inferSelect)[];
-    if (listAccess === "all") {
-      allLists = db.select().from(schema.lists).all();
-    } else if (listAccess.length === 0) {
-      allLists = [];
-    } else {
-      allLists = db.select().from(schema.lists).where(inArray(schema.lists.id, listAccess)).all();
-    }
+    const allLists = getAccessibleLists(db, user);
 
     const subLists = db
       .select()
@@ -368,18 +358,7 @@ export function mountSubscriberRoutes(app: App, db: Db, config: Config) {
         <h1 class="text-2xl font-bold mt-0 mb-4">{sub.email}</h1>
 
         <form method="post" action={`/admin/subscribers/${id}/edit`}>
-          <FormGroup>
-            <Label for="email">Email</Label>
-            <Input type="email" id="email" name="email" required value={sub.email} />
-          </FormGroup>
-          <FormGroup>
-            <Label for="firstName">First name</Label>
-            <Input type="text" id="firstName" name="firstName" value={sub.firstName ?? ""} />
-          </FormGroup>
-          <FormGroup>
-            <Label for="lastName">Last name</Label>
-            <Input type="text" id="lastName" name="lastName" value={sub.lastName ?? ""} />
-          </FormGroup>
+          <SubscriberIdentityFields subscriber={sub} />
           <FormGroup>
             <Label for="status">Status</Label>
             <Select id="status" name="status">
@@ -572,12 +551,7 @@ export function mountSubscriberRoutes(app: App, db: Db, config: Config) {
   app.post("/subscribers/:id/edit", async (c) => {
     const user = c.user as User;
     const id = Number(c.params.id);
-    const body = c.body as Record<string, any>;
-    const email = String(body["email"] ?? "").trim().toLowerCase();
-    const firstName = String(body["firstName"] ?? "").trim() || null;
-    const lastName = String(body["lastName"] ?? "").trim() || null;
-    const rawStatus = String(body["status"] ?? "active");
-    const status: "active" | "blocklisted" = rawStatus === "blocklisted" ? "blocklisted" : "active";
+    const { email, firstName, lastName, status } = c.body;
 
     db.update(schema.subscribers)
       .set({ email, firstName, lastName, status })
@@ -593,7 +567,7 @@ export function mountSubscriberRoutes(app: App, db: Db, config: Config) {
 
     setFlash(c, "Subscriber updated.");
     return c.redirect(`/admin/subscribers/${id}`);
-  });
+  }, { body: EditSubscriberFormSchema });
 
   app.post("/subscribers/:id/delete", (c) => {
     const user = c.user as User;

@@ -6,7 +6,7 @@ import { marked } from "marked";
 import type { Db } from "../../db";
 import { schema } from "../../db";
 import type { Config } from "../../config";
-import { getAccessibleListIds } from "../../auth";
+import { getAccessibleListIds, getAccessibleLists } from "../../auth";
 import { sendCampaign, substituteVariables } from "../../services/sender";
 import { renderNewsletter } from "../../../emails/render";
 import { buildUnsubscribeUrl, buildPreferencesUrl } from "../../compliance";
@@ -21,7 +21,7 @@ import {
   updateCampaignFromEditor,
 } from "../../services/campaign-editor";
 import { AdminLayout, fmtDate, fmtDateTime, CampaignBadge, describeAudience, setFlash, getFlash, type User } from "./layout";
-import { Button, LinkButton, Input, Select, Textarea, Label, FormGroup, Table, Th, Td, Card, PageHeader } from "./ui";
+import { Button, LinkButton, Input, Select, Textarea, Label, FormGroup, Table, Th, Td, Card, PageHeader, Pagination } from "./ui";
 import { CampaignEditorPage } from "./campaign-form";
 
 const CAMPAIGNS_PAGE_SIZE = 25;
@@ -280,20 +280,11 @@ export function mountCampaignRoutes(app: App, db: Db, config: Config) {
 
         {/* Pagination */}
         {(page > 1 || total > CAMPAIGNS_PAGE_SIZE) && (
-          <div class="flex items-center justify-between mt-2 pt-4 border-t border-gray-100">
-            <div>
-              {page > 1
-                ? <LinkButton href={buildUrl({ page: page - 1 })} variant="secondary" size="sm">← Previous</LinkButton>
-                : <span />
-              }
-            </div>
-            <span class="text-xs text-gray-400">
-              {total} campaign{total !== 1 ? "s" : ""} &middot; page {page} of {totalPages}
-            </span>
-            <div>
-              {page < totalPages && <LinkButton href={buildUrl({ page: page + 1 })} variant="secondary" size="sm">Next →</LinkButton>}
-            </div>
-          </div>
+          <Pagination
+            previousHref={page > 1 ? buildUrl({ page: page - 1 }) : undefined}
+            nextHref={page < totalPages ? buildUrl({ page: page + 1 }) : undefined}
+            summary={<>{total} campaign{total !== 1 ? "s" : ""} &middot; page {page} of {totalPages}</>}
+          />
         )}
       </AdminLayout>,
     );
@@ -302,16 +293,7 @@ export function mountCampaignRoutes(app: App, db: Db, config: Config) {
   app.get("/campaigns/new", (c) => {
     const user = c.user as User;
     const flash = getFlash(c);
-    const listAccess = getAccessibleListIds(db, user);
-
-    let allLists: (typeof schema.lists.$inferSelect)[];
-    if (listAccess === "all") {
-      allLists = db.select().from(schema.lists).all();
-    } else if (listAccess.length === 0) {
-      allLists = [];
-    } else {
-      allLists = db.select().from(schema.lists).where(inArray(schema.lists.id, listAccess)).all();
-    }
+    const allLists = getAccessibleLists(db, user);
 
     const allTags = db.select().from(schema.tags).all();
     const allSubscribers = db.select().from(schema.subscribers).where(eq(schema.subscribers.status, "active")).all();
@@ -605,15 +587,7 @@ export function mountCampaignRoutes(app: App, db: Db, config: Config) {
       return c.redirect(`/admin/campaigns/${id}`);
     }
 
-    const listAccess = getAccessibleListIds(db, user);
-    let allLists: (typeof schema.lists.$inferSelect)[];
-    if (listAccess === "all") {
-      allLists = db.select().from(schema.lists).all();
-    } else if (listAccess.length === 0) {
-      allLists = [];
-    } else {
-      allLists = db.select().from(schema.lists).where(inArray(schema.lists.id, listAccess)).all();
-    }
+    const allLists = getAccessibleLists(db, user);
 
     const allTags = db.select().from(schema.tags).all();
     const allSubscribers = db.select().from(schema.subscribers).where(eq(schema.subscribers.status, "active")).all();

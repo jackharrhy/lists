@@ -1,10 +1,10 @@
 import { Html } from "@elysia/html";
 import type { App } from "../../http";
-import { eq, inArray } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import type { Db } from "../../db";
 import { schema } from "../../db";
 import type { Config } from "../../config";
-import { getAccessibleListIds } from "../../auth";
+import { getAccessibleLists } from "../../auth";
 import { createSubscriber, confirmSubscriber } from "../../services/subscriber";
 import { logEvent } from "../../services/events";
 import { AdminLayout, getFlash, type User } from "./layout";
@@ -98,15 +98,7 @@ export function mountImportRoutes(app: App, db: Db, config: Config) {
     });
 
     // Get accessible lists
-    const listAccess = getAccessibleListIds(db, user);
-    let allLists: (typeof schema.lists.$inferSelect)[];
-    if (listAccess === "all") {
-      allLists = db.select().from(schema.lists).all();
-    } else if (listAccess.length === 0) {
-      allLists = [];
-    } else {
-      allLists = db.select().from(schema.lists).where(inArray(schema.lists.id, listAccess)).all();
-    }
+    const allLists = getAccessibleLists(db, user);
 
     return c.html(
       <AdminLayout title="Map Columns" user={user}>
