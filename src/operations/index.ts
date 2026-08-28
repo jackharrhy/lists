@@ -3,6 +3,7 @@ import type { Db } from "../db";
 import { schema } from "../db";
 import type { Config } from "../config";
 import { sendCampaign } from "../services/sender";
+import { createSubscriber } from "../services/subscriber";
 import {
   assertListAccess,
   assertScope,
@@ -10,6 +11,7 @@ import {
   AccessDeniedError,
   type Principal,
 } from "../services/access";
+import type { CreateCampaignDraftInput, CreateSubscriberInput } from "./contracts";
 
 export class NotFoundError extends Error { status = 404; }
 export class InvalidOperationError extends Error { status = 400; }
@@ -83,6 +85,25 @@ export function getSubscriber(ctx: OperationContext, id: number) {
   return { ...subscriber, memberships };
 }
 
+export function createSubscriberOperation(ctx: OperationContext, input: CreateSubscriberInput) {
+  assertScope(ctx.principal, "subscribers:write");
+  const listSlugs = [...new Set(input.lists)];
+  for (const slug of listSlugs) {
+    const list = ctx.db.select({ id: schema.lists.id }).from(schema.lists)
+      .where(eq(schema.lists.slug, slug)).get();
+    if (!list) throw new InvalidOperationError(`Unknown list slug: ${slug}`);
+    assertListAccess(ctx.principal, list.id);
+  }
+  const subscriber = createSubscriber(
+    ctx.db,
+    input.email,
+    input.firstName ?? input.name ?? null,
+    input.lastName ?? null,
+    listSlugs,
+  );
+  return { id: subscriber.id, email: subscriber.email };
+}
+
 export function deleteSubscriber(ctx: OperationContext, id: number, confirm: boolean) {
   assertScope(ctx.principal, "subscribers:write");
   if (!confirm) throw new InvalidOperationError("Deletion requires confirm=true");
@@ -123,10 +144,7 @@ export function getCampaign(ctx: OperationContext, id: number) {
   return { ...campaign, deliveryCounts: Object.fromEntries(counts.map((row) => [row.status, row.count])) };
 }
 
-export function createCampaignDraft(ctx: OperationContext, input: {
-  subject: string; bodyMarkdown: string; fromAddress: string; fromName?: string | null;
-  audienceType: "list" | "tag" | "all" | "subscribers"; audienceId?: number | null; audienceData?: unknown;
-}) {
+export function createCampaignDraft(ctx: OperationContext, input: CreateCampaignDraftInput) {
   assertScope(ctx.principal, "campaigns:write");
   if (!input.subject.trim() || !input.bodyMarkdown.trim() || !input.fromAddress.trim()) {
     throw new InvalidOperationError("subject, bodyMarkdown, and fromAddress are required");
@@ -141,7 +159,7 @@ export function createCampaignDraft(ctx: OperationContext, input: {
     subject: input.subject.trim(), bodyMarkdown: input.bodyMarkdown,
     fromAddress: input.fromAddress.trim(), fromName: input.fromName?.trim() || null,
     audienceType: input.audienceType, audienceId: input.audienceId ?? null,
-    audienceData: input.audienceData === undefined ? null : JSON.stringify(input.audienceData),
+    audienceData: input.audienceType === "subscribers" ? JSON.stringify(input.audienceData) : null,
     status: "draft",
   }).returning().get();
 }

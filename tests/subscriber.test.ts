@@ -9,7 +9,7 @@ import {
   updatePreferences,
   getConfirmedSubscribers,
 } from "../src/services/subscriber";
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import * as schema from "../src/db/schema";
 
 describe("createSubscriber", () => {
@@ -125,6 +125,23 @@ describe("createSubscriber", () => {
       createSubscriber(db, "lost@example.com", null, null, ["does-not-exist"]),
     ).toThrow("Unknown list slug");
     expect(db.select().from(schema.subscribers).all()).toHaveLength(0);
+  });
+
+  test("rolls back the subscriber and event when membership creation fails", () => {
+    const db = createTestDb();
+    seedList(db, { slug: "news" });
+    db.run(sql.raw(`
+      CREATE TRIGGER reject_membership
+      BEFORE INSERT ON subscriber_lists
+      BEGIN
+        SELECT RAISE(ABORT, 'membership rejected');
+      END
+    `));
+
+    expect(() => createSubscriber(db, "rollback@example.com", null, null, ["news"]))
+      .toThrow("membership rejected");
+    expect(db.select().from(schema.subscribers).all()).toEqual([]);
+    expect(db.select().from(schema.events).all()).toEqual([]);
   });
 });
 

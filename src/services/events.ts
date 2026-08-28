@@ -11,7 +11,7 @@ type LogEventOpts = {
   messageId?: number;
 };
 
-export function logEvent(db: Db, opts: LogEventOpts) {
+export function logEvent(db: Pick<Db, "insert">, opts: LogEventOpts) {
   db.insert(schema.events)
     .values({
       type: opts.type,

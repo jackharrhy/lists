@@ -18,55 +18,57 @@ export function createSubscriber(
     return list;
   });
 
-  let subscriber = db.select().from(schema.subscribers).where(eq(schema.subscribers.email, normalized)).get();
+  return db.transaction((tx) => {
+    let subscriber = tx.select().from(schema.subscribers).where(eq(schema.subscribers.email, normalized)).get();
 
-  if (!subscriber) {
-    subscriber = db
-      .insert(schema.subscribers)
-      .values({
-        email: normalized,
-        firstName,
-        lastName,
-        unsubscribeToken: generateToken(),
-      })
-      .returning()
-      .get();
+    if (!subscriber) {
+      subscriber = tx
+        .insert(schema.subscribers)
+        .values({
+          email: normalized,
+          firstName,
+          lastName,
+          unsubscribeToken: generateToken(),
+        })
+        .returning()
+        .get();
 
-    logEvent(db, {
-      type: "subscriber.created",
-      detail: `${normalized} subscribed to: ${listSlugs.join(", ")}`,
-      subscriberId: subscriber.id,
-    });
-  }
-
-  for (const list of requestedLists) {
-    const existing = db.select().from(schema.subscriberLists).where(and(
-      eq(schema.subscriberLists.subscriberId, subscriber.id),
-      eq(schema.subscriberLists.listId, list.id),
-    )).get();
-    if (existing) {
-      if (existing.status === "unsubscribed") {
-        db.update(schema.subscriberLists)
-          .set({ status: "unconfirmed" })
-          .where(and(
-            eq(schema.subscriberLists.subscriberId, subscriber.id),
-            eq(schema.subscriberLists.listId, list.id),
-          ))
-          .run();
-      }
-      continue;
+      logEvent(tx, {
+        type: "subscriber.created",
+        detail: `${normalized} subscribed to: ${listSlugs.join(", ")}`,
+        subscriberId: subscriber.id,
+      });
     }
 
-    db.insert(schema.subscriberLists)
-      .values({
-        subscriberId: subscriber.id,
-        listId: list.id,
-        status: "unconfirmed",
-      })
-      .run();
-  }
+    for (const list of requestedLists) {
+      const existing = tx.select().from(schema.subscriberLists).where(and(
+        eq(schema.subscriberLists.subscriberId, subscriber.id),
+        eq(schema.subscriberLists.listId, list.id),
+      )).get();
+      if (existing) {
+        if (existing.status === "unsubscribed") {
+          tx.update(schema.subscriberLists)
+            .set({ status: "unconfirmed" })
+            .where(and(
+              eq(schema.subscriberLists.subscriberId, subscriber.id),
+              eq(schema.subscriberLists.listId, list.id),
+            ))
+            .run();
+        }
+        continue;
+      }
 
-  return subscriber;
+      tx.insert(schema.subscriberLists)
+        .values({
+          subscriberId: subscriber.id,
+          listId: list.id,
+          status: "unconfirmed",
+        })
+        .run();
+    }
+
+    return subscriber;
+  });
 }
 
 export function confirmSubscriber(db: Db, token: string): boolean {

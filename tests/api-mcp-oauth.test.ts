@@ -1,10 +1,12 @@
 import { describe, expect, test } from "bun:test";
+import { eq } from "drizzle-orm";
 import { createHttpApp } from "../src/http";
 import { apiRoutes } from "../src/routes/api";
 import { mcpRoutes } from "../src/routes/mcp";
 import { oauthRoutes } from "../src/routes/oauth";
 import { createSession } from "../src/auth";
 import { mintApiToken } from "../src/services/api-tokens";
+import { operationCatalog } from "../src/operations/catalog";
 import { createTestDb, seedList } from "./helpers";
 import * as schema from "../src/db/schema";
 import type { Config } from "../src/config";
@@ -28,6 +30,18 @@ function setup() {
 }
 
 function bearer(token: string) { return { Authorization: `Bearer ${token}` }; }
+
+async function mcpCall(app: ReturnType<typeof createHttpApp>, token: string, name: string, args: unknown) {
+  const response = await app.request("/mcp/", {
+    method: "POST",
+    headers: { ...bearer(token), "Content-Type": "application/json" },
+    body: JSON.stringify({
+      jsonrpc: "2.0", id: 1, method: "tools/call",
+      params: { name, arguments: args },
+    }),
+  });
+  return response.json() as Promise<any>;
+}
 
 describe("scoped API and MCP", () => {
   test("advertises OAuth metadata for an unauthenticated MCP GET probe", async () => {
@@ -67,6 +81,94 @@ describe("scoped API and MCP", () => {
     expect(db.select().from(schema.apiTokens).get()!.tokenHash).not.toContain(token);
   });
 
+  test("advertises every canonical operation as an MCP tool", async () => {
+    const { app, db, user } = setup();
+    const { token } = mintApiToken(db, user.id, "agent", ["lists:read"]);
+    const response = await app.request("/mcp/", {
+      method: "POST", headers: { ...bearer(token), "Content-Type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
+    });
+    const body = await response.json() as any;
+    expect(body.result.tools.map((tool: any) => tool.name).sort()).toEqual(
+      Object.values(operationCatalog).map((operation) => operation.mcpName).sort(),
+    );
+    const create = body.result.tools.find((tool: any) => tool.name === "subscriber_create");
+    expect(create.inputSchema.required).toEqual(["email", "lists"]);
+    expect(create.inputSchema.properties.email.format).toBe("email");
+  });
+
+  test("creates subscribers through the same contract in REST and MCP", async () => {
+    const { app, db, user } = setup();
+    const { token } = mintApiToken(db, user.id, "writer", ["subscribers:write"]);
+    const rest = await app.request("/api/v1/subscribers", {
+      method: "POST", headers: { ...bearer(token), "Content-Type": "application/json" },
+      body: JSON.stringify({ email: "rest@example.com", firstName: "Rest", lists: ["news"] }),
+    });
+    expect(rest.status).toBe(201);
+    expect((await rest.json() as any).data.email).toBe("rest@example.com");
+
+    const mcp = await mcpCall(app, token, "subscriber_create", {
+      email: "mcp@example.com", firstName: "MCP", lists: ["news"],
+    });
+    expect(mcp.result.isError).toBeUndefined();
+    expect(mcp.result.structuredContent.email).toBe("mcp@example.com");
+    expect(db.select().from(schema.subscriberLists).all().map((row) => row.status)).toEqual([
+      "unconfirmed", "unconfirmed",
+    ]);
+  });
+
+  test("rejects invalid subscriber input consistently without writing data", async () => {
+    const { app, db, user } = setup();
+    const { token } = mintApiToken(db, user.id, "writer", ["subscribers:write"]);
+    const input = { email: "not-an-email", lists: ["news"] };
+    const rest = await app.request("/api/v1/subscribers", {
+      method: "POST", headers: { ...bearer(token), "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    });
+    expect(rest.status).toBe(400);
+    const mcp = await mcpCall(app, token, "subscriber_create", input);
+    expect(mcp.result.isError).toBe(true);
+    expect(db.select().from(schema.subscribers).all()).toEqual([]);
+  });
+
+  test("enforces member list access for subscriber creation in both transports", async () => {
+    const { app, db } = setup();
+    const hidden = seedList(db, { slug: "hidden", name: "Hidden" });
+    const member = db.insert(schema.users).values({
+      email: "member@example.com", passwordHash: "hash", role: "member",
+    }).returning().get();
+    const visible = db.select().from(schema.lists).where(eq(schema.lists.slug, "news")).get()!;
+    db.insert(schema.userLists).values({ userId: member.id, listId: visible.id }).run();
+    const { token } = mintApiToken(db, member.id, "member writer", ["subscribers:write"]);
+    const input = { email: "blocked@example.com", lists: [hidden.slug] };
+
+    const rest = await app.request("/api/v1/subscribers", {
+      method: "POST", headers: { ...bearer(token), "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    });
+    expect(rest.status).toBe(403);
+    const mcp = await mcpCall(app, token, "subscriber_create", input);
+    expect(mcp.result.isError).toBe(true);
+    expect(db.select().from(schema.subscribers).all()).toEqual([]);
+  });
+
+  test("rejects malformed campaign audiences consistently without writing data", async () => {
+    const { app, db, user } = setup();
+    const { token } = mintApiToken(db, user.id, "campaign writer", ["campaigns:write"]);
+    const input = {
+      subject: "Bad audience", bodyMarkdown: "Body", fromAddress: "sender@example.com",
+      audienceType: "subscribers", audienceData: { ids: [1, 2] },
+    };
+    const rest = await app.request("/api/v1/campaigns", {
+      method: "POST", headers: { ...bearer(token), "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    });
+    expect(rest.status).toBe(400);
+    const mcp = await mcpCall(app, token, "campaign_create_draft", input);
+    expect(mcp.result.isError).toBe(true);
+    expect(db.select().from(schema.campaigns).all()).toEqual([]);
+  });
+
   test("revoked tokens stop authenticating", async () => {
     const { app, db, user } = setup();
     const minted = mintApiToken(db, user.id, "temporary", ["lists:read"]);
@@ -79,6 +181,9 @@ describe("scoped API and MCP", () => {
     const subscriber = db.insert(schema.subscribers).values({ email: "delete@example.com", unsubscribeToken: "delete-token" }).returning().get();
     const { token } = mintApiToken(db, user.id, "writer", ["subscribers:write"]);
     expect((await app.request(`/api/v1/subscribers/${subscriber.id}`, { method: "DELETE", headers: bearer(token) })).status).toBe(400);
+    expect(db.select().from(schema.subscribers).all()).toHaveLength(1);
+    const mcp = await mcpCall(app, token, "subscriber_delete", { id: subscriber.id, confirm: false });
+    expect(mcp.result.isError).toBe(true);
     expect(db.select().from(schema.subscribers).all()).toHaveLength(1);
     expect((await app.request(`/api/v1/subscribers/${subscriber.id}?confirm=true`, { method: "DELETE", headers: bearer(token) })).status).toBe(200);
     expect(db.select().from(schema.subscribers).all()).toHaveLength(0);
