@@ -1,4 +1,5 @@
 import "htmx.org";
+import { initializeCampaignEditor } from "./campaign-editor";
 
 function markCurrentNavigation() {
   const path = window.location.pathname.replace(/\/$/, "") || "/";
@@ -11,6 +12,7 @@ function markCurrentNavigation() {
 }
 
 markCurrentNavigation();
+initializeCampaignEditor();
 
 document.addEventListener("htmx:responseError", () => {
   document.documentElement.dataset.requestError = "true";
@@ -19,5 +21,6 @@ document.addEventListener("htmx:responseError", () => {
 
 document.addEventListener("htmx:afterSwap", () => {
   markCurrentNavigation();
+  initializeCampaignEditor();
   document.querySelector<HTMLElement>("[autofocus]")?.focus();
 });

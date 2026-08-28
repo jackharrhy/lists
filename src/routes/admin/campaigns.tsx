@@ -12,11 +12,24 @@ import { renderNewsletter } from "../../../emails/render";
 import { buildUnsubscribeUrl, buildPreferencesUrl } from "../../compliance";
 import { logEvent } from "../../services/events";
 import { getConfirmedSubscribers } from "../../services/subscriber";
-import { processImage, processPendingS3Images, deleteCampaignS3Images } from "../../services/images";
+import { processImage, deleteCampaignS3Images } from "../../services/images";
+import {
+  CampaignEditorAccessError,
+  CampaignEditorFormSchema,
+  CampaignEditorReferenceError,
+  createCampaignFromEditor,
+  updateCampaignFromEditor,
+} from "../../services/campaign-editor";
 import { AdminLayout, fmtDate, fmtDateTime, CampaignBadge, describeAudience, setFlash, getFlash, type User } from "./layout";
 import { Button, LinkButton, Input, Select, Textarea, Label, FormGroup, Table, Th, Td, Card, PageHeader } from "./ui";
+import { CampaignEditorPage } from "./campaign-form";
 
 const CAMPAIGNS_PAGE_SIZE = 25;
+const CampaignListQuerySchema = z.object({
+  page: z.coerce.number().int().positive().default(1),
+  status: z.enum(["", "draft", "scheduled", "sending", "sent", "failed"]).default(""),
+  search: z.string().default(""),
+});
 
 export function mountCampaignRoutes(app: App, db: Db, config: Config) {
   // ---- Preview endpoints (raw HTML, no AdminLayout) -----------------------
@@ -76,10 +89,7 @@ export function mountCampaignRoutes(app: App, db: Db, config: Config) {
   });
 
   app.post("/campaigns/preview", async (c) => {
-    const raw = (c.body ?? {}) as Record<string, unknown>;
-    const parsed = CampaignPreviewSchema.safeParse(raw);
-    if (!parsed.success) return c.text("Bad Request", 400);
-    const { bodyMarkdown, subject, listName } = parsed.data;
+    const { bodyMarkdown, subject, listName } = c.body;
     const substitutedMarkdown = substituteVariables(
       bodyMarkdown || "",
       { firstName: "Jane", lastName: "Doe", email: "subscriber@example.com" },
@@ -95,14 +105,10 @@ export function mountCampaignRoutes(app: App, db: Db, config: Config) {
     });
 
     return c.html(html);
-  });
+  }, { body: CampaignPreviewSchema });
 
   app.post("/campaigns/upload-image", async (c) => {
-    const body = c.body as Record<string, any>;
-    const file = body["image"];
-    if (!(file instanceof File)) {
-      return c.json({ error: "No image provided" }, 400);
-    }
+    const file = c.body.image;
 
     const originalSize = file.size;
     const buf = await file.arrayBuffer();
@@ -120,7 +126,7 @@ export function mountCampaignRoutes(app: App, db: Db, config: Config) {
     } catch (err) {
       return c.json({ error: "Failed to process image" }, 400);
     }
-  });
+  }, { body: z.object({ image: z.file() }) });
 
   // Campaigns
   app.get("/campaigns", (c) => {
@@ -129,15 +135,15 @@ export function mountCampaignRoutes(app: App, db: Db, config: Config) {
     const listAccess = getAccessibleListIds(db, user);
 
     // Query params
-    const page = Math.max(1, parseInt(c.query.page ?? "1", 10) || 1);
+    const page = c.query.page;
     const offset = (page - 1) * CAMPAIGNS_PAGE_SIZE;
-    const filterStatus = c.query.status ?? "";
-    const filterSearch = c.query.search ?? "";
+    const filterStatus = c.query.status;
+    const filterSearch = c.query.search;
 
     // Build where conditions
     const filterConditions = [];
-    if (filterStatus && ["draft", "sending", "sent", "failed", "scheduled"].includes(filterStatus)) {
-      filterConditions.push(eq(schema.campaigns.status, filterStatus as any));
+    if (filterStatus) {
+      filterConditions.push(eq(schema.campaigns.status, filterStatus));
     }
     if (filterSearch) {
       filterConditions.push(like(schema.campaigns.subject, `%${filterSearch}%`));
@@ -291,7 +297,7 @@ export function mountCampaignRoutes(app: App, db: Db, config: Config) {
         )}
       </AdminLayout>,
     );
-  });
+  }, { query: CampaignListQuerySchema });
 
   app.get("/campaigns/new", (c) => {
     const user = c.user as User;
@@ -310,535 +316,30 @@ export function mountCampaignRoutes(app: App, db: Db, config: Config) {
     const allTags = db.select().from(schema.tags).all();
     const allSubscribers = db.select().from(schema.subscribers).where(eq(schema.subscribers.status, "active")).all();
 
-    return c.html(
-      <AdminLayout title="New Campaign" user={user} flash={flash}>
-        <div class="flex items-center justify-between mb-4">
-          <h1 class="text-2xl font-bold mt-0 mb-0">New Campaign</h1>
-          <button type="button" onclick="togglePreviewPanel()" id="previewToggleBtn" class="px-3 py-1.5 bg-gray-100 text-gray-700 text-sm font-medium rounded-md hover:bg-gray-200 border border-gray-300 cursor-pointer">
-            Preview
-          </button>
-        </div>
-
-        {/* Full-screen preview panel */}
-        <div id="previewPanel" class="hidden fixed inset-0 z-40 bg-gray-100 flex flex-col" style="padding: 0;">
-          <div class="bg-white border-b border-gray-200 px-4 py-2 flex items-center justify-between">
-            <div class="flex items-center gap-2">
-              <span class="text-sm font-medium text-gray-700">Preview</span>
-              <div class="flex items-center gap-1 ml-4">
-                <button type="button" onclick="setPreviewWidth(375)" class="px-2 py-0.5 text-xs border border-gray-300 rounded hover:bg-gray-100 cursor-pointer bg-white text-gray-600">375</button>
-                <button type="button" onclick="setPreviewWidth(600)" class="px-2 py-0.5 text-xs border border-gray-300 rounded hover:bg-gray-100 cursor-pointer bg-white text-gray-600">600</button>
-                <button type="button" onclick="setPreviewWidth(768)" class="px-2 py-0.5 text-xs border border-gray-300 rounded hover:bg-gray-100 cursor-pointer bg-white text-gray-600">768</button>
-                <button type="button" onclick="setPreviewWidth(1024)" class="px-2 py-0.5 text-xs border border-gray-300 rounded hover:bg-gray-100 cursor-pointer bg-white text-gray-600">1024</button>
-                <button type="button" onclick="setPreviewWidth(null)" class="px-2 py-0.5 text-xs border border-gray-300 rounded hover:bg-gray-100 cursor-pointer bg-white text-gray-600">full</button>
-                <span id="previewWidthLabel" class="text-xs text-gray-400 ml-2"></span>
-              </div>
-            </div>
-            <button type="button" onclick="togglePreviewPanel()" class="px-3 py-1.5 text-sm text-gray-500 hover:text-gray-800 border border-gray-200 rounded cursor-pointer bg-white">
-              Close ✕
-            </button>
-          </div>
-          <div class="flex-1 overflow-auto flex justify-center py-4">
-            <div id="previewContainer" class="relative" style="width: 100%; max-width: 100%;">
-              <iframe id="previewFrame" style="min-height: calc(100vh - 80px); width: 100%; border: 0; background: white; transition: width 0.15s; display: block; margin: 0 auto;" srcdoc="<p style='color:#999;font-family:system-ui;padding:2rem'>Start writing to see a preview</p>" />
-            </div>
-          </div>
-        </div>
-
-        <div class="max-w-2xl">
-          <Card>
-              <form method="post" action="/admin/campaigns/new">
-                <FormGroup>
-                  <Label for="audienceMode">Audience</Label>
-                  <Select id="audienceMode" name="audienceMode" required>
-                    <option value="list">A list</option>
-                    <option value="all">All subscribers</option>
-                    <option value="tag">A tag</option>
-                    <option value="specific">Specific people</option>
-                  </Select>
-                </FormGroup>
-
-                <div data-audience="list" class="mb-4">
-                  <Label for="listId">List</Label>
-                  <Select id="listId" name="listId">
-                    <option value="">Select a list...</option>
-                    {allLists.map((list) => (
-                      <option value={String(list.id)} data-from-address={list.fromAddress}>
-                        {list.name} ({list.slug})
-                      </option>
-                    ))}
-                  </Select>
-                </div>
-
-                <div data-audience="tag" class="mb-4 hidden">
-                  <Label for="tagId">Tag</Label>
-                  <Select id="tagId" name="tagId">
-                    <option value="">Select a tag...</option>
-                    {allTags.map((tag) => (
-                      <option value={String(tag.id)}>{tag.name}</option>
-                    ))}
-                  </Select>
-                </div>
-
-                <div data-audience="specific" class="mb-4 hidden">
-                  <Label>Subscribers</Label>
-                  <input type="text" id="subscriberSearch" placeholder="Search by email or name..." class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm mb-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
-                  <div id="searchResults" class="border border-gray-200 rounded-md max-h-40 overflow-y-auto hidden"></div>
-                  <div id="selectedSubscribers" class="flex flex-wrap gap-2 mt-2"></div>
-                  <input type="hidden" name="subscriberIds" id="subscriberIds" />
-                </div>
-
-                <FormGroup>
-                  <Label for="fromPersona">From</Label>
-                  <Select id="fromPersona" name="fromPersona">
-                    <option value="">Custom…</option>
-                    {allLists.map((list) => (
-                      <option
-                        value={String(list.id)}
-                        data-from-address={list.fromAddress || ""}
-                        data-from-name={list.name}
-                        data-from-domain={list.fromDomain}
-                        data-slug={list.slug}
-                      >
-                        {list.name} ({list.fromDomain})
-                      </option>
-                    ))}
-                  </Select>
-                </FormGroup>
-                <div id="fromCustomFields">
-                  <FormGroup>
-                    <Label for="fromAddress">From Address</Label>
-                    <Input
-                      type="email"
-                      id="fromAddress"
-                      name="fromAddress"
-                      required
-                      placeholder={`newsletter@${config.fromDomain}`}
-                    />
-                  </FormGroup>
-                  <FormGroup>
-                    <Label for="fromName">From Name (optional)</Label>
-                    <Input
-                      type="text"
-                      id="fromName"
-                      name="fromName"
-                      placeholder="e.g. Silicon Harbour"
-                    />
-                  </FormGroup>
-                </div>
-                <FormGroup>
-                  <Label for="subject">Subject</Label>
-                  <Input type="text" id="subject" name="subject" required placeholder="Campaign subject" />
-                </FormGroup>
-                <FormGroup>
-                  <Label for="bodyMarkdown">Body (Markdown)</Label>
-                  <Textarea id="bodyMarkdown" name="bodyMarkdown" required placeholder="Write your email in markdown…" />
-                  <p class="text-xs text-gray-400 mt-1">{"Available variables: {{firstName}}, {{lastName}}, {{email}}, {{unsubscribeUrl}}, {{preferencesUrl}}"}</p>
-                  <div id="imageDropZone" class="border-2 border-dashed border-gray-200 rounded-md p-3 mt-1 text-center text-xs text-gray-400 hover:border-blue-300 transition-colors cursor-pointer">
-                    Drop an image here or <span class="text-blue-500">click to upload</span>
-                    <input type="file" id="imageFileInput" accept="image/*" class="hidden" />
-                  </div>
-                  <input type="hidden" id="pendingImagesJson" name="pendingImagesJson" value="{}" />
-                </FormGroup>
-
-                <h3 class="text-sm font-semibold text-gray-700 mt-6 mb-3">Sending options</h3>
-
-                <FormGroup>
-                  <Label for="scheduledAtLocal">Schedule for (optional, your local time)</Label>
-                  <Input type="datetime-local" id="scheduledAtLocal" />
-                  <input type="hidden" id="scheduledAt" name="scheduledAt" />
-                  <p class="text-xs text-gray-400 mt-1" id="scheduledAtUtc"></p>
-                </FormGroup>
-
-                <div id="batchOptions">
-                  <div class="flex gap-4">
-                    <FormGroup>
-                      <Label for="batchSize">Batch size (emails per batch)</Label>
-                      <Input type="number" id="batchSize" name="batchSize" min="1" placeholder="e.g. 20 (leave empty to send all at once)" />
-                    </FormGroup>
-                    <FormGroup>
-                      <Label for="batchInterval">Minutes between batches</Label>
-                      <Input type="number" id="batchInterval" name="batchInterval" min="1" placeholder="e.g. 10" />
-                    </FormGroup>
-                  </div>
-                </div>
-
-                <Button type="submit">Create Draft</Button>
-              </form>
-            </Card>
-        </div>
-
-        {/* Image upload modal */}
-        <div id="imageModal" class="hidden fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
-          <div class="bg-white rounded-lg p-6 max-w-sm w-full mx-4 shadow-xl">
-            <h3 class="font-semibold text-gray-800 mb-1" id="imageModalName"></h3>
-            <p class="text-xs text-gray-500 mb-4" id="imageModalSize"></p>
-            <div class="flex flex-col gap-2">
-              <button type="button" id="imageEmbedBtn" class="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 border-none cursor-pointer">
-                Embed in email (inline attachment, always displays)
-              </button>
-              <button type="button" id="imageS3Btn" class="px-4 py-2 bg-white text-gray-700 text-sm font-medium rounded-md hover:bg-gray-50 border border-gray-300 cursor-pointer">
-                Host on S3 (smaller email size)
-              </button>
-              <button type="button" id="imageModalClose" class="px-4 py-2 text-gray-500 text-sm hover:text-gray-700 border-none cursor-pointer bg-transparent">Cancel</button>
-            </div>
-          </div>
-        </div>
-
-        <script>{`var subscribers = ${JSON.stringify(allSubscribers.map(s => ({ id: s.id, email: s.email, firstName: s.firstName, lastName: s.lastName })))};`}</script>
-        <script>{`
-          (function() {
-            // Mode switching
-            var mode = document.getElementById('audienceMode');
-            mode.addEventListener('change', function() {
-              document.querySelectorAll('[data-audience]').forEach(function(el) { el.classList.add('hidden'); });
-              var target = document.querySelector('[data-audience="' + this.value + '"]');
-              if (target) target.classList.remove('hidden');
-            });
-
-            // From address auto-fill + fromName auto-fill
-            var lastDefault = '';
-            var listSelect = document.getElementById('listId');
-            if (listSelect) {
-              listSelect.addEventListener('change', function() {
-                var opt = this.options[this.selectedIndex];
-                var addr = opt.dataset.fromAddress || '';
-                var input = document.getElementById('fromAddress');
-                if (!input.value || input.value === lastDefault) input.value = addr;
-                lastDefault = addr;
-                // auto-fill fromName from local part if empty
-                var nameInput = document.getElementById('fromName');
-                if (nameInput && !nameInput.value && addr) {
-                  nameInput.value = addr.split('@')[0] || '';
-                }
-              });
-            }
-
-            // fromName auto-fill from fromAddress local part when typed
-            var fromAddrInput = document.getElementById('fromAddress');
-            if (fromAddrInput) {
-              fromAddrInput.addEventListener('blur', function() {
-                var nameInput = document.getElementById('fromName');
-                if (nameInput && !nameInput.value && this.value) {
-                  nameInput.value = this.value.split('@')[0] || '';
-                }
-              });
-            }
-
-            // Timezone-aware schedule input
-            var localInput = document.getElementById('scheduledAtLocal');
-            var utcHidden = document.getElementById('scheduledAt');
-            var utcLabel = document.getElementById('scheduledAtUtc');
-            if (localInput) {
-              localInput.addEventListener('change', function() {
-                if (this.value) {
-                  var utc = new Date(this.value).toISOString();
-                  utcHidden.value = utc;
-                  utcLabel.textContent = 'UTC: ' + new Date(utc).toUTCString();
-                } else {
-                  utcHidden.value = '';
-                  utcLabel.textContent = '';
-                }
-              });
-            }
-
-            // From persona selector
-            var fromPersona = document.getElementById('fromPersona');
-            var fromCustom = document.getElementById('fromCustomFields');
-            if (fromPersona) {
-              fromPersona.addEventListener('change', function() {
-                var opt = this.options[this.selectedIndex];
-                if (!opt.value) {
-                  // Custom -- show fields, clear required attr handled by visibility
-                  fromCustom.style.display = '';
-                  document.getElementById('fromAddress').required = true;
-                } else {
-                  // Fill from list persona data
-                  document.getElementById('fromAddress').value = opt.dataset.fromAddress || (opt.dataset.slug + '@' + opt.dataset.fromDomain);
-                  document.getElementById('fromAddress').required = false;
-                  document.getElementById('fromName').value = opt.dataset.fromName || '';
-                  fromCustom.style.display = 'none';
-                }
-              });
-            }
-
-            // Subscriber picker
-            var selected = new Set();
-            var search = document.getElementById('subscriberSearch');
-            var results = document.getElementById('searchResults');
-            var chips = document.getElementById('selectedSubscribers');
-            var hidden = document.getElementById('subscriberIds');
-
-            function render() {
-              chips.innerHTML = '';
-              selected.forEach(function(id) {
-                var sub = subscribers.find(function(s) { return s.id === id; });
-                if (!sub) return;
-                var chip = document.createElement('span');
-                chip.className = 'inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800';
-                chip.textContent = sub.email;
-                var btn = document.createElement('button');
-                btn.type = 'button';
-                btn.textContent = '\\u00d7';
-                btn.className = 'ml-1 text-blue-600 hover:text-blue-800 cursor-pointer';
-                btn.onclick = function() { selected.delete(id); render(); };
-                chip.appendChild(btn);
-                chips.appendChild(chip);
-              });
-              hidden.value = Array.from(selected).join(',');
-            }
-
-            if (search) {
-              search.addEventListener('input', function() {
-                var q = this.value.toLowerCase();
-                if (!q) { results.classList.add('hidden'); return; }
-                var matches = subscribers.filter(function(s) {
-                  var name = [s.firstName || '', s.lastName || ''].join(' ').trim();
-                  return !selected.has(s.id) && (s.email.toLowerCase().includes(q) || name.toLowerCase().includes(q));
-                }).slice(0, 10);
-                results.innerHTML = '';
-                matches.forEach(function(s) {
-                  var div = document.createElement('div');
-                  div.className = 'px-3 py-2 cursor-pointer hover:bg-gray-50 text-sm';
-                  var name = [s.firstName || '', s.lastName || ''].join(' ').trim();
-                  div.textContent = s.email + (name ? ' (' + name + ')' : '');
-                  div.onclick = function() { selected.add(s.id); search.value = ''; results.classList.add('hidden'); render(); };
-                  results.appendChild(div);
-                });
-                results.classList.toggle('hidden', matches.length === 0);
-              });
-            }
-
-            // Preview panel toggle + width control
-            window.setPreviewWidth = function(w) {
-              var f = document.getElementById('previewFrame');
-              var lbl = document.getElementById('previewWidthLabel');
-              if (w === null) {
-                f.style.width = '100%'; f.style.maxWidth = '100%';
-                if (lbl) lbl.textContent = '';
-              } else {
-                f.style.width = w + 'px'; f.style.maxWidth = w + 'px';
-                if (lbl) lbl.textContent = w + 'px';
-              }
-            };
-            window.togglePreviewPanel = function() {
-              var panel = document.getElementById('previewPanel');
-              var btn = document.getElementById('previewToggleBtn');
-              var hidden = panel.classList.contains('hidden');
-              if (hidden) {
-                panel.classList.remove('hidden');
-                document.body.style.overflow = 'hidden';
-                btn.textContent = 'Close Preview';
-                updatePreview();
-              } else {
-                panel.classList.add('hidden');
-                document.body.style.overflow = '';
-                btn.textContent = 'Preview';
-              }
-            };
-            // Close on Escape
-            document.addEventListener('keydown', function(e) {
-              if (e.key === 'Escape') {
-                var panel = document.getElementById('previewPanel');
-                if (!panel.classList.contains('hidden')) window.togglePreviewPanel();
-              }
-            });
-
-            var timer;
-            var textarea = document.getElementById('bodyMarkdown');
-            var subject = document.getElementById('subject');
-            var frame = document.getElementById('previewFrame');
-
-            function updatePreview() {
-              var body = textarea.value;
-              if (!body.trim()) return;
-              fetch('/admin/campaigns/preview', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  bodyMarkdown: body,
-                  subject: subject.value || 'Preview',
-                  listName: 'Preview'
-                })
-              })
-              .then(function(r) { return r.text(); })
-              .then(function(html) { frame.srcdoc = html; });
-            }
-
-            textarea.addEventListener('input', function() {
-              clearTimeout(timer);
-              timer = setTimeout(updatePreview, 500);
-            });
-            subject.addEventListener('input', function() {
-              clearTimeout(timer);
-              timer = setTimeout(updatePreview, 500);
-            });
-          })();
-        `}</script>
-        <script>{`
-          (function() {
-            var dropZone = document.getElementById('imageDropZone');
-            var fileInput = document.getElementById('imageFileInput');
-            var modal = document.getElementById('imageModal');
-            var modalName = document.getElementById('imageModalName');
-            var modalSize = document.getElementById('imageModalSize');
-            var embedBtn = document.getElementById('imageEmbedBtn');
-            var s3Btn = document.getElementById('imageS3Btn');
-            var closeBtn = document.getElementById('imageModalClose');
-            var pendingField = document.getElementById('pendingImagesJson');
-            var pendingMap = {}; // uuid -> dataUri (kept in memory, not in textarea)
-            var currentFile = null;
-            var processedData = null;
-
-            function formatBytes(b) {
-              if (b < 1024) return b + ' B';
-              if (b < 1024 * 1024) return (b / 1024).toFixed(1) + ' KB';
-              return (b / 1024 / 1024).toFixed(1) + ' MB';
-            }
-
-            function insertAtCursor(text) {
-              var ta = document.getElementById('bodyMarkdown');
-              var start = ta.selectionStart, end = ta.selectionEnd;
-              ta.value = ta.value.slice(0, start) + text + ta.value.slice(end);
-              ta.selectionStart = ta.selectionEnd = start + text.length;
-              ta.dispatchEvent(new Event('input'));
-            }
-
-            function handleFile(file) {
-              if (!file || !file.type.startsWith('image/')) return;
-              currentFile = file;
-              var formData = new FormData();
-              formData.append('image', file);
-              fetch('/admin/campaigns/upload-image', { method: 'POST', body: formData })
-                .then(function(r) { return r.json(); })
-                .then(function(data) {
-                  processedData = data;
-                  modalName.textContent = file.name;
-                  modalSize.textContent = 'Original: ' + formatBytes(data.originalSizeBytes) + ' \\u2192 ' + formatBytes(data.sizeBytes) + ' WebP (' + data.width + '\\u00d7' + data.height + ')';
-                  embedBtn.textContent = 'Embed in email (' + formatBytes(data.sizeBytes) + ' inline, always displays)';
-                  s3Btn.textContent = 'Host on S3 (tiny email, uploads on save)';
-                  modal.classList.remove('hidden');
-                })
-                .catch(function() { alert('Failed to process image'); });
-            }
-
-            dropZone.addEventListener('click', function() { fileInput.click(); });
-            fileInput.addEventListener('change', function() { if (this.files[0]) handleFile(this.files[0]); });
-            dropZone.addEventListener('dragover', function(e) { e.preventDefault(); this.classList.add('border-blue-400', 'bg-blue-50'); });
-            dropZone.addEventListener('dragleave', function() { this.classList.remove('border-blue-400', 'bg-blue-50'); });
-            dropZone.addEventListener('drop', function(e) {
-              e.preventDefault();
-              this.classList.remove('border-blue-400', 'bg-blue-50');
-              if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
-            });
-
-            embedBtn.addEventListener('click', function() {
-              if (processedData) {
-                insertAtCursor('\\n![image](' + processedData.dataUri + ')\\n');
-                modal.classList.add('hidden');
-              }
-            });
-
-            s3Btn.addEventListener('click', function() {
-              if (processedData) {
-                var uuid = (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2));
-                // Store data URI in memory map, only put short token in textarea
-                pendingMap[uuid] = processedData.dataUri;
-                pendingField.value = JSON.stringify(pendingMap);
-                // Insert short clean token - no base64 in the textarea!
-                insertAtCursor('\\n<!-- s3-pending:' + uuid + ' -->\\n');
-                modal.classList.add('hidden');
-              }
-            });
-
-            closeBtn.addEventListener('click', function() { modal.classList.add('hidden'); });
-            modal.addEventListener('click', function(e) { if (e.target === modal) modal.classList.add('hidden'); });
-          })();
-        `}</script>
-      </AdminLayout>,
-    );
+    return c.html(<CampaignEditorPage user={user} flash={flash} config={config} lists={allLists} tags={allTags} subscribers={allSubscribers} />);
   });
 
   app.post("/campaigns/new", async (c) => {
     const user = c.user as User;
-    const body = c.body as Record<string, any>;
-    const fromAddress = String(body["fromAddress"] ?? "").trim();
-    const fromName = String(body["fromName"] ?? "").trim() || null;
-    const subject = String(body["subject"] ?? "").trim();
-    const bodyMarkdown = String(body["bodyMarkdown"] ?? "");
-
-    const validModes = ["list", "all", "tag", "specific"] as const;
-    let audienceMode: (typeof validModes)[number] = validModes.includes(body["audienceMode"] as any)
-      ? body["audienceMode"] as (typeof validModes)[number]
-      : "list";
-
-    if (audienceMode === "all" && !["owner", "admin"].includes(user.role)) {
-      audienceMode = "list"; // fallback
-    }
-
-    let audienceType: "list" | "all" | "tag" | "subscribers" = audienceMode === "specific" ? "subscribers" : audienceMode;
-    let audienceId: number | null = null;
-    let audienceData: string | null = null;
-
-    if (audienceMode === "list") {
-      const rawListId = body["listId"];
-      if (!rawListId) return c.redirect("/admin/campaigns/new");
-      audienceId = Number(rawListId);
-    } else if (audienceMode === "tag") {
-      const tagId = Number(body["tagId"]);
-      if (!tagId) return c.redirect("/admin/campaigns/new");
-      audienceId = tagId;
-    } else if (audienceMode === "specific") {
-      const ids = String(body["subscriberIds"] ?? "").split(",").map(Number).filter(Boolean);
-      if (ids.length === 0) return c.redirect("/admin/campaigns/new");
-      audienceData = JSON.stringify(ids);
-    }
-
-    if (!fromAddress || !subject || !bodyMarkdown) {
-      return c.redirect("/admin/campaigns/new");
-    }
-
-    // Verify user has access to this list (admins can send to "all")
-    if (audienceType === "list" && audienceId !== null) {
-      const listAccess = getAccessibleListIds(db, user);
-      if (listAccess !== "all" && !listAccess.includes(audienceId)) {
-        return c.text("Forbidden", 403);
-      }
-    }
-
-    const scheduledAt = body["scheduledAt"] ? new Date(String(body["scheduledAt"])).toISOString() : null;
-    const batchSize = body["batchSize"] ? parseInt(String(body["batchSize"]), 10) || null : null;
-    const batchInterval = body["batchInterval"] ? parseInt(String(body["batchInterval"]), 10) || null : null;
-    const status = scheduledAt ? "scheduled" : "draft";
-    let pendingMap: Record<string, string> = {};
-    try { pendingMap = JSON.parse(String(body["pendingImagesJson"] ?? "{}")); } catch {}
-
-    const result = db
-      .insert(schema.campaigns)
-      .values({ audienceType, audienceId, audienceData, fromAddress, fromName, subject, bodyMarkdown, scheduledAt, batchSize, batchInterval, status })
-      .returning({ id: schema.campaigns.id })
-      .get();
-
-    const campaignId = result.id;
-    if (config.s3MediaBucket && Object.keys(pendingMap).length > 0) {
-      const processedMarkdown = await processPendingS3Images(bodyMarkdown, campaignId, pendingMap, config);
-      if (processedMarkdown !== bodyMarkdown) {
-        db.update(schema.campaigns)
-          .set({ bodyMarkdown: processedMarkdown })
-          .where(eq(schema.campaigns.id, campaignId))
-          .run();
-      }
+    let result;
+    try {
+      result = await createCampaignFromEditor(db, config, user, c.body);
+    } catch (error) {
+      if (error instanceof CampaignEditorAccessError) return c.text("Forbidden", 403);
+      if (error instanceof CampaignEditorReferenceError) return c.text(error.message, 400);
+      throw error;
     }
 
     logEvent(db, {
       type: "admin.campaign_created",
-      detail: subject,
+      detail: result.subject,
       campaignId: result.id,
       userId: user.id,
     });
 
     setFlash(c, "Campaign created.");
     return c.redirect(`/admin/campaigns/${result.id}`);
-  });
+  }, { body: CampaignEditorFormSchema });
 
   app.get("/campaigns/:id", async (c) => {
     const user = c.user as User;
@@ -1117,448 +618,7 @@ export function mountCampaignRoutes(app: App, db: Db, config: Config) {
     const allTags = db.select().from(schema.tags).all();
     const allSubscribers = db.select().from(schema.subscribers).where(eq(schema.subscribers.status, "active")).all();
 
-    // Determine current audience mode and values
-    let currentAudienceMode = campaign.audienceType === "subscribers" ? "specific" : campaign.audienceType;
-    let currentListId = campaign.audienceType === "list" ? campaign.audienceId : null;
-    let currentTagId = campaign.audienceType === "tag" ? campaign.audienceId : null;
-    let currentSubscriberIds: number[] = [];
-    if (campaign.audienceType === "subscribers" && campaign.audienceData) {
-      currentSubscriberIds = JSON.parse(campaign.audienceData) as number[];
-    }
-
-    return c.html(
-      <AdminLayout title={`Edit: ${campaign.subject}`} user={user} flash={flash}>
-        <div class="flex items-center justify-between mb-4">
-          <h1 class="text-2xl font-bold mt-0 mb-0">Edit Campaign</h1>
-          <button type="button" onclick="togglePreviewPanel()" id="previewToggleBtn" class="px-3 py-1.5 bg-gray-100 text-gray-700 text-sm font-medium rounded-md hover:bg-gray-200 border border-gray-300 cursor-pointer">
-            Preview
-          </button>
-        </div>
-
-        {/* Full-screen preview panel */}
-        <div id="previewPanel" class="hidden fixed inset-0 z-40 bg-gray-100 flex flex-col">
-          <div class="bg-white border-b border-gray-200 px-4 py-2 flex items-center justify-between">
-            <div class="flex items-center gap-2">
-              <span class="text-sm font-medium text-gray-700">Preview</span>
-              <div class="flex items-center gap-1 ml-4">
-                <button type="button" onclick="setPreviewWidth(375)" class="px-2 py-0.5 text-xs border border-gray-300 rounded hover:bg-gray-100 cursor-pointer bg-white text-gray-600">375</button>
-                <button type="button" onclick="setPreviewWidth(600)" class="px-2 py-0.5 text-xs border border-gray-300 rounded hover:bg-gray-100 cursor-pointer bg-white text-gray-600">600</button>
-                <button type="button" onclick="setPreviewWidth(768)" class="px-2 py-0.5 text-xs border border-gray-300 rounded hover:bg-gray-100 cursor-pointer bg-white text-gray-600">768</button>
-                <button type="button" onclick="setPreviewWidth(1024)" class="px-2 py-0.5 text-xs border border-gray-300 rounded hover:bg-gray-100 cursor-pointer bg-white text-gray-600">1024</button>
-                <button type="button" onclick="setPreviewWidth(null)" class="px-2 py-0.5 text-xs border border-gray-300 rounded hover:bg-gray-100 cursor-pointer bg-white text-gray-600">full</button>
-                <span id="previewWidthLabel" class="text-xs text-gray-400 ml-2"></span>
-              </div>
-            </div>
-            <button type="button" onclick="togglePreviewPanel()" class="px-3 py-1.5 text-sm text-gray-500 hover:text-gray-800 border border-gray-200 rounded cursor-pointer bg-white">
-              Close ✕
-            </button>
-          </div>
-          <div class="flex-1 overflow-auto flex justify-center py-4">
-            <div id="previewContainer" class="relative" style="width: 100%; max-width: 100%;">
-              <iframe id="previewFrame" style="min-height: calc(100vh - 80px); width: 100%; border: 0; background: white; transition: width 0.15s; display: block; margin: 0 auto;" src={`/admin/campaigns/${id}/preview`} />
-            </div>
-          </div>
-        </div>
-
-        <div class="max-w-2xl">
-          <Card>
-              <form method="post" action={`/admin/campaigns/${id}/edit`}>
-                <FormGroup>
-                  <Label for="audienceMode">Audience</Label>
-                  <Select id="audienceMode" name="audienceMode" required>
-                    <option value="list" selected={currentAudienceMode === "list"}>A list</option>
-                    <option value="all" selected={currentAudienceMode === "all"}>All subscribers</option>
-                    <option value="tag" selected={currentAudienceMode === "tag"}>A tag</option>
-                    <option value="specific" selected={currentAudienceMode === "specific"}>Specific people</option>
-                  </Select>
-                </FormGroup>
-
-                <div data-audience="list" class={`mb-4${currentAudienceMode !== "list" ? " hidden" : ""}`}>
-                  <Label for="listId">List</Label>
-                  <Select id="listId" name="listId">
-                    <option value="">Select a list...</option>
-                    {allLists.map((list) => (
-                      <option value={String(list.id)} data-from-address={list.fromAddress} selected={currentListId === list.id}>
-                        {list.name} ({list.slug})
-                      </option>
-                    ))}
-                  </Select>
-                </div>
-
-                <div data-audience="tag" class={`mb-4${currentAudienceMode !== "tag" ? " hidden" : ""}`}>
-                  <Label for="tagId">Tag</Label>
-                  <Select id="tagId" name="tagId">
-                    <option value="">Select a tag...</option>
-                    {allTags.map((tag) => (
-                      <option value={String(tag.id)} selected={currentTagId === tag.id}>{tag.name}</option>
-                    ))}
-                  </Select>
-                </div>
-
-                <div data-audience="specific" class={`mb-4${currentAudienceMode !== "specific" ? " hidden" : ""}`}>
-                  <Label>Subscribers</Label>
-                  <input type="text" id="subscriberSearch" placeholder="Search by email or name..." class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm mb-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
-                  <div id="searchResults" class="border border-gray-200 rounded-md max-h-40 overflow-y-auto hidden"></div>
-                  <div id="selectedSubscribers" class="flex flex-wrap gap-2 mt-2"></div>
-                  <input type="hidden" name="subscriberIds" id="subscriberIds" value={currentSubscriberIds.join(",")} />
-                </div>
-
-                <FormGroup>
-                  <Label for="fromPersona">From</Label>
-                  <Select id="fromPersona" name="fromPersona">
-                    <option value="">Custom…</option>
-                    {allLists.map((list) => (
-                      <option
-                        value={String(list.id)}
-                        data-from-address={list.fromAddress || ""}
-                        data-from-name={list.name}
-                        data-from-domain={list.fromDomain}
-                        data-slug={list.slug}
-                      >
-                        {list.name} ({list.fromDomain})
-                      </option>
-                    ))}
-                  </Select>
-                </FormGroup>
-                <div id="fromCustomFields">
-                  <FormGroup>
-                    <Label for="fromAddress">From Address</Label>
-                    <Input
-                      type="email"
-                      id="fromAddress"
-                      name="fromAddress"
-                      required
-                      value={campaign.fromAddress}
-                      placeholder={`newsletter@${config.fromDomain}`}
-                    />
-                  </FormGroup>
-                  <FormGroup>
-                    <Label for="fromName">From Name (optional)</Label>
-                    <Input
-                      type="text"
-                      id="fromName"
-                      name="fromName"
-                      value={campaign.fromName ?? ""}
-                      placeholder="e.g. Silicon Harbour"
-                    />
-                  </FormGroup>
-                </div>
-                <FormGroup>
-                  <Label for="subject">Subject</Label>
-                  <Input type="text" id="subject" name="subject" required value={campaign.subject} placeholder="Campaign subject" />
-                </FormGroup>
-                <FormGroup>
-                  <Label for="bodyMarkdown">Body (Markdown)</Label>
-                  <textarea id="bodyMarkdown" name="bodyMarkdown" required placeholder="Write your email in markdown…" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-[inherit] mb-3 min-h-[200px] resize-y focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">{campaign.bodyMarkdown}</textarea>
-                  <p class="text-xs text-gray-400 mt-1">{"Available variables: {{firstName}}, {{lastName}}, {{email}}, {{unsubscribeUrl}}, {{preferencesUrl}}"}</p>
-                  <div id="imageDropZone" class="border-2 border-dashed border-gray-200 rounded-md p-3 mt-1 text-center text-xs text-gray-400 hover:border-blue-300 transition-colors cursor-pointer">
-                    Drop an image here or <span class="text-blue-500">click to upload</span>
-                    <input type="file" id="imageFileInput" accept="image/*" class="hidden" />
-                  </div>
-                  <input type="hidden" id="pendingImagesJson" name="pendingImagesJson" value="{}" />
-                </FormGroup>
-
-                <h3 class="text-sm font-semibold text-gray-700 mt-6 mb-3">Sending options</h3>
-
-                <FormGroup>
-                  <Label for="scheduledAtLocal">Schedule for (optional, your local time)</Label>
-                  <Input
-                    type="datetime-local"
-                    id="scheduledAtLocal"
-                    value={campaign.scheduledAt
-                      ? new Date(new Date(campaign.scheduledAt).getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16)
-                      : undefined}
-                  />
-                  <input type="hidden" id="scheduledAt" name="scheduledAt" value={campaign.scheduledAt ?? ""} />
-                  <p class="text-xs text-gray-400 mt-1" id="scheduledAtUtc">
-                    {campaign.scheduledAt ? `UTC: ${new Date(campaign.scheduledAt).toUTCString()}` : ""}
-                   </p>
-                </FormGroup>
-
-                <div id="batchOptions">
-                  <div class="flex gap-4">
-                    <FormGroup>
-                      <Label for="batchSize">Batch size (emails per batch)</Label>
-                      <Input type="number" id="batchSize" name="batchSize" min="1" placeholder="e.g. 20 (leave empty to send all at once)" value={campaign.batchSize ?? undefined} />
-                    </FormGroup>
-                    <FormGroup>
-                      <Label for="batchInterval">Minutes between batches</Label>
-                      <Input type="number" id="batchInterval" name="batchInterval" min="1" placeholder="e.g. 10" value={campaign.batchInterval ?? undefined} />
-                    </FormGroup>
-                  </div>
-                </div>
-
-                <Button type="submit">Save Changes</Button>
-              </form>
-            </Card>
-        </div>
-        <script>{`var subscribers = ${JSON.stringify(allSubscribers.map(s => ({ id: s.id, email: s.email, firstName: s.firstName, lastName: s.lastName })))};`}</script>
-        <script>{`
-          (function() {
-            // Mode switching
-            var mode = document.getElementById('audienceMode');
-            mode.addEventListener('change', function() {
-              document.querySelectorAll('[data-audience]').forEach(function(el) { el.classList.add('hidden'); });
-              var target = document.querySelector('[data-audience="' + this.value + '"]');
-              if (target) target.classList.remove('hidden');
-            });
-
-            // Timezone-aware schedule input (edit form)
-            var localInput = document.getElementById('scheduledAtLocal');
-            var utcHidden = document.getElementById('scheduledAt');
-            var utcLabel = document.getElementById('scheduledAtUtc');
-            if (localInput) {
-              localInput.addEventListener('change', function() {
-                if (this.value) {
-                  var utc = new Date(this.value).toISOString();
-                  utcHidden.value = utc;
-                  utcLabel.textContent = 'UTC: ' + new Date(utc).toUTCString();
-                } else {
-                  utcHidden.value = '';
-                  utcLabel.textContent = '';
-                }
-              });
-            }
-
-             // From persona selector (edit form)
-            var fromPersona = document.getElementById('fromPersona');
-            var fromCustom = document.getElementById('fromCustomFields');
-            if (fromPersona) {
-              fromPersona.addEventListener('change', function() {
-                var opt = this.options[this.selectedIndex];
-                if (!opt.value) {
-                  fromCustom.style.display = '';
-                  document.getElementById('fromAddress').required = true;
-                } else {
-                  document.getElementById('fromAddress').value = opt.dataset.fromAddress || (opt.dataset.slug + '@' + opt.dataset.fromDomain);
-                  document.getElementById('fromAddress').required = false;
-                  document.getElementById('fromName').value = opt.dataset.fromName || '';
-                  fromCustom.style.display = 'none';
-                }
-              });
-            }
-
-            // fromName auto-fill from fromAddress local part
-            var fromAddrInput = document.getElementById('fromAddress');
-            if (fromAddrInput) {
-              fromAddrInput.addEventListener('blur', function() {
-                var nameInput = document.getElementById('fromName');
-                if (nameInput && !nameInput.value && this.value) {
-                  nameInput.value = this.value.split('@')[0] || '';
-                }
-              });
-            }
-
-            // Subscriber picker
-            var selected = new Set(${JSON.stringify(currentSubscriberIds)});
-            var search = document.getElementById('subscriberSearch');
-            var results = document.getElementById('searchResults');
-            var chips = document.getElementById('selectedSubscribers');
-            var hidden = document.getElementById('subscriberIds');
-
-            function render() {
-              chips.innerHTML = '';
-              selected.forEach(function(id) {
-                var sub = subscribers.find(function(s) { return s.id === id; });
-                if (!sub) return;
-                var chip = document.createElement('span');
-                chip.className = 'inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800';
-                chip.textContent = sub.email;
-                var btn = document.createElement('button');
-                btn.type = 'button';
-                btn.textContent = '\\u00d7';
-                btn.className = 'ml-1 text-blue-600 hover:text-blue-800 cursor-pointer';
-                btn.onclick = function() { selected.delete(id); render(); };
-                chip.appendChild(btn);
-                chips.appendChild(chip);
-              });
-              hidden.value = Array.from(selected).join(',');
-            }
-            render();
-
-            if (search) {
-              search.addEventListener('input', function() {
-                var q = this.value.toLowerCase();
-                if (!q) { results.classList.add('hidden'); return; }
-                var matches = subscribers.filter(function(s) {
-                  var name = [s.firstName || '', s.lastName || ''].join(' ').trim();
-                  return !selected.has(s.id) && (s.email.toLowerCase().includes(q) || name.toLowerCase().includes(q));
-                }).slice(0, 10);
-                results.innerHTML = '';
-                matches.forEach(function(s) {
-                  var div = document.createElement('div');
-                  div.className = 'px-3 py-2 cursor-pointer hover:bg-gray-50 text-sm';
-                  var name = [s.firstName || '', s.lastName || ''].join(' ').trim();
-                  div.textContent = s.email + (name ? ' (' + name + ')' : '');
-                  div.onclick = function() { selected.add(s.id); search.value = ''; results.classList.add('hidden'); render(); };
-                  results.appendChild(div);
-                });
-                results.classList.toggle('hidden', matches.length === 0);
-              });
-            }
-
-            // Preview panel toggle + width control (edit form)
-            window.setPreviewWidth = function(w) {
-              var f = document.getElementById('previewFrame');
-              var lbl = document.getElementById('previewWidthLabel');
-              if (w === null) {
-                f.style.width = '100%'; f.style.maxWidth = '100%';
-                if (lbl) lbl.textContent = '';
-              } else {
-                f.style.width = w + 'px'; f.style.maxWidth = w + 'px';
-                if (lbl) lbl.textContent = w + 'px';
-              }
-            };
-            window.togglePreviewPanel = function() {
-              var panel = document.getElementById('previewPanel');
-              var btn = document.getElementById('previewToggleBtn');
-              var hidden = panel.classList.contains('hidden');
-              if (hidden) {
-                panel.classList.remove('hidden');
-                document.body.style.overflow = 'hidden';
-                btn.textContent = 'Close Preview';
-              } else {
-                panel.classList.add('hidden');
-                document.body.style.overflow = '';
-                btn.textContent = 'Preview';
-              }
-            };
-            document.addEventListener('keydown', function(e) {
-              if (e.key === 'Escape') {
-                var panel = document.getElementById('previewPanel');
-                if (!panel.classList.contains('hidden')) window.togglePreviewPanel();
-              }
-            });
-
-            var timer;
-            var textarea = document.getElementById('bodyMarkdown');
-            var subject = document.getElementById('subject');
-            var frame = document.getElementById('previewFrame');
-
-            function updatePreview() {
-              var body = textarea.value;
-              if (!body.trim()) return;
-              fetch('/admin/campaigns/preview', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  bodyMarkdown: body,
-                  subject: subject.value || 'Preview',
-                  listName: 'Preview'
-                })
-              })
-              .then(function(r) { return r.text(); })
-              .then(function(html) { frame.srcdoc = html; });
-            }
-
-            textarea.addEventListener('input', function() {
-              clearTimeout(timer);
-              timer = setTimeout(updatePreview, 500);
-            });
-            subject.addEventListener('input', function() {
-              clearTimeout(timer);
-              timer = setTimeout(updatePreview, 500);
-            });
-          })();
-        `}</script>
-
-        {/* Image upload modal */}
-        <div id="imageModal" class="hidden fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
-          <div class="bg-white rounded-lg p-6 max-w-sm w-full mx-4 shadow-xl">
-            <h3 class="font-semibold text-gray-800 mb-1" id="imageModalName"></h3>
-            <p class="text-xs text-gray-500 mb-4" id="imageModalSize"></p>
-            <div class="flex flex-col gap-2">
-              <button type="button" id="imageEmbedBtn" class="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 border-none cursor-pointer">
-                Embed in email (inline attachment, always displays)
-              </button>
-              <button type="button" id="imageS3Btn" class="px-4 py-2 bg-white text-gray-700 text-sm font-medium rounded-md hover:bg-gray-50 border border-gray-300 cursor-pointer">
-                Host on S3 (smaller email size)
-              </button>
-              <button type="button" id="imageModalClose" class="px-4 py-2 text-gray-500 text-sm hover:text-gray-700 border-none cursor-pointer bg-transparent">Cancel</button>
-            </div>
-          </div>
-        </div>
-
-        <script>{`
-          (function() {
-            var dropZone = document.getElementById('imageDropZone');
-            var fileInput = document.getElementById('imageFileInput');
-            var modal = document.getElementById('imageModal');
-            var modalName = document.getElementById('imageModalName');
-            var modalSize = document.getElementById('imageModalSize');
-            var embedBtn = document.getElementById('imageEmbedBtn');
-            var s3Btn = document.getElementById('imageS3Btn');
-            var closeBtn = document.getElementById('imageModalClose');
-            var pendingField = document.getElementById('pendingImagesJson');
-            var pendingMap = {};
-            var currentFile = null;
-            var processedData = null;
-
-            function formatBytes(b) {
-              if (b < 1024) return b + ' B';
-              if (b < 1024 * 1024) return (b / 1024).toFixed(1) + ' KB';
-              return (b / 1024 / 1024).toFixed(1) + ' MB';
-            }
-
-            function insertAtCursor(text) {
-              var ta = document.getElementById('bodyMarkdown');
-              var start = ta.selectionStart, end = ta.selectionEnd;
-              ta.value = ta.value.slice(0, start) + text + ta.value.slice(end);
-              ta.selectionStart = ta.selectionEnd = start + text.length;
-              ta.dispatchEvent(new Event('input'));
-            }
-
-            function handleFile(file) {
-              if (!file || !file.type.startsWith('image/')) return;
-              currentFile = file;
-              var formData = new FormData();
-              formData.append('image', file);
-              fetch('/admin/campaigns/upload-image', { method: 'POST', body: formData })
-                .then(function(r) { return r.json(); })
-                .then(function(data) {
-                  processedData = data;
-                  modalName.textContent = file.name;
-                  modalSize.textContent = 'Original: ' + formatBytes(data.originalSizeBytes) + ' \\u2192 ' + formatBytes(data.sizeBytes) + ' WebP (' + data.width + '\\u00d7' + data.height + ')';
-                  embedBtn.textContent = 'Embed in email (' + formatBytes(data.sizeBytes) + ' inline, always displays)';
-                  s3Btn.textContent = 'Host on S3 (tiny email, uploads on save)';
-                  modal.classList.remove('hidden');
-                })
-                .catch(function() { alert('Failed to process image'); });
-            }
-
-            dropZone.addEventListener('click', function() { fileInput.click(); });
-            fileInput.addEventListener('change', function() { if (this.files[0]) handleFile(this.files[0]); });
-            dropZone.addEventListener('dragover', function(e) { e.preventDefault(); this.classList.add('border-blue-400', 'bg-blue-50'); });
-            dropZone.addEventListener('dragleave', function() { this.classList.remove('border-blue-400', 'bg-blue-50'); });
-            dropZone.addEventListener('drop', function(e) {
-              e.preventDefault();
-              this.classList.remove('border-blue-400', 'bg-blue-50');
-              if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
-            });
-
-            embedBtn.addEventListener('click', function() {
-              if (processedData) {
-                insertAtCursor('\\n![image](' + processedData.dataUri + ')\\n');
-                modal.classList.add('hidden');
-              }
-            });
-
-            s3Btn.addEventListener('click', function() {
-              if (processedData) {
-                var uuid = (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2));
-                pendingMap[uuid] = processedData.dataUri;
-                pendingField.value = JSON.stringify(pendingMap);
-                insertAtCursor('\\n<!-- s3-pending:' + uuid + ' -->\\n');
-                modal.classList.add('hidden');
-              }
-            });
-
-            closeBtn.addEventListener('click', function() { modal.classList.add('hidden'); });
-            modal.addEventListener('click', function(e) { if (e.target === modal) modal.classList.add('hidden'); });
-          })();
-        `}</script>
-      </AdminLayout>,
-    );
+    return c.html(<CampaignEditorPage user={user} flash={flash} config={config} lists={allLists} tags={allTags} subscribers={allSubscribers} campaign={campaign} />);
   });
 
   app.post("/campaigns/:id/edit", async (c) => {
@@ -1566,70 +626,28 @@ export function mountCampaignRoutes(app: App, db: Db, config: Config) {
     const id = Number(c.params.id);
     const campaign = db.select().from(schema.campaigns).where(eq(schema.campaigns.id, id)).get();
     if (!campaign) return c.notFound();
-    if (campaign.status !== "draft" && campaign.status !== "failed") {
+    if (campaign.status !== "draft" && campaign.status !== "failed" && campaign.status !== "scheduled") {
       return c.redirect(`/admin/campaigns/${id}`);
     }
 
-    const body = c.body as Record<string, any>;
-    const fromAddress = String(body["fromAddress"] ?? "").trim();
-    const fromName = String(body["fromName"] ?? "").trim() || null;
-    const subject = String(body["subject"] ?? "").trim();
-    const bodyMarkdown = String(body["bodyMarkdown"] ?? "");
-
-    const validModes = ["list", "all", "tag", "specific"] as const;
-    let audienceMode: (typeof validModes)[number] = validModes.includes(body["audienceMode"] as any)
-      ? body["audienceMode"] as (typeof validModes)[number]
-      : "list";
-
-    if (audienceMode === "all" && !["owner", "admin"].includes(user.role)) {
-      audienceMode = "list"; // fallback
+    try {
+      await updateCampaignFromEditor(db, config, user, id, c.body);
+    } catch (error) {
+      if (error instanceof CampaignEditorAccessError) return c.text("Forbidden", 403);
+      if (error instanceof CampaignEditorReferenceError) return c.text(error.message, 400);
+      throw error;
     }
-
-    let audienceType: "list" | "all" | "tag" | "subscribers" = audienceMode === "specific" ? "subscribers" : audienceMode;
-    let audienceId: number | null = null;
-    let audienceData: string | null = null;
-
-    if (audienceMode === "list") {
-      const rawListId = body["listId"];
-      if (rawListId) audienceId = Number(rawListId);
-    } else if (audienceMode === "tag") {
-      const tagId = Number(body["tagId"]);
-      if (tagId) audienceId = tagId;
-    } else if (audienceMode === "specific") {
-      const ids = String(body["subscriberIds"] ?? "").split(",").map(Number).filter(Boolean);
-      if (ids.length > 0) audienceData = JSON.stringify(ids);
-    }
-
-    if (!fromAddress || !subject || !bodyMarkdown) {
-      return c.redirect(`/admin/campaigns/${id}/edit`);
-    }
-
-    const scheduledAt = body["scheduledAt"] ? new Date(String(body["scheduledAt"])).toISOString() : null;
-    const batchSize = body["batchSize"] ? parseInt(String(body["batchSize"]), 10) || null : null;
-    const batchInterval = body["batchInterval"] ? parseInt(String(body["batchInterval"]), 10) || null : null;
-    const status = scheduledAt ? "scheduled" : "draft";
-    let pendingMap: Record<string, string> = {};
-    try { pendingMap = JSON.parse(String(body["pendingImagesJson"] ?? "{}")); } catch {}
-
-    const processedMarkdown = (config.s3MediaBucket && Object.keys(pendingMap).length > 0)
-      ? await processPendingS3Images(bodyMarkdown, id, pendingMap, config)
-      : bodyMarkdown;
-
-    db.update(schema.campaigns)
-      .set({ audienceType, audienceId, audienceData, fromAddress, fromName, subject, bodyMarkdown: processedMarkdown, scheduledAt, batchSize, batchInterval, status })
-      .where(eq(schema.campaigns.id, id))
-      .run();
 
     logEvent(db, {
       type: "admin.campaign_edited",
-      detail: subject,
+      detail: c.body.subject,
       campaignId: id,
       userId: user.id,
     });
 
     setFlash(c, "Campaign saved.");
     return c.redirect(`/admin/campaigns/${id}`);
-  });
+  }, { body: CampaignEditorFormSchema });
 
   app.post("/campaigns/:id/send", async (c) => {
     const id = Number(c.params.id);

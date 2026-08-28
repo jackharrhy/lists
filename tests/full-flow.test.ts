@@ -713,6 +713,83 @@ describe("Full HTTP flow: campaign edit then send", () => {
   });
 });
 
+describe("Campaign editor validation and authorization", () => {
+  test("member cannot bypass audience controls by posting an all-subscribers campaign", async () => {
+    const db = createTestDb();
+    const passwordHash = await Bun.password.hash("password");
+    db.insert(schema.users).values({
+      email: "member@example.com",
+      name: "Member",
+      passwordHash,
+      role: "member",
+    }).run();
+    const app = createApp(db);
+    const cookie = await login(app, "member@example.com");
+
+    const response = await authPost(app, "/admin/campaigns/new", cookie, {
+      audienceMode: "all",
+      fromAddress: "news@example.com",
+      subject: "Unauthorized",
+      bodyMarkdown: "This must not be created",
+    });
+
+    expect(response.status).toBe(403);
+    expect(db.select().from(schema.campaigns).all()).toEqual([]);
+  });
+
+  test("scheduled campaigns remain editable", async () => {
+    const db = createTestDb();
+    await seedOwner(db);
+    const list = seedList(db, { slug: "scheduled", name: "Scheduled", fromDomain: "example.com" });
+    const campaign = db.insert(schema.campaigns).values({
+      audienceType: "list",
+      audienceId: list.id,
+      fromAddress: "news@example.com",
+      subject: "Before",
+      bodyMarkdown: "Before",
+      status: "scheduled",
+      scheduledAt: "2026-09-01T12:00:00.000Z",
+    }).returning().get();
+    const app = createApp(db);
+    const cookie = await login(app);
+
+    const response = await authPost(app, `/admin/campaigns/${campaign.id}/edit`, cookie, {
+      audienceMode: "list",
+      listId: String(list.id),
+      fromAddress: "news@example.com",
+      subject: "After",
+      bodyMarkdown: "Updated",
+      scheduledAt: "2026-09-02T12:00:00.000Z",
+    });
+
+    expect(response.status).toBe(302);
+    const updated = db.select().from(schema.campaigns).where(eq(schema.campaigns.id, campaign.id)).get()!;
+    expect(updated.subject).toBe("After");
+    expect(updated.status).toBe("scheduled");
+    expect(updated.scheduledAt).toBe("2026-09-02T12:00:00.000Z");
+  });
+
+  test("malformed pending image state is rejected before creating a campaign", async () => {
+    const db = createTestDb();
+    await seedOwner(db);
+    const list = seedList(db, { slug: "images", name: "Images", fromDomain: "example.com" });
+    const app = createApp(db);
+    const cookie = await login(app);
+
+    const response = await authPost(app, "/admin/campaigns/new", cookie, {
+      audienceMode: "list",
+      listId: String(list.id),
+      fromAddress: "news@example.com",
+      subject: "Broken images",
+      bodyMarkdown: "Body",
+      pendingImagesJson: "not-json",
+    });
+
+    expect(response.status).toBe(422);
+    expect(db.select().from(schema.campaigns).all()).toEqual([]);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // 8. Inbound list groups by thread (one row per conversation)
 // ---------------------------------------------------------------------------
