@@ -1,10 +1,12 @@
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { migrate } from "drizzle-orm/bun-sqlite/migrator";
 import * as schema from "../src/db/schema";
+import { seedBuiltInTemplates } from "../src/services/email-templates";
 
 export function createTestDb() {
   const db = drizzle(":memory:", { schema });
   migrate(db, { migrationsFolder: "./drizzle" });
+  seedBuiltInTemplates(db as ReturnType<typeof createTestDb>);
   return db;
 }
 

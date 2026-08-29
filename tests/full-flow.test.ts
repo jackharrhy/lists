@@ -943,12 +943,20 @@ describe("Email template gallery", () => {
     const detail = await authGet(app, "/admin/templates/newsletter", cookie);
     expect(detail.status).toBe(200);
     const detailHtml = await detail.text();
-    expect(detailHtml).toContain("Open isolated preview");
-    expect(detailHtml).toContain("Preview with remote assets");
+    expect(detailHtml).toContain("data-template-preview-workspace");
+    expect(detailHtml).toContain('data-preview-mode="text"');
+    expect(detailHtml).toContain("Load remote assets");
+    expect(detailHtml).toContain("Content contract");
+    expect(detailHtml).toContain("Version history");
+    expect(detailHtml).toContain("&lt;!doctype html&gt;");
+    expect(detailHtml).not.toContain('<pre class="m-0 max-h-[600px]"><!doctype html>');
 
     const blocked = await authGet(app, "/admin/templates/newsletter/preview?version=1", cookie);
     expect(blocked.headers.get("content-security-policy")).toContain("img-src data: cid:");
     const allowed = await authGet(app, "/admin/templates/newsletter/preview?version=1&remote=1", cookie);
     expect(allowed.headers.get("content-security-policy")).toContain("img-src https: data: cid:");
+    const text = await authGet(app, "/admin/templates/newsletter/preview?version=1&mode=text", cookie);
+    expect(text.headers.get("content-type")).toContain("text/html");
+    expect(await text.text()).toContain("Unsubscribe:");
   });
 });

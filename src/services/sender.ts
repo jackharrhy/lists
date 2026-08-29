@@ -1,6 +1,5 @@
 import { SendEmailCommand } from "@aws-sdk/client-sesv2";
 import { eq, and, inArray } from "drizzle-orm";
-import { marked } from "marked";
 import * as nodemailer from "nodemailer";
 import type Mail from "nodemailer/lib/mailer";
 import type { Config } from "../config";
@@ -11,8 +10,7 @@ import {
   buildPreferencesUrl,
   buildListUnsubscribeHeader,
 } from "../compliance";
-import { renderNewsletter } from "../../emails/render";
-import { getTemplateVersion, renderTemplateVersion } from "./email-templates";
+import { renderCampaignMessage } from "./campaign-renderer";
 import { logEvent } from "./events";
 import { sendEmail } from "./mailer";
 
@@ -79,19 +77,6 @@ function getSubscribersByIds(db: Db, ids: number[]) {
       ),
     )
     .all();
-}
-
-export function substituteVariables(
-  template: string,
-  subscriber: { firstName?: string | null; lastName?: string | null; email: string },
-  urls: { unsubscribeUrl: string; preferencesUrl: string },
-): string {
-  return template
-    .replace(/\{\{firstName\}\}/g, subscriber.firstName || "")
-    .replace(/\{\{lastName\}\}/g, subscriber.lastName || "")
-    .replace(/\{\{email\}\}/g, subscriber.email)
-    .replace(/\{\{unsubscribeUrl\}\}/g, urls.unsubscribeUrl)
-    .replace(/\{\{preferencesUrl\}\}/g, urls.preferencesUrl);
 }
 
 const streamTransport = nodemailer.createTransport({ streamTransport: true, buffer: true });
@@ -261,23 +246,12 @@ export async function sendCampaign(
       );
       const listUnsubHeaders = buildListUnsubscribeHeader(unsubscribeUrl);
 
-      const substitutedMarkdown = substituteVariables(
-        campaign.bodyMarkdown,
+      const rendered = await renderCampaignMessage(db, {
+        campaign,
         subscriber,
-        { unsubscribeUrl, preferencesUrl },
-      );
-      const contentHtml = await marked(substitutedMarkdown);
-
-      const templateVersion = campaign.templateVersionId ? getTemplateVersion(db, campaign.templateVersionId) : null;
-      const rendered = templateVersion
-        ? await renderTemplateVersion(templateVersion, {
-            subscriber,
-            campaign: { subject: campaign.subject },
-            list: { name: listName, slug: list?.slug },
-            links: { unsubscribe: unsubscribeUrl, preferences: preferencesUrl },
-            sectionSources: { ...(JSON.parse(campaign.templateSections) as Record<string, string>), content: campaign.bodyMarkdown },
-          })
-        : { ...(await renderNewsletter({ subject: campaign.subject, contentHtml, listName, unsubscribeUrl, preferencesUrl })), subject: campaign.subject };
+        list: { name: listName, slug: list?.slug },
+        links: { unsubscribe: unsubscribeUrl, preferences: preferencesUrl },
+      });
 
       const { raw: rawEmail, messageId: rfc822MessageId } = await buildRawEmail({
         from: fromWithName,

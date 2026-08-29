@@ -52,6 +52,12 @@ export const campaignCreateInput = z.discriminatedUnion("audienceType", [
 
 export const campaignSendInput = idInput.extend({ confirm: z.literal(true) });
 
+const templateSourceText = z.string().max(1_000_000);
+const templatePartialsInput = z.record(z.string(), z.string().max(250_000)).refine(
+  (partials) => Object.keys(partials).length <= 50 && Object.values(partials).reduce((size, value) => size + value.length, 0) <= 1_000_000,
+  "Templates support at most 50 partials and 1 MB of partial source",
+);
+
 export const templateSectionInput = z.object({
   key: z.string().regex(/^[a-z][a-z0-9_-]*$/),
   name: z.string().min(1).max(120),
@@ -59,21 +65,23 @@ export const templateSectionInput = z.object({
   required: z.boolean().default(false),
 }).strict();
 
-export const templateSourceInput = z.object({
+const templateSourceShape = {
   sourceFormat: z.enum(["html", "mjml", "text"]),
-  subjectSource: z.string().optional().nullable(),
-  htmlSource: z.string().optional().nullable(),
-  textSource: z.string().min(1),
-  sections: z.array(templateSectionInput),
-  partials: z.record(z.string(), z.string()).default({}),
-}).strict();
+  subjectSource: z.string().max(1_000).optional().nullable(),
+  htmlSource: templateSourceText.optional().nullable(),
+  textSource: templateSourceText.min(1),
+  sections: z.array(templateSectionInput).max(50),
+  partials: templatePartialsInput.default({}),
+} as const;
 
-export const templateCreateInput = templateSourceInput.extend({
+export const templateSourceInput = z.object(templateSourceShape).strict();
+
+export const templateCreateInput = z.object({ ...templateSourceShape,
   slug: z.string().regex(/^[a-z][a-z0-9-]*$/).max(80),
   name: z.string().min(1).max(120),
   description: z.string().max(500).optional().nullable(),
 }).strict();
-export const templateUpdateInput = templateSourceInput.extend({
+export const templateUpdateInput = z.object({ ...templateSourceShape,
   slug: z.string().regex(/^[a-z][a-z0-9-]*$/).max(80),
   name: z.string().min(1).max(120).optional(),
   description: z.string().max(500).optional().nullable(),
@@ -87,7 +95,7 @@ export const templateDuplicateInput = templateSlugInput.extend({
 });
 export const templatePreviewInput = templateSlugInput.extend({
   version: z.number().int().positive().optional(),
-  sectionSources: z.record(z.string(), z.string()).default({}),
+  sectionSources: z.record(z.string(), z.string().max(1_000_000)).refine((sections) => Object.keys(sections).length <= 50, "At most 50 sections are supported").default({}),
 });
 
 export const templateSummaryOutput = z.object({

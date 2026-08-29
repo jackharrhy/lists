@@ -11,8 +11,35 @@ function markCurrentNavigation() {
   });
 }
 
+function initializeTemplatePreview() {
+  const workspace = document.querySelector<HTMLElement>("[data-template-preview-workspace]");
+  const frame = workspace?.querySelector<HTMLIFrameElement>("[data-template-preview-frame]");
+  if (!workspace || !frame || workspace.dataset.initialized) return;
+  workspace.dataset.initialized = "true";
+  const base = workspace.dataset.previewBase ?? "";
+  let mode = "html";
+  const refresh = () => {
+    const remote = workspace.querySelector<HTMLInputElement>("[data-preview-remote]")?.checked ? "&remote=1" : "";
+    frame.src = `${base}&mode=${mode}${remote}`;
+  };
+  workspace.querySelectorAll<HTMLButtonElement>("[data-preview-mode]").forEach((button) => button.addEventListener("click", () => {
+    mode = button.dataset.previewMode ?? "html";
+    workspace.querySelectorAll<HTMLButtonElement>("[data-preview-mode]").forEach((candidate) => {
+      const active = candidate === button;
+      candidate.classList.toggle("bg-gray-900", active);
+      candidate.classList.toggle("text-white", active);
+    });
+    refresh();
+  }));
+  workspace.querySelectorAll<HTMLButtonElement>("[data-preview-width]").forEach((button) => button.addEventListener("click", () => {
+    frame.style.width = button.dataset.previewWidth === "full" ? "100%" : `${button.dataset.previewWidth}px`;
+  }));
+  workspace.querySelector<HTMLInputElement>("[data-preview-remote]")?.addEventListener("change", refresh);
+}
+
 markCurrentNavigation();
 initializeCampaignEditor();
+initializeTemplatePreview();
 
 document.addEventListener("htmx:responseError", () => {
   document.documentElement.dataset.requestError = "true";
@@ -22,5 +49,6 @@ document.addEventListener("htmx:responseError", () => {
 document.addEventListener("htmx:afterSwap", () => {
   markCurrentNavigation();
   initializeCampaignEditor();
+  initializeTemplatePreview();
   document.querySelector<HTMLElement>("[autofocus]")?.focus();
 });

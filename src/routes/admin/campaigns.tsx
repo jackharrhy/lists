@@ -2,13 +2,11 @@ import { Html } from "@elysia/html";
 import type { App } from "../../http";
 import { z } from "zod";
 import { eq, desc, and, inArray, like, sql } from "drizzle-orm";
-import { marked } from "marked";
 import type { Db } from "../../db";
 import { schema } from "../../db";
 import type { Config } from "../../config";
 import { getAccessibleListIds, getAccessibleLists } from "../../auth";
-import { sendCampaign, substituteVariables } from "../../services/sender";
-import { renderNewsletter } from "../../../emails/render";
+import { sendCampaign } from "../../services/sender";
 import { buildUnsubscribeUrl, buildPreferencesUrl } from "../../compliance";
 import { logEvent } from "../../services/events";
 import { getConfirmedSubscribers } from "../../services/subscriber";
@@ -24,7 +22,8 @@ import { AdminLayout, fmtDate, fmtDateTime, CampaignBadge, describeAudience, set
 import { Button, LinkButton, Input, Select, Textarea, Label, FormGroup, Table, Th, Td, Card, PageHeader, Pagination } from "./ui";
 import { CampaignEditorPage } from "./campaign-form";
 import type { CampaignTemplateChoice } from "./campaign-form";
-import { ensureBuiltInTemplate, getTemplateVersion, renderTemplateVersion, TemplateValidationError, type TemplateSection } from "../../services/email-templates";
+import { getTemplateVersion, TemplateValidationError, type TemplateSection } from "../../services/email-templates";
+import { renderCampaignMessage } from "../../services/campaign-renderer";
 
 const CAMPAIGNS_PAGE_SIZE = 25;
 const CampaignListQuerySchema = z.object({
@@ -39,8 +38,12 @@ function previewSrcdoc(html: string) {
   return /<head(?:\s[^>]*)?>/i.test(html) ? html.replace(/<head(?:\s[^>]*)?>/i, (head) => `${head}${meta}`) : `${meta}${html}`;
 }
 
+function textPreview(text: string) {
+  const escaped = text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+  return `<pre style="white-space:pre-wrap;font-family:system-ui;padding:24px">${escaped}</pre>`;
+}
+
 function activeTemplateChoices(db: Db, pinnedVersionId?: number | null): CampaignTemplateChoice[] {
-  ensureBuiltInTemplate(db);
   const choices = db.select().from(schema.emailTemplates).where(eq(schema.emailTemplates.status, "active")).all().flatMap((template) => {
     if (!template.currentVersionId) return [];
     const version = getTemplateVersion(db, template.currentVersionId);
@@ -92,23 +95,13 @@ export function mountCampaignRoutes(app: App, db: Db, config: Config) {
       }
     }
 
-    const substitutedMarkdown = substituteVariables(
-      campaign.bodyMarkdown,
-      subData,
-      { unsubscribeUrl, preferencesUrl },
-    );
-    const version = campaign.templateVersionId ? getTemplateVersion(db, campaign.templateVersionId) : null;
-    const html = version
-      ? (await renderTemplateVersion(version, {
-          subscriber: subData, campaign: { subject: campaign.subject }, list: { name: listName },
-          links: { unsubscribe: unsubscribeUrl, preferences: preferencesUrl },
-          sectionSources: { ...(JSON.parse(campaign.templateSections) as Record<string, string>), content: campaign.bodyMarkdown },
-        })).html
-      : (await renderNewsletter({
-          subject: campaign.subject, contentHtml: await marked(substitutedMarkdown), listName, unsubscribeUrl, preferencesUrl,
-        })).html;
-
-    return c.html(html ?? `<pre>${substitutedMarkdown}</pre>`);
+    const rendered = await renderCampaignMessage(db, {
+      campaign,
+      subscriber: subData,
+      list: { name: listName },
+      links: { unsubscribe: unsubscribeUrl, preferences: preferencesUrl },
+    });
+    return c.html(rendered.html ?? textPreview(rendered.text));
   });
 
   const CampaignPreviewSchema = z.object({
@@ -122,25 +115,18 @@ export function mountCampaignRoutes(app: App, db: Db, config: Config) {
   app.post("/campaigns/preview", async (c) => {
     c.set.headers["Content-Security-Policy"] = PREVIEW_CSP;
     const { bodyMarkdown, subject, listName, templateVersionId, templateSections } = c.body;
-    const substitutedMarkdown = substituteVariables(
-      bodyMarkdown || "",
-      { firstName: "Jane", lastName: "Doe", email: "subscriber@example.com" },
-      { unsubscribeUrl: "#unsubscribe", preferencesUrl: "#preferences" },
-    );
-    const version = templateVersionId ? getTemplateVersion(db, templateVersionId) : null;
-    const html = version
-      ? (await renderTemplateVersion(version, {
-          subscriber: { firstName: "Jane", lastName: "Doe", email: "subscriber@example.com" },
-          campaign: { subject: subject || "Preview" }, list: { name: listName || "Newsletter" },
-          links: { unsubscribe: "#unsubscribe", preferences: "#preferences" },
-          sectionSources: { ...templateSections, content: bodyMarkdown },
-        })).html
-      : (await renderNewsletter({
-          subject: subject || "Preview", contentHtml: await marked(substitutedMarkdown), listName: listName || "Newsletter",
-          unsubscribeUrl: "#unsubscribe", preferencesUrl: "#preferences",
-        })).html;
-
-    return c.html(previewSrcdoc(html ?? `<pre>${substitutedMarkdown}</pre>`));
+    const rendered = await renderCampaignMessage(db, {
+      campaign: {
+        subject: subject || "Preview",
+        bodyMarkdown,
+        templateVersionId,
+        templateSections: JSON.stringify(templateSections),
+      },
+      subscriber: { firstName: "Jane", lastName: "Doe", email: "subscriber@example.com" },
+      list: { name: listName || "Newsletter" },
+      links: { unsubscribe: "#unsubscribe", preferences: "#preferences" },
+    });
+    return c.html(previewSrcdoc(rendered.html ?? textPreview(rendered.text)));
   }, { body: CampaignPreviewSchema });
 
   app.post("/campaigns/upload-image", async (c) => {

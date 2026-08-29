@@ -283,6 +283,36 @@ describe("scoped API and MCP", () => {
     expect(db.select().from(schema.emailTemplates).where(eq(schema.emailTemplates.slug, "unsafe")).all()).toEqual([]);
   });
 
+  test("rejects malformed and recursive sources without partial template writes", async () => {
+    const { app, db, user } = setup();
+    const { token } = mintApiToken(db, user.id, "template writer", ["templates:read", "templates:write"]);
+    const source = {
+      slug: "atomic", name: "Atomic", sourceFormat: "html",
+      htmlSource: "<html><body>{{{sections.content.html}}}<a href=\"{{links.unsubscribe}}\">Leave</a></body></html>",
+      textSource: "{{sections.content.text}} {{links.unsubscribe}}",
+      sections: [{ key: "content", name: "Content", format: "markdown", required: true }], partials: {},
+    };
+    expect((await mcpCall(app, token, "email_template_create", source)).result.isError).toBeUndefined();
+
+    const malformed = await mcpCall(app, token, "email_template_update", {
+      ...source, name: "Must not persist", htmlSource: `${source.htmlSource} {{#if`,
+    });
+    expect(malformed.result.isError).toBe(true);
+    const stored = await app.request("/api/v1/email-templates/atomic", { headers: bearer(token) });
+    const detail = (await stored.json() as any).data;
+    expect(detail.name).toBe("Atomic");
+    expect(detail.versions.map((version: any) => version.version)).toEqual([1]);
+
+    const recursive = await mcpCall(app, token, "email_template_create", {
+      ...source, slug: "recursive", name: "Recursive",
+      htmlSource: "<html><body>{{> loop}}{{{sections.content.html}}}<a href=\"{{links.unsubscribe}}\">Leave</a></body></html>",
+      partials: { loop: "{{> loop}}" },
+    });
+    expect(recursive.result.isError).toBe(true);
+    expect(recursive.result.content[0].text).toContain("Recursive partial chain");
+    expect(db.select().from(schema.emailTemplates).where(eq(schema.emailTemplates.slug, "recursive")).all()).toEqual([]);
+  });
+
   test("compiles MJML templates while preserving Handlebars sections", async () => {
     const { app, db, user } = setup();
     const { token } = mintApiToken(db, user.id, "mjml author", ["templates:read", "templates:write"]);

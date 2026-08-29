@@ -12,7 +12,7 @@ import {
   type Principal,
 } from "../services/access";
 import type { CreateCampaignDraftInput, CreateSubscriberInput } from "./contracts";
-import { ensureBuiltInTemplate, getTemplateVersion, renderTemplateVersion } from "../services/email-templates";
+import { getTemplateVersion, renderTemplateVersion } from "../services/email-templates";
 
 export class NotFoundError extends Error { status = 404; }
 export class InvalidOperationError extends Error { status = 400; }
@@ -156,7 +156,6 @@ export async function createCampaignDraft(ctx: OperationContext, input: CreateCa
   } else if (ctx.principal.listIds !== "all") {
     throw new AccessDeniedError("Only admins can use non-list audiences");
   }
-  ensureBuiltInTemplate(ctx.db);
   const template = ctx.db.select().from(schema.emailTemplates)
     .where(and(eq(schema.emailTemplates.slug, input.templateSlug ?? "newsletter"), eq(schema.emailTemplates.status, "active"))).get();
   if (!template?.currentVersionId) throw new InvalidOperationError("Active email template not found");

@@ -35,7 +35,7 @@ export function adminRoutes(db: Db, config: Config) {
   mountUserRoutes(app, db, config);
   mountDmarcRoutes(app, db, config);
   mountTokenRoutes(app, db);
-  mountTemplateRoutes(app, db, config);
+  mountTemplateRoutes(app, db);
 
   return app;
 }

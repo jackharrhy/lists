@@ -5,7 +5,7 @@ import type { Db } from "../db";
 import { schema } from "../db";
 import { canAccessList } from "../auth";
 import { processPendingS3Images } from "./images";
-import { ensureBuiltInTemplate, renderTemplateVersion } from "./email-templates";
+import { renderTemplateVersion } from "./email-templates";
 
 const optionalPositiveInteger = z.union([z.literal(""), z.coerce.number().int().positive()]).default("")
   .transform((value) => value === "" ? null : value);
@@ -19,9 +19,11 @@ const pendingImages = z.string().default("{}").transform((value, context): Recor
     return z.NEVER;
   }
 });
-const templateSections = z.string().default("{}").transform((value, context): Record<string, string> => {
+const templateSections = z.string().max(5_000_000).default("{}").transform((value, context): Record<string, string> => {
   try {
-    return z.record(z.string(), z.string()).parse(JSON.parse(value));
+    return z.record(z.string(), z.string().max(1_000_000))
+      .refine((sections) => Object.keys(sections).length <= 50, "At most 50 template sections are supported")
+      .parse(JSON.parse(value));
   } catch {
     context.addIssue({ code: "custom", message: "Invalid template section data" });
     return z.NEVER;
@@ -130,7 +132,6 @@ function assertAudienceAccess(db: Db, user: { id: number; role: string }, audien
 }
 
 function resolveTemplate(db: Db, form: CampaignEditorForm, allowInactiveVersionId?: number | null) {
-  ensureBuiltInTemplate(db);
   const version = form.templateVersionId
     ? db.select().from(schema.emailTemplateVersions).where(eq(schema.emailTemplateVersions.id, form.templateVersionId)).get()
     : db.select().from(schema.emailTemplateVersions)

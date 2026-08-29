@@ -5,7 +5,7 @@ import { htmlToText } from "html-to-text";
 import { marked } from "marked";
 import { and, desc, eq } from "drizzle-orm";
 import type { Db } from "../db";
-import { schema } from "../db";
+import * as schema from "../db/schema";
 
 export type TemplateSection = {
   key: string;
@@ -38,6 +38,8 @@ export class TemplateValidationError extends Error {
   }
 }
 
+const MAX_RENDERED_BYTES = 10_000_000;
+
 const BUILT_IN_HTML = `<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>{{campaign.subject}}</title></head>
 <body style="background:#fff;font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;margin:0">
@@ -50,7 +52,7 @@ const BUILT_IN_HTML = `<!doctype html>
 </body></html>`;
 const BUILT_IN_TEXT = `{{sections.content.text}}\n\nUnsubscribe: {{links.unsubscribe}}\nManage preferences: {{links.preferences}}`;
 
-export function ensureBuiltInTemplate(db: Db) {
+export function seedBuiltInTemplates(db: Db) {
   const existing = db.select().from(schema.emailTemplates).where(eq(schema.emailTemplates.slug, "newsletter")).get();
   if (existing) return existing;
   const now = new Date().toISOString();
@@ -107,8 +109,41 @@ function validateHtml(source: string, label: string): string[] {
   return [...new Set(issues)];
 }
 
+function partialReferences(source: string) {
+  return [...source.matchAll(/\{\{>\s*([a-z][a-z0-9_-]*)\b/gi)].map((match) => match[1]!);
+}
+
+function validatePartials(html: string | null, text: string, partials: Record<string, string>) {
+  const issues: string[] = [];
+  const names = new Set(Object.keys(partials));
+  const sources = [html ?? "", text, ...Object.values(partials)];
+  if (sources.some((source) => /\{\{>\s*\(/.test(source))) issues.push("Dynamic partial names are not supported");
+  for (const reference of sources.flatMap(partialReferences)) {
+    if (!names.has(reference)) issues.push(`Unknown partial: ${reference}`);
+  }
+
+  const visiting = new Set<string>();
+  const visited = new Set<string>();
+  const visit = (name: string, path: string[]) => {
+    if (visiting.has(name)) {
+      issues.push(`Recursive partial chain: ${[...path, name].join(" -> ")}`);
+      return;
+    }
+    if (visited.has(name)) return;
+    visiting.add(name);
+    for (const reference of partialReferences(partials[name] ?? "")) visit(reference, [...path, name]);
+    visiting.delete(name);
+    visited.add(name);
+  };
+  for (const name of names) visit(name, []);
+  return issues;
+}
+
 export async function compileTemplate(source: TemplateSource) {
   const issues: string[] = [];
+  if (source.subjectSource && /\r|\n/.test(source.subjectSource)) {
+    issues.push("Subject source cannot contain line breaks");
+  }
   const keys = new Set<string>();
   for (const section of source.sections) {
     if (!/^[a-z][a-z0-9_-]*$/.test(section.key)) issues.push(`Invalid section key: ${section.key}`);
@@ -121,6 +156,7 @@ export async function compileTemplate(source: TemplateSource) {
   } else if (!source.htmlSource?.trim()) {
     issues.push(`${source.sourceFormat.toUpperCase()} source is required`);
   } else if (source.sourceFormat === "mjml") {
+    if (/<mj-include\b/i.test(source.htmlSource)) issues.push("MJML includes are not supported; use stored partials instead");
     try {
       const result = await mjml2html(source.htmlSource, { validationLevel: "strict", ignoreIncludes: true });
       compiledHtml = result.html;
@@ -136,6 +172,7 @@ export async function compileTemplate(source: TemplateSource) {
     if (!/^[a-z][a-z0-9_-]*$/.test(name)) issues.push(`Invalid partial name: ${name}`);
     issues.push(...validateHtml(partial, `Partial ${name}`));
   }
+  issues.push(...validatePartials(compiledHtml, source.textSource, source.partials));
   if (!source.textSource.includes("links.unsubscribe")) issues.push("Text source must reference links.unsubscribe");
   if (compiledHtml && !compiledHtml.includes("links.unsubscribe")) issues.push("HTML source must reference links.unsubscribe");
   for (const section of source.sections.filter((item) => item.required)) {
@@ -143,9 +180,10 @@ export async function compileTemplate(source: TemplateSource) {
     if (compiledHtml && !compiledHtml.includes(`sections.${section.key}.`)) issues.push(`Required section ${section.key} is not rendered in HTML source`);
   }
   try {
-    if (compiledHtml) Handlebars.compile(compiledHtml, { strict: true });
-    Handlebars.compile(source.textSource, { strict: true });
-    for (const partial of Object.values(source.partials)) Handlebars.compile(partial, { strict: true });
+    if (compiledHtml) Handlebars.precompile(compiledHtml, { strict: true });
+    Handlebars.precompile(source.textSource, { strict: true });
+    if (source.subjectSource) Handlebars.precompile(source.subjectSource, { strict: true });
+    for (const partial of Object.values(source.partials)) Handlebars.precompile(partial, { strict: true });
   } catch (error) {
     issues.push(`Handlebars compilation failed: ${error instanceof Error ? error.message : String(error)}`);
   }
@@ -192,11 +230,18 @@ export async function renderTemplateVersion(version: typeof schema.emailTemplate
   }
   const data = { ...base, sections };
   const runtime = templateRuntime(partials);
-  return {
-    subject: version.subjectSource ? runtime.compile(version.subjectSource)(data) : context.campaign.subject,
+  const subject = version.subjectSource ? runtime.compile(version.subjectSource)(data) : context.campaign.subject;
+  if (/\r|\n/.test(subject)) throw new TemplateValidationError(["Rendered subjects cannot contain line breaks"]);
+  if (subject.length > 998) throw new TemplateValidationError(["Rendered subjects cannot exceed 998 characters"]);
+  const result = {
+    subject,
     html: version.compiledHtml ? runtime.compile(version.compiledHtml)(data) : null,
     text: runtime.compile(version.textSource)(data),
   };
+  if ((result.html?.length ?? 0) + result.text.length > MAX_RENDERED_BYTES) {
+    throw new TemplateValidationError(["Rendered email exceeds the 10 MB template limit"]);
+  }
+  return result;
 }
 
 export function getTemplateVersion(db: Db, id: number) {
@@ -204,7 +249,6 @@ export function getTemplateVersion(db: Db, id: number) {
 }
 
 export function getCurrentTemplateVersion(db: Db, slug: string) {
-  ensureBuiltInTemplate(db);
   return db.select().from(schema.emailTemplateVersions)
     .innerJoin(schema.emailTemplates, eq(schema.emailTemplates.currentVersionId, schema.emailTemplateVersions.id))
     .where(and(eq(schema.emailTemplates.slug, slug), eq(schema.emailTemplates.status, "active")))
