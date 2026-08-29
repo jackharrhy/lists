@@ -8,6 +8,7 @@ const authorizationFields = {
   code_challenge: z.string().min(43).max(128),
   code_challenge_method: z.literal("S256"),
   state: z.string().optional(),
+  resource: z.url().optional(),
 };
 
 export const oauthRegistrationInput = z.object({

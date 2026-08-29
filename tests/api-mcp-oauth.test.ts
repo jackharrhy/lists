@@ -347,11 +347,22 @@ describe("OAuth PKCE", () => {
     const verifier = "a".repeat(64);
     const challenge = Buffer.from(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier))).toString("base64url");
     const session = createSession(db, user.id);
+    const authorizationParams = new URLSearchParams({
+      client_id: client.client_id, redirect_uri: "http://localhost/callback", response_type: "code",
+      scope: "lists:read dmarc:read", code_challenge: challenge, code_challenge_method: "S256", state: "abc",
+      resource: "http://localhost/mcp",
+    });
+    const approval = await app.request(`/oauth/authorize?${authorizationParams}`, {
+      headers: { Cookie: `session=${session}` },
+    });
+    expect(approval.status).toBe(200);
+    expect(await approval.text()).toContain('name="resource"');
     const authorize = await app.request("/oauth/authorize", {
       method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", Cookie: `session=${session}` },
       body: new URLSearchParams({
         decision: "allow", client_id: client.client_id, redirect_uri: "http://localhost/callback",
         response_type: "code", scope: "lists:read dmarc:read", code_challenge: challenge, code_challenge_method: "S256", state: "abc",
+        resource: "http://localhost/mcp",
       }),
     });
     expect(authorize.status).toBe(302);
