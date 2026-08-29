@@ -29,11 +29,24 @@ function initializeTemplatePreview() {
       const active = candidate === button;
       candidate.classList.toggle("bg-gray-900", active);
       candidate.classList.toggle("text-white", active);
+      candidate.classList.toggle("bg-white", !active);
+      candidate.classList.toggle("text-gray-600", !active);
+      candidate.setAttribute("aria-pressed", String(active));
     });
     refresh();
   }));
   workspace.querySelectorAll<HTMLButtonElement>("[data-preview-width]").forEach((button) => button.addEventListener("click", () => {
     frame.style.width = button.dataset.previewWidth === "full" ? "100%" : `${button.dataset.previewWidth}px`;
+    workspace.querySelectorAll<HTMLButtonElement>("[data-preview-width]").forEach((candidate) => {
+      const active = candidate === button;
+      candidate.classList.toggle("border-gray-900", active);
+      candidate.classList.toggle("bg-gray-900", active);
+      candidate.classList.toggle("text-white", active);
+      candidate.classList.toggle("border-gray-300", !active);
+      candidate.classList.toggle("bg-white", !active);
+      candidate.classList.toggle("text-gray-600", !active);
+      candidate.setAttribute("aria-pressed", String(active));
+    });
   }));
   workspace.querySelector<HTMLInputElement>("[data-preview-remote]")?.addEventListener("change", refresh);
 }

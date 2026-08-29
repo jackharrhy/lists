@@ -930,6 +930,24 @@ describe("HTMX application shell", () => {
 });
 
 describe("Email template gallery", () => {
+  test("escapes template metadata in the gallery and inspector", async () => {
+    const db = createTestDb();
+    await seedOwner(db);
+    db.update(schema.emailTemplates).set({
+      name: '<img src=x onerror="alert(1)">',
+      description: "<script>alert(1)</script>",
+    }).where(eq(schema.emailTemplates.slug, "newsletter")).run();
+    const app = createApp(db);
+    const cookie = await login(app);
+
+    for (const path of ["/admin/templates", "/admin/templates/newsletter"]) {
+      const html = await (await authGet(app, path, cookie)).text();
+      expect(html).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
+      expect(html).not.toContain("<script>alert(1)</script>");
+      expect(html).not.toContain('<img src=x onerror="alert(1)">');
+    }
+  });
+
   test("shows template source and gates remote assets in isolated previews", async () => {
     const db = createTestDb();
     await seedOwner(db);
@@ -945,8 +963,8 @@ describe("Email template gallery", () => {
     const detailHtml = await detail.text();
     expect(detailHtml).toContain("data-template-preview-workspace");
     expect(detailHtml).toContain('data-preview-mode="text"');
-    expect(detailHtml).toContain("Load remote assets");
-    expect(detailHtml).toContain("Content contract");
+    expect(detailHtml).toContain("Allow remote images and fonts");
+    expect(detailHtml).toContain("Campaign fields");
     expect(detailHtml).toContain('class="shiki github-light"');
     expect(detailHtml).toContain("&#x3C;!");
     expect(detailHtml).not.toContain('<div class="template-source"><!doctype');

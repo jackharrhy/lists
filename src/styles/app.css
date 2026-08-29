@@ -19,8 +19,8 @@
 .template-source {
   max-height: 600px;
   overflow: auto;
-  border-top: 1px solid var(--color-gray-100);
-  background: #fffdf9;
+  border-top: 1px solid var(--color-gray-200);
+  background: var(--color-gray-50);
 }
 
 .template-source .shiki {

@@ -48,7 +48,7 @@ export function AdminLayout({
       <head>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <title>{title} - Lists Admin</title>
+        <title safe>{title} - Lists Admin</title>
         <link rel="stylesheet" href={assetUrl("/static/styles.css")} />
         <script src={assetUrl("/static/app.js")} defer></script>
       </head>
