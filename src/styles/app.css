@@ -15,3 +15,20 @@
 
 #global-progress.htmx-request { opacity: 1; }
 .htmx-request button[type="submit"] { cursor: wait; opacity: 0.7; }
+
+.template-source {
+  max-height: 600px;
+  overflow: auto;
+  border-top: 1px solid var(--color-gray-100);
+  background: #fffdf9;
+}
+
+.template-source .shiki {
+  min-width: max-content;
+  margin: 0;
+  padding: 1.25rem;
+  background: transparent !important;
+  font-size: 0.75rem;
+  line-height: 1.65;
+  tab-size: 2;
+}

@@ -947,8 +947,9 @@ describe("Email template gallery", () => {
     expect(detailHtml).toContain('data-preview-mode="text"');
     expect(detailHtml).toContain("Load remote assets");
     expect(detailHtml).toContain("Content contract");
-    expect(detailHtml).toContain("&lt;!doctype html&gt;");
-    expect(detailHtml).not.toContain('<pre class="m-0 max-h-[600px]"><!doctype html>');
+    expect(detailHtml).toContain('class="shiki github-light"');
+    expect(detailHtml).toContain("&#x3C;!");
+    expect(detailHtml).not.toContain('<div class="template-source"><!doctype');
 
     const blocked = await authGet(app, "/admin/templates/newsletter/preview", cookie);
     expect(blocked.headers.get("content-security-policy")).toContain("img-src data: cid:");

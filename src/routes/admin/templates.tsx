@@ -5,6 +5,7 @@ import type { App } from "../../http";
 import type { Db } from "../../db";
 import { schema } from "../../db";
 import { renderTemplate, type TemplateSection } from "../../services/email-templates";
+import { highlightTemplateSource } from "../../services/source-highlighter";
 import type { User } from "./layout";
 import { TemplateGalleryPage, TemplateWorkspacePage } from "./template-views";
 
@@ -29,9 +30,18 @@ export function mountTemplateRoutes(app: App, db: Db) {
     templates={db.select().from(schema.emailTemplates).orderBy(schema.emailTemplates.name).all()}
   />));
 
-  app.get("/templates/:slug", (c) => {
+  app.get("/templates/:slug", async (c) => {
     const template = findTemplate(db, c.params.slug);
-    return template ? c.html(<TemplateWorkspacePage user={c.user as User} template={template} />) : c.notFound();
+    if (!template) return c.notFound();
+    const partials = JSON.parse(template.partials) as Record<string, string>;
+    const [html, text, highlightedPartials] = await Promise.all([
+      highlightTemplateSource(template.htmlSource, template.sourceFormat),
+      highlightTemplateSource(template.textSource, "text"),
+      Promise.all(Object.entries(partials).map(async ([name, source]) => [name, await highlightTemplateSource(source, "html")] as const)),
+    ]);
+    return c.html(<TemplateWorkspacePage user={c.user as User} template={template} sources={{
+      html, text, partials: Object.fromEntries(highlightedPartials),
+    }} />);
   }, { params: slugParams });
 
   app.get("/templates/:slug/preview", async (c) => {
