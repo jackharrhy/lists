@@ -35,7 +35,6 @@ The versioned base path is `/api/v1`.
 | GET, POST | `/email-templates` | `templates:read` / `templates:write` |
 | GET, PUT, DELETE | `/email-templates/:slug` | `templates:read` / `templates:write` |
 | POST | `/email-templates/:slug/preview` | `templates:read` |
-| POST | `/email-templates/:slug/activate` | `templates:write` |
 
 Destructive actions and sending require explicit confirmation. Campaign send bodies must contain
 `{"confirm":true}`; subscriber deletion requires `?confirm=true`.
@@ -52,14 +51,14 @@ REST operations:
 - `deliverability_summary`, `dmarc_summary`
 - `email_templates_list`, `email_template_get`, `email_template_create`, `email_template_update`
 - `email_template_validate`, `email_template_preview`, `email_template_duplicate`
-- `email_template_activate`, `email_template_archive`
+- `email_template_archive`
 
 ## Email template authoring
 
 Templates support complete HTML, MJML, or text-only source. HTML and text alternatives are authored
 independently with Handlebars variables, named campaign sections, and template-local partials. MJML is
-compiled when an immutable version is created; campaigns pin a version rather than following later
-edits. Creating or updating a version does not activate it.
+compiled when a template is created or updated. Templates are mutable: an update validates and replaces
+the stored source directly, and campaigns render the current template when they are sent.
 
 Marketing templates must render every required section and an unsubscribe link in each available
 alternative. Scripts, event-handler attributes, embedded browsing contexts, dangerous URL schemes,

@@ -1,16 +1,13 @@
-import { desc, eq, max } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { schema } from "../db";
 import { assertScope, AccessDeniedError } from "../services/access";
-import { compileTemplate, renderTemplateVersion, type TemplateSource } from "../services/email-templates";
+import { compileTemplate, renderTemplate, type TemplateSource } from "../services/email-templates";
 import type { OperationContext } from ".";
 import { InvalidOperationError, NotFoundError } from ".";
 
-function versionOutput(version: typeof schema.emailTemplateVersions.$inferSelect) {
-  return {
-    ...version,
-    sections: JSON.parse(version.sections) as TemplateSource["sections"],
-    partials: JSON.parse(version.partials) as TemplateSource["partials"],
-  };
+function assertTemplateAuthor(ctx: OperationContext) {
+  assertScope(ctx.principal, "templates:write");
+  if (ctx.principal.role === "member") throw new AccessDeniedError("Only owners and admins can author templates");
 }
 
 function findTemplate(ctx: OperationContext, slug: string) {
@@ -19,39 +16,30 @@ function findTemplate(ctx: OperationContext, slug: string) {
   return template;
 }
 
-function assertTemplateAuthor(ctx: OperationContext) {
-  assertScope(ctx.principal, "templates:write");
-  if (ctx.principal.role === "member") throw new AccessDeniedError("Only owners and admins can author templates");
+function templateOutput(template: typeof schema.emailTemplates.$inferSelect) {
+  return { ...template, sections: JSON.parse(template.sections) as TemplateSource["sections"], partials: JSON.parse(template.partials) as TemplateSource["partials"] };
+}
+
+function sourceValues(source: TemplateSource, compiledHtml: string | null) {
+  return {
+    sourceFormat: source.sourceFormat, subjectSource: source.subjectSource ?? null,
+    htmlSource: source.htmlSource ?? null, textSource: source.textSource, compiledHtml,
+    sections: JSON.stringify(source.sections), partials: JSON.stringify(source.partials),
+  };
 }
 
 export function listTemplates(ctx: OperationContext) {
   assertScope(ctx.principal, "templates:read");
-  return ctx.db.select().from(schema.emailTemplates).orderBy(schema.emailTemplates.name).all();
+  return ctx.db.select({
+    id: schema.emailTemplates.id, slug: schema.emailTemplates.slug, name: schema.emailTemplates.name,
+    description: schema.emailTemplates.description, status: schema.emailTemplates.status, builtIn: schema.emailTemplates.builtIn,
+    createdAt: schema.emailTemplates.createdAt, updatedAt: schema.emailTemplates.updatedAt,
+  }).from(schema.emailTemplates).orderBy(schema.emailTemplates.name).all();
 }
 
 export function getTemplate(ctx: OperationContext, slug: string) {
   assertScope(ctx.principal, "templates:read");
-  const template = findTemplate(ctx, slug);
-  const versions = ctx.db.select().from(schema.emailTemplateVersions)
-    .where(eq(schema.emailTemplateVersions.templateId, template.id))
-    .orderBy(desc(schema.emailTemplateVersions.version)).all().map(versionOutput);
-  return { ...template, versions };
-}
-
-function versionValues(ctx: OperationContext, templateId: number, version: number, source: TemplateSource, compiledHtml: string | null) {
-  return {
-    templateId, version, sourceFormat: source.sourceFormat, subjectSource: source.subjectSource ?? null,
-    htmlSource: source.htmlSource ?? null, textSource: source.textSource, compiledHtml,
-    sections: JSON.stringify(source.sections), partials: JSON.stringify(source.partials),
-    createdBy: ctx.principal.userId,
-  };
-}
-
-function getTemplateForAuthor(ctx: OperationContext, slug: string) {
-  return getTemplate({
-    ...ctx,
-    principal: { ...ctx.principal, scopes: new Set([...ctx.principal.scopes, "templates:read"]) },
-  }, slug);
+  return templateOutput(findTemplate(ctx, slug));
 }
 
 export async function createTemplate(ctx: OperationContext, input: TemplateSource & { slug: string; name: string; description?: string | null }) {
@@ -62,11 +50,9 @@ export async function createTemplate(ctx: OperationContext, input: TemplateSourc
   const { slug, name, description, ...source } = input;
   const { compiledHtml } = await compileTemplate(source);
   const now = new Date().toISOString();
-  return ctx.db.transaction((tx) => {
-    const template = tx.insert(schema.emailTemplates).values({ slug, name, description: description ?? null, createdAt: now, updatedAt: now }).returning().get();
-    const version = tx.insert(schema.emailTemplateVersions).values(versionValues(ctx, template.id, 1, source, compiledHtml)).returning().get();
-    return { ...template, versions: [versionOutput(version)] };
-  });
+  return templateOutput(ctx.db.insert(schema.emailTemplates).values({
+    slug, name, description: description ?? null, status: "active", ...sourceValues(source, compiledHtml), createdAt: now, updatedAt: now,
+  }).returning().get());
 }
 
 export async function updateTemplate(ctx: OperationContext, input: TemplateSource & { slug: string; name?: string; description?: string | null }) {
@@ -74,27 +60,11 @@ export async function updateTemplate(ctx: OperationContext, input: TemplateSourc
   const template = findTemplate(ctx, input.slug);
   const { slug: _slug, name, description, ...source } = input;
   const { compiledHtml } = await compileTemplate(source);
-  ctx.db.transaction((tx) => {
-    const latest = tx.select({ value: max(schema.emailTemplateVersions.version) }).from(schema.emailTemplateVersions)
-      .where(eq(schema.emailTemplateVersions.templateId, template.id)).get()?.value ?? 0;
-    tx.insert(schema.emailTemplateVersions).values(versionValues(ctx, template.id, latest + 1, source, compiledHtml)).run();
-    tx.update(schema.emailTemplates).set({
-      ...(name !== undefined ? { name } : {}), ...(description !== undefined ? { description } : {}),
-      updatedAt: new Date().toISOString(),
-    }).where(eq(schema.emailTemplates.id, template.id)).run();
-  });
-  return getTemplateForAuthor(ctx, input.slug);
-}
-
-export function activateTemplate(ctx: OperationContext, slug: string, versionNumber: number) {
-  assertTemplateAuthor(ctx);
-  const template = findTemplate(ctx, slug);
-  const version = ctx.db.select().from(schema.emailTemplateVersions)
-    .where(eq(schema.emailTemplateVersions.templateId, template.id)).all().find((row) => row.version === versionNumber);
-  if (!version) throw new NotFoundError("Template version not found");
-  ctx.db.update(schema.emailTemplates).set({ status: "active", currentVersionId: version.id, updatedAt: new Date().toISOString() })
-    .where(eq(schema.emailTemplates.id, template.id)).run();
-  return getTemplateForAuthor(ctx, slug);
+  const updated = ctx.db.update(schema.emailTemplates).set({
+    ...sourceValues(source, compiledHtml), ...(name !== undefined ? { name } : {}),
+    ...(description !== undefined ? { description } : {}), status: "active", updatedAt: new Date().toISOString(),
+  }).where(eq(schema.emailTemplates.id, template.id)).returning().get();
+  return templateOutput(updated);
 }
 
 export function archiveTemplate(ctx: OperationContext, slug: string, confirm: boolean) {
@@ -102,27 +72,21 @@ export function archiveTemplate(ctx: OperationContext, slug: string, confirm: bo
   if (!confirm) throw new InvalidOperationError("Archival requires confirm=true");
   const template = findTemplate(ctx, slug);
   if (template.builtIn) throw new InvalidOperationError("Built-in templates cannot be archived");
-  const updatedAt = new Date().toISOString();
-  ctx.db.update(schema.emailTemplates).set({ status: "archived", updatedAt })
-    .where(eq(schema.emailTemplates.id, template.id)).run();
-  return { ...template, status: "archived" as const, updatedAt };
+  return templateOutput(ctx.db.update(schema.emailTemplates).set({ status: "archived", updatedAt: new Date().toISOString() })
+    .where(eq(schema.emailTemplates.id, template.id)).returning().get());
 }
 
-export async function previewTemplate(ctx: OperationContext, slug: string, versionNumber: number | undefined, sectionSources: Record<string, string>) {
+export async function previewTemplate(ctx: OperationContext, slug: string, sectionSources: Record<string, string>) {
   assertScope(ctx.principal, "templates:read");
   const template = findTemplate(ctx, slug);
-  const versions = ctx.db.select().from(schema.emailTemplateVersions).where(eq(schema.emailTemplateVersions.templateId, template.id))
-    .orderBy(desc(schema.emailTemplateVersions.version)).all();
-  const version = versionNumber ? versions.find((row) => row.version === versionNumber) : versions.find((row) => row.id === template.currentVersionId) ?? versions[0];
-  if (!version) throw new NotFoundError("Template version not found");
-  const definitions = JSON.parse(version.sections) as TemplateSource["sections"];
+  const definitions = JSON.parse(template.sections) as TemplateSource["sections"];
   const samples = Object.fromEntries(definitions.map((section) => [section.key, sectionSources[section.key] ?? `Sample ${section.name} content.`]));
-  const rendered = await renderTemplateVersion(version, {
+  const rendered = await renderTemplate(template, {
     subscriber: { email: "reader@example.com", firstName: "Jane", lastName: "Doe" },
     campaign: { subject: "Template preview" }, list: { name: "Example Newsletter", slug: "example" },
     links: { unsubscribe: "#unsubscribe", preferences: "#preferences" }, sectionSources: samples,
   });
-  return { ...rendered, previewUrl: `${ctx.config.baseUrl}/admin/templates/${encodeURIComponent(slug)}/preview?version=${version.version}` };
+  return { ...rendered, previewUrl: `${ctx.config.baseUrl}/admin/templates/${encodeURIComponent(slug)}/preview` };
 }
 
 export async function validateTemplateSource(ctx: OperationContext, source: TemplateSource) {
@@ -134,13 +98,9 @@ export async function validateTemplateSource(ctx: OperationContext, source: Temp
 export async function duplicateTemplate(ctx: OperationContext, slug: string, newSlug: string, newName?: string) {
   assertTemplateAuthor(ctx);
   const template = findTemplate(ctx, slug);
-  const versions = ctx.db.select().from(schema.emailTemplateVersions).where(eq(schema.emailTemplateVersions.templateId, template.id))
-    .orderBy(desc(schema.emailTemplateVersions.version)).all();
-  const version = versions.find((row) => row.id === template.currentVersionId) ?? versions[0];
-  if (!version) throw new NotFoundError("Template version not found");
   return createTemplate(ctx, {
     slug: newSlug, name: newName ?? `${template.name} copy`, description: template.description,
-    sourceFormat: version.sourceFormat, subjectSource: version.subjectSource, htmlSource: version.htmlSource,
-    textSource: version.textSource, sections: JSON.parse(version.sections), partials: JSON.parse(version.partials),
+    sourceFormat: template.sourceFormat, subjectSource: template.subjectSource, htmlSource: template.htmlSource,
+    textSource: template.textSource, sections: JSON.parse(template.sections), partials: JSON.parse(template.partials),
   });
 }

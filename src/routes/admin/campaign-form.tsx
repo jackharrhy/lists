@@ -12,7 +12,6 @@ type Campaign = typeof schema.campaigns.$inferSelect;
 export type CampaignTemplateChoice = {
   slug: string;
   name: string;
-  versionId: number;
   sections: TemplateSection[];
 };
 
@@ -85,7 +84,7 @@ export function CampaignEditorPage(props: CampaignEditorPageProps) {
     ? new Date(new Date(campaign.scheduledAt).getTime() - new Date().getTimezoneOffset() * 60_000).toISOString().slice(0, 16)
     : undefined;
   const savedSections = campaign?.templateSections ? JSON.parse(campaign.templateSections) as Record<string, string> : {};
-  const selectedTemplateVersionId = campaign?.templateVersionId ?? templates[0]?.versionId;
+  const selectedTemplateSlug = campaign?.templateSlug ?? templates[0]?.slug;
 
   return <AdminLayout title={campaign ? `Edit: ${campaign.subject}` : "New Campaign"} user={props.user} flash={props.flash}>
     <PreviewPanel campaignId={campaign?.id} />
@@ -133,14 +132,14 @@ export function CampaignEditorPage(props: CampaignEditorPageProps) {
           </div>
 
           <FormGroup>
-            <Label for="templateVersionId">Email template</Label>
-            <Select id="templateVersionId" name="templateVersionId" required>
-              {templates.map((template) => <option value={String(template.versionId)} selected={template.versionId === selectedTemplateVersionId}>{template.name}</option>)}
+            <Label for="templateSlug">Email template</Label>
+            <Select id="templateSlug" name="templateSlug" required>
+              {templates.map((template) => <option value={template.slug} selected={template.slug === selectedTemplateSlug}>{template.name}</option>)}
             </Select>
           </FormGroup>
           <div id="templateSections" data-template-sections={JSON.stringify(templates)}>
             {templates.flatMap((template) => template.sections.filter((section) => section.key !== "content").map((section) => (
-              <div data-template-version={String(template.versionId)} class={template.versionId === selectedTemplateVersionId ? "" : "hidden"}>
+              <div data-template={template.slug} class={template.slug === selectedTemplateSlug ? "" : "hidden"}>
                 <FormGroup>
                   <Label>{section.name}{section.required ? "" : " (optional)"}</Label>
                   <Textarea data-template-section={section.key} data-format={section.format} required={section.required}>{savedSections[section.key] ?? ""}</Textarea>

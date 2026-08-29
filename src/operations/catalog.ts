@@ -13,7 +13,7 @@ import {
   listSubscribers,
   sendCampaignOperation,
 } from ".";
-import { activateTemplate, archiveTemplate, createTemplate, duplicateTemplate, getTemplate, listTemplates, previewTemplate, updateTemplate, validateTemplateSource } from "./templates";
+import { archiveTemplate, createTemplate, duplicateTemplate, getTemplate, listTemplates, previewTemplate, updateTemplate, validateTemplateSource } from "./templates";
 import {
   campaignCreateInput,
   campaignDetailOutput,
@@ -32,7 +32,6 @@ import {
   subscriberListInput,
   subscriberOutput,
   subscriberSummaryOutput,
-  templateActivateInput,
   templateArchiveInput,
   templateCreateInput,
   templateDetailOutput,
@@ -159,14 +158,14 @@ export const operationCatalog = {
   }),
   templateGet: defineOperation({
     mcpName: "email_template_get",
-    description: "Get an email template, immutable versions, sections, partials, and source.",
+    description: "Get an email template, sections, partials, and source.",
     input: templateSlugInput,
     output: templateDetailOutput,
     run: (ctx, input) => getTemplate(ctx, input.slug),
   }),
   templateCreate: defineOperation({
     mcpName: "email_template_create",
-    description: "Create a draft email template and its first validated immutable version. This does not activate it.",
+    description: "Create and activate a validated email template.",
     input: templateCreateInput,
     output: templateDetailOutput,
     run: createTemplate,
@@ -180,35 +179,28 @@ export const operationCatalog = {
   }),
   templateUpdate: defineOperation({
     mcpName: "email_template_update",
-    description: "Create a new immutable version of an email template. Existing campaigns remain pinned.",
+    description: "Replace an email template with validated source.",
     input: templateUpdateInput,
     output: templateDetailOutput,
     run: updateTemplate,
   }),
-  templateActivate: defineOperation({
-    mcpName: "email_template_activate",
-    description: "Activate a validated template version for future campaigns.",
-    input: templateActivateInput,
-    output: templateDetailOutput,
-    run: (ctx, input) => activateTemplate(ctx, input.slug, input.version),
-  }),
   templatePreview: defineOperation({
     mcpName: "email_template_preview",
-    description: "Render HTML and text for a stored template version with sample or supplied section content.",
+    description: "Render HTML and text for a stored template with sample or supplied section content.",
     input: templatePreviewInput,
     output: templatePreviewOutput,
-    run: (ctx, input) => previewTemplate(ctx, input.slug, input.version, input.sectionSources),
+    run: (ctx, input) => previewTemplate(ctx, input.slug, input.sectionSources),
   }),
   templateArchive: defineOperation({
     mcpName: "email_template_archive",
-    description: "Archive a custom template. Historical versions and pinned campaigns are preserved. Requires confirm=true.",
+    description: "Archive a custom template. Requires confirm=true.",
     input: templateArchiveInput,
     output: templateSummaryOutput,
     run: (ctx, input) => archiveTemplate(ctx, input.slug, input.confirm),
   }),
   templateDuplicate: defineOperation({
     mcpName: "email_template_duplicate",
-    description: "Duplicate the current template version into a new draft template.",
+    description: "Duplicate a template.",
     input: templateDuplicateInput,
     output: templateDetailOutput,
     run: (ctx, input) => duplicateTemplate(ctx, input.slug, input.newSlug, input.newName),

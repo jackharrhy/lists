@@ -22,7 +22,7 @@ import { AdminLayout, fmtDate, fmtDateTime, CampaignBadge, describeAudience, set
 import { Button, LinkButton, Input, Select, Textarea, Label, FormGroup, Table, Th, Td, Card, PageHeader, Pagination } from "./ui";
 import { CampaignEditorPage } from "./campaign-form";
 import type { CampaignTemplateChoice } from "./campaign-form";
-import { getTemplateVersion, TemplateValidationError, type TemplateSection } from "../../services/email-templates";
+import { TemplateValidationError, type TemplateSection } from "../../services/email-templates";
 import { renderCampaignMessage } from "../../services/campaign-renderer";
 
 const CAMPAIGNS_PAGE_SIZE = 25;
@@ -43,21 +43,9 @@ function textPreview(text: string) {
   return `<pre style="white-space:pre-wrap;font-family:system-ui;padding:24px">${escaped}</pre>`;
 }
 
-function activeTemplateChoices(db: Db, pinnedVersionId?: number | null): CampaignTemplateChoice[] {
-  const choices = db.select().from(schema.emailTemplates).where(eq(schema.emailTemplates.status, "active")).all().flatMap((template) => {
-    if (!template.currentVersionId) return [];
-    const version = getTemplateVersion(db, template.currentVersionId);
-    return version ? [{ slug: template.slug, name: template.name, versionId: version.id, sections: JSON.parse(version.sections) as TemplateSection[] }] : [];
-  });
-  if (pinnedVersionId && !choices.some((choice) => choice.versionId === pinnedVersionId)) {
-    const version = getTemplateVersion(db, pinnedVersionId);
-    const template = version ? db.select().from(schema.emailTemplates).where(eq(schema.emailTemplates.id, version.templateId)).get() : null;
-    if (version && template) choices.push({
-      slug: template.slug, name: `${template.name} (pinned v${version.version})`, versionId: version.id,
-      sections: JSON.parse(version.sections) as TemplateSection[],
-    });
-  }
-  return choices;
+function activeTemplateChoices(db: Db): CampaignTemplateChoice[] {
+  return db.select().from(schema.emailTemplates).where(eq(schema.emailTemplates.status, "active")).all()
+    .map((template) => ({ slug: template.slug, name: template.name, sections: JSON.parse(template.sections) as TemplateSection[] }));
 }
 
 export function mountCampaignRoutes(app: App, db: Db, config: Config) {
@@ -108,18 +96,18 @@ export function mountCampaignRoutes(app: App, db: Db, config: Config) {
     bodyMarkdown: z.string().default(""),
     subject: z.string().default("Preview"),
     listName: z.string().default("Newsletter"),
-    templateVersionId: z.number().int().positive().nullable().default(null),
+    templateSlug: z.string().min(1).default("newsletter"),
     templateSections: z.record(z.string(), z.string()).default({}),
   });
 
   app.post("/campaigns/preview", async (c) => {
     c.set.headers["Content-Security-Policy"] = PREVIEW_CSP;
-    const { bodyMarkdown, subject, listName, templateVersionId, templateSections } = c.body;
+    const { bodyMarkdown, subject, listName, templateSlug, templateSections } = c.body;
     const rendered = await renderCampaignMessage(db, {
       campaign: {
         subject: subject || "Preview",
         bodyMarkdown,
-        templateVersionId,
+        templateSlug,
         templateSections: JSON.stringify(templateSections),
       },
       subscriber: { firstName: "Jane", lastName: "Doe", email: "subscriber@example.com" },
@@ -616,7 +604,7 @@ export function mountCampaignRoutes(app: App, db: Db, config: Config) {
     const allTags = db.select().from(schema.tags).all();
     const allSubscribers = db.select().from(schema.subscribers).where(eq(schema.subscribers.status, "active")).all();
 
-    return c.html(<CampaignEditorPage user={user} flash={flash} config={config} lists={allLists} tags={allTags} subscribers={allSubscribers} campaign={campaign} templates={activeTemplateChoices(db, campaign.templateVersionId)} />);
+    return c.html(<CampaignEditorPage user={user} flash={flash} config={config} lists={allLists} tags={allTags} subscribers={allSubscribers} campaign={campaign} templates={activeTemplateChoices(db)} />);
   });
 
   app.post("/campaigns/:id/edit", async (c) => {

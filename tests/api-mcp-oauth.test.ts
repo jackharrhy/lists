@@ -113,6 +113,7 @@ describe("scoped API and MCP", () => {
     const create = body.result.tools.find((tool: any) => tool.name === "subscriber_create");
     expect(create.inputSchema.required).toEqual(["email", "lists"]);
     expect(create.inputSchema.properties.email.format).toBe("email");
+    expect(body.result.tools.some((tool: any) => tool.name === "email_template_activate")).toBe(false);
     expect(create.outputSchema.required).toEqual(["id", "email"]);
   });
 
@@ -252,7 +253,7 @@ describe("scoped API and MCP", () => {
     expect(mcp.status).toBe(401);
   });
 
-  test("authors, previews, versions, and activates full HTML templates through shared MCP operations", async () => {
+  test("authors, previews, and replaces full HTML templates through shared MCP operations", async () => {
     const { app, db, user } = setup();
     const { token } = mintApiToken(db, user.id, "template author", ["templates:read", "templates:write"]);
     const source = {
@@ -265,7 +266,8 @@ describe("scoped API and MCP", () => {
     };
     const created = await mcpCall(app, token, "email_template_create", source);
     expect(created.result.isError).toBeUndefined();
-    expect(created.result.structuredContent.versions[0].version).toBe(1);
+    expect(created.result.structuredContent.status).toBe("active");
+    expect(created.result.structuredContent.sourceFormat).toBe("html");
     const validated = await mcpCall(app, token, "email_template_validate", (({ slug, name, description, ...templateSource }) => templateSource)(source));
     expect(validated.result.structuredContent.valid).toBe(true);
 
@@ -276,18 +278,16 @@ describe("scoped API and MCP", () => {
     expect(preview.result.structuredContent.html).toContain("Hello Jane");
     expect(preview.result.structuredContent.text).toContain("Hello world");
 
-    const updated = await mcpCall(app, token, "email_template_update", { ...source, name: "Personal Letter v2" });
-    expect(updated.result.structuredContent.versions[0].version).toBe(2);
-    const activated = await mcpCall(app, token, "email_template_activate", { slug: source.slug, version: 2 });
-    expect(activated.result.structuredContent.status).toBe("active");
-    expect(activated.result.structuredContent.currentVersionId).toBe(updated.result.structuredContent.versions[0].id);
+    const updated = await mcpCall(app, token, "email_template_update", { ...source, name: "Personal Letter Updated" });
+    expect(updated.result.structuredContent.name).toBe("Personal Letter Updated");
+    expect(updated.result.structuredContent.status).toBe("active");
 
     const rest = await app.request(`/api/v1/email-templates/${source.slug}`, { headers: bearer(token) });
     expect(rest.status).toBe(200);
-    expect((await rest.json() as any).data.versions.map((version: any) => version.version)).toEqual([2, 1]);
+    expect((await rest.json() as any).data.name).toBe("Personal Letter Updated");
     const duplicate = await mcpCall(app, token, "email_template_duplicate", { slug: source.slug, newSlug: "personal-letter-copy" });
     expect(duplicate.result.structuredContent.slug).toBe("personal-letter-copy");
-    expect(duplicate.result.structuredContent.status).toBe("draft");
+    expect(duplicate.result.structuredContent.status).toBe("active");
   });
 
   test("requires templates:write and rejects executable HTML before persistence", async () => {
@@ -325,7 +325,7 @@ describe("scoped API and MCP", () => {
     const stored = await app.request("/api/v1/email-templates/atomic", { headers: bearer(token) });
     const detail = (await stored.json() as any).data;
     expect(detail.name).toBe("Atomic");
-    expect(detail.versions.map((version: any) => version.version)).toEqual([1]);
+    expect(detail.htmlSource).toBe(source.htmlSource);
 
     const recursive = await mcpCall(app, token, "email_template_create", {
       ...source, slug: "recursive", name: "Recursive",
@@ -347,7 +347,7 @@ describe("scoped API and MCP", () => {
       sections: [{ key: "content", name: "Content", format: "markdown", required: true }], partials: {},
     });
     expect(created.result.isError).toBeUndefined();
-    expect(created.result.structuredContent.versions[0].compiledHtml).toContain("role=\"article\"");
+    expect(created.result.structuredContent.compiledHtml).toContain("role=\"article\"");
   });
 });
 

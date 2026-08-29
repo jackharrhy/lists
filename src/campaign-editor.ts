@@ -151,7 +151,7 @@ function initializePreview() {
         bodyMarkdown: textarea.value,
         subject: subject.value || "Preview",
         listName: "Preview",
-        templateVersionId: Number(element<HTMLSelectElement>("#templateVersionId")?.value) || null,
+        templateSlug: element<HTMLSelectElement>("#templateSlug")?.value || "newsletter",
         templateSections: collectTemplateSections(),
       }),
     });
@@ -185,19 +185,19 @@ function initializePreview() {
 
 function collectTemplateSections() {
   const sections: Record<string, string> = {};
-  document.querySelectorAll<HTMLTextAreaElement>("[data-template-version]:not(.hidden) [data-template-section]").forEach((field) => {
+  document.querySelectorAll<HTMLTextAreaElement>("[data-template]:not(.hidden) [data-template-section]").forEach((field) => {
     if (field.dataset.templateSection) sections[field.dataset.templateSection] = field.value;
   });
   return sections;
 }
 
 function initializeTemplateSections(form: HTMLFormElement) {
-  const select = element<HTMLSelectElement>("#templateVersionId");
+  const select = element<HTMLSelectElement>("#templateSlug");
   const hidden = element<HTMLInputElement>("#templateSectionsJson");
   if (!select || !hidden) return;
   const showSelected = () => {
-    document.querySelectorAll<HTMLElement>("[data-template-version]").forEach((group) => {
-      group.classList.toggle("hidden", group.dataset.templateVersion !== select.value);
+    document.querySelectorAll<HTMLElement>("[data-template]").forEach((group) => {
+      group.classList.toggle("hidden", group.dataset.template !== select.value);
     });
   };
   select.addEventListener("change", showSelected);

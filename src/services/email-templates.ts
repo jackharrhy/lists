@@ -3,7 +3,7 @@ import mjml2html from "mjml";
 import { Parser } from "htmlparser2";
 import { htmlToText } from "html-to-text";
 import { marked } from "marked";
-import { and, desc, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import type { Db } from "../db";
 import * as schema from "../db/schema";
 
@@ -56,20 +56,13 @@ export function seedBuiltInTemplates(db: Db) {
   const existing = db.select().from(schema.emailTemplates).where(eq(schema.emailTemplates.slug, "newsletter")).get();
   if (existing) return existing;
   const now = new Date().toISOString();
-  return db.transaction((tx) => {
-    const template = tx.insert(schema.emailTemplates).values({
+  return db.insert(schema.emailTemplates).values({
       slug: "newsletter", name: "Newsletter", description: "The original minimal Lists newsletter.",
       status: "active", builtIn: true, createdAt: now, updatedAt: now,
-    }).returning().get();
-    const version = tx.insert(schema.emailTemplateVersions).values({
-      templateId: template.id, version: 1, sourceFormat: "html", htmlSource: BUILT_IN_HTML,
-      textSource: BUILT_IN_TEXT, compiledHtml: BUILT_IN_HTML,
+      sourceFormat: "html", htmlSource: BUILT_IN_HTML, textSource: BUILT_IN_TEXT, compiledHtml: BUILT_IN_HTML,
       sections: JSON.stringify([{ key: "content", name: "Content", format: "markdown", required: true }]),
-      partials: "{}", createdAt: now,
+      partials: "{}",
     }).returning().get();
-    tx.update(schema.emailTemplates).set({ currentVersionId: version.id }).where(eq(schema.emailTemplates.id, template.id)).run();
-    return { ...template, currentVersionId: version.id };
-  });
 }
 
 function validateHtml(source: string, label: string): string[] {
@@ -201,9 +194,9 @@ function templateRuntime(partials: Record<string, string>) {
   return runtime;
 }
 
-export async function renderTemplateVersion(version: typeof schema.emailTemplateVersions.$inferSelect, context: TemplateRenderContext) {
-  const definitions = JSON.parse(version.sections) as TemplateSection[];
-  const partials = JSON.parse(version.partials) as Record<string, string>;
+export async function renderTemplate(template: typeof schema.emailTemplates.$inferSelect, context: TemplateRenderContext) {
+  const definitions = JSON.parse(template.sections) as TemplateSection[];
+  const partials = JSON.parse(template.partials) as Record<string, string>;
   const base = {
     subscriber: context.subscriber,
     campaign: context.campaign,
@@ -230,13 +223,13 @@ export async function renderTemplateVersion(version: typeof schema.emailTemplate
   }
   const data = { ...base, sections };
   const runtime = templateRuntime(partials);
-  const subject = version.subjectSource ? runtime.compile(version.subjectSource)(data) : context.campaign.subject;
+  const subject = template.subjectSource ? runtime.compile(template.subjectSource)(data) : context.campaign.subject;
   if (/\r|\n/.test(subject)) throw new TemplateValidationError(["Rendered subjects cannot contain line breaks"]);
   if (subject.length > 998) throw new TemplateValidationError(["Rendered subjects cannot exceed 998 characters"]);
   const result = {
     subject,
-    html: version.compiledHtml ? runtime.compile(version.compiledHtml)(data) : null,
-    text: runtime.compile(version.textSource)(data),
+    html: template.compiledHtml ? runtime.compile(template.compiledHtml)(data) : null,
+    text: runtime.compile(template.textSource)(data),
   };
   if ((result.html?.length ?? 0) + result.text.length > MAX_RENDERED_BYTES) {
     throw new TemplateValidationError(["Rendered email exceeds the 10 MB template limit"]);
@@ -244,13 +237,7 @@ export async function renderTemplateVersion(version: typeof schema.emailTemplate
   return result;
 }
 
-export function getTemplateVersion(db: Db, id: number) {
-  return db.select().from(schema.emailTemplateVersions).where(eq(schema.emailTemplateVersions.id, id)).get();
-}
-
-export function getCurrentTemplateVersion(db: Db, slug: string) {
-  return db.select().from(schema.emailTemplateVersions)
-    .innerJoin(schema.emailTemplates, eq(schema.emailTemplates.currentVersionId, schema.emailTemplateVersions.id))
-    .where(and(eq(schema.emailTemplates.slug, slug), eq(schema.emailTemplates.status, "active")))
-    .orderBy(desc(schema.emailTemplateVersions.version)).get();
+export function getActiveTemplate(db: Db, slug: string) {
+  const template = db.select().from(schema.emailTemplates).where(eq(schema.emailTemplates.slug, slug)).get();
+  return template?.status === "active" ? template : undefined;
 }

@@ -12,7 +12,7 @@ import {
   type Principal,
 } from "../services/access";
 import type { CreateCampaignDraftInput, CreateSubscriberInput } from "./contracts";
-import { getTemplateVersion, renderTemplateVersion } from "../services/email-templates";
+import { renderTemplate } from "../services/email-templates";
 
 export class NotFoundError extends Error { status = 404; }
 export class InvalidOperationError extends Error { status = 400; }
@@ -158,9 +158,8 @@ export async function createCampaignDraft(ctx: OperationContext, input: CreateCa
   }
   const template = ctx.db.select().from(schema.emailTemplates)
     .where(and(eq(schema.emailTemplates.slug, input.templateSlug ?? "newsletter"), eq(schema.emailTemplates.status, "active"))).get();
-  if (!template?.currentVersionId) throw new InvalidOperationError("Active email template not found");
-  const version = getTemplateVersion(ctx.db, template.currentVersionId)!;
-  await renderTemplateVersion(version, {
+  if (!template) throw new InvalidOperationError("Active email template not found");
+  await renderTemplate(template, {
     subscriber: { email: "reader@example.com", firstName: "Jane", lastName: "Doe" },
     campaign: { subject: input.subject }, list: { name: "Preview" },
     links: { unsubscribe: "#unsubscribe", preferences: "#preferences" },
@@ -172,7 +171,7 @@ export async function createCampaignDraft(ctx: OperationContext, input: CreateCa
     audienceType: input.audienceType, audienceId: input.audienceId ?? null,
     audienceData: input.audienceType === "subscribers" ? JSON.stringify(input.audienceData) : null,
     status: "draft",
-    templateSlug: template.slug, templateVersionId: template.currentVersionId,
+    templateSlug: template.slug,
     templateSections: JSON.stringify({ ...(input.templateSections ?? {}), content: input.bodyMarkdown }),
   }).returning().get();
 }

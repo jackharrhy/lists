@@ -930,7 +930,7 @@ describe("HTMX application shell", () => {
 });
 
 describe("Email template gallery", () => {
-  test("shows immutable template source and gates remote assets in isolated previews", async () => {
+  test("shows template source and gates remote assets in isolated previews", async () => {
     const db = createTestDb();
     await seedOwner(db);
     const app = createApp(db);
@@ -947,15 +947,14 @@ describe("Email template gallery", () => {
     expect(detailHtml).toContain('data-preview-mode="text"');
     expect(detailHtml).toContain("Load remote assets");
     expect(detailHtml).toContain("Content contract");
-    expect(detailHtml).toContain("Version history");
     expect(detailHtml).toContain("&lt;!doctype html&gt;");
     expect(detailHtml).not.toContain('<pre class="m-0 max-h-[600px]"><!doctype html>');
 
-    const blocked = await authGet(app, "/admin/templates/newsletter/preview?version=1", cookie);
+    const blocked = await authGet(app, "/admin/templates/newsletter/preview", cookie);
     expect(blocked.headers.get("content-security-policy")).toContain("img-src data: cid:");
-    const allowed = await authGet(app, "/admin/templates/newsletter/preview?version=1&remote=1", cookie);
+    const allowed = await authGet(app, "/admin/templates/newsletter/preview?remote=1", cookie);
     expect(allowed.headers.get("content-security-policy")).toContain("img-src https: data: cid:");
-    const text = await authGet(app, "/admin/templates/newsletter/preview?version=1&mode=text", cookie);
+    const text = await authGet(app, "/admin/templates/newsletter/preview?mode=text", cookie);
     expect(text.headers.get("content-type")).toContain("text/html");
     expect(await text.text()).toContain("Unsubscribe:");
   });

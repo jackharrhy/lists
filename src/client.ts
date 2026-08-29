@@ -19,8 +19,9 @@ function initializeTemplatePreview() {
   const base = workspace.dataset.previewBase ?? "";
   let mode = "html";
   const refresh = () => {
-    const remote = workspace.querySelector<HTMLInputElement>("[data-preview-remote]")?.checked ? "&remote=1" : "";
-    frame.src = `${base}&mode=${mode}${remote}`;
+    const params = new URLSearchParams({ mode });
+    if (workspace.querySelector<HTMLInputElement>("[data-preview-remote]")?.checked) params.set("remote", "1");
+    frame.src = `${base}?${params}`;
   };
   workspace.querySelectorAll<HTMLButtonElement>("[data-preview-mode]").forEach((button) => button.addEventListener("click", () => {
     mode = button.dataset.previewMode ?? "html";

@@ -87,30 +87,25 @@ export const templateUpdateInput = z.object({ ...templateSourceShape,
   description: z.string().max(500).optional().nullable(),
 }).strict();
 export const templateSlugInput = z.object({ slug: z.string().min(1) }).strict();
-export const templateActivateInput = templateSlugInput.extend({ version: z.number().int().positive() });
 export const templateArchiveInput = templateSlugInput.extend({ confirm: z.literal(true) });
 export const templateDuplicateInput = templateSlugInput.extend({
   newSlug: z.string().regex(/^[a-z][a-z0-9-]*$/).max(80),
   newName: z.string().min(1).max(120).optional(),
 });
 export const templatePreviewInput = templateSlugInput.extend({
-  version: z.number().int().positive().optional(),
   sectionSources: z.record(z.string(), z.string().max(1_000_000)).refine((sections) => Object.keys(sections).length <= 50, "At most 50 sections are supported").default({}),
 });
 
 export const templateSummaryOutput = z.object({
   id: z.number(), slug: z.string(), name: z.string(), description: z.string().nullable(),
   status: z.enum(["draft", "active", "archived"]), builtIn: z.boolean(),
-  currentVersionId: z.number().nullable(), createdAt: z.string(), updatedAt: z.string(),
+  createdAt: z.string(), updatedAt: z.string(),
 });
-export const templateVersionOutput = z.object({
-  id: z.number(), templateId: z.number(), version: z.number(),
+export const templateDetailOutput = templateSummaryOutput.extend({
   sourceFormat: z.enum(["html", "mjml", "text"]), subjectSource: z.string().nullable(),
   htmlSource: z.string().nullable(), textSource: z.string(), compiledHtml: z.string().nullable(),
   sections: z.array(templateSectionInput), partials: z.record(z.string(), z.string()),
-  createdBy: z.number().nullable(), createdAt: z.string(),
 });
-export const templateDetailOutput = templateSummaryOutput.extend({ versions: z.array(templateVersionOutput) });
 export const templatePreviewOutput = z.object({
   subject: z.string(), html: z.string().nullable(), text: z.string(), previewUrl: z.string(),
 });
@@ -152,7 +147,6 @@ export const campaignOutput = z.object({
   subject: z.string(),
   bodyMarkdown: z.string(),
   templateSlug: z.string(),
-  templateVersionId: z.number().nullable(),
   templateSections: z.string(),
   fromAddress: z.string(),
   fromName: z.string().nullable(),

@@ -103,12 +103,11 @@ describe("Full campaign send flow", () => {
     ]));
   });
 
-  test("sends the immutable custom HTML and text template version pinned by the campaign", async () => {
+  test("sends the current mutable custom HTML and text template", async () => {
     const db = createTestDb();
     const list = seedList(db, { slug: "custom", name: "Custom List", fromDomain: "example.com" });
     const subscriber = createSubscriber(db, "reader@example.com", "Reader", null, ["custom"]);
     confirmSubscriber(db, subscriber.unsubscribeToken);
-    const template = db.insert(schema.emailTemplates).values({ slug: "letter", name: "Letter", status: "active" }).returning().get();
     const source = {
       sourceFormat: "html" as const,
       htmlSource: "<html><body><h1>V1 {{subscriber.firstName}}</h1>{{{sections.message.html}}}<a href=\"{{links.unsubscribe}}\">bye</a></body></html>",
@@ -116,28 +115,26 @@ describe("Full campaign send flow", () => {
       sections: [{ key: "message", name: "Message", format: "markdown" as const, required: true }], partials: {},
     };
     const compiled = await compileTemplate(source);
-    const versionOne = db.insert(schema.emailTemplateVersions).values({
-      templateId: template.id, version: 1, ...source, compiledHtml: compiled.compiledHtml,
+    const template = db.insert(schema.emailTemplates).values({
+      slug: "letter", name: "Letter", status: "active", ...source, compiledHtml: compiled.compiledHtml,
       sections: JSON.stringify(source.sections), partials: "{}",
     }).returning().get();
-    const versionTwo = db.insert(schema.emailTemplateVersions).values({
-      templateId: template.id, version: 2, ...source,
-      htmlSource: source.htmlSource.replace("V1", "V2"), compiledHtml: compiled.compiledHtml!.replace("V1", "V2"),
-      sections: JSON.stringify(source.sections), partials: "{}",
-    }).returning().get();
-    db.update(schema.emailTemplates).set({ currentVersionId: versionTwo.id }).where(eq(schema.emailTemplates.id, template.id)).run();
     const campaign = db.insert(schema.campaigns).values({
-      audienceType: "list", audienceId: list.id, subject: "Pinned template", bodyMarkdown: "# Hello custom HTML",
-      fromAddress: "news@example.com", status: "draft", templateSlug: template.slug, templateVersionId: versionOne.id,
+      audienceType: "list", audienceId: list.id, subject: "Mutable template", bodyMarkdown: "# Hello custom HTML",
+      fromAddress: "news@example.com", status: "draft", templateSlug: template.slug,
       templateSections: JSON.stringify({ message: "# Hello custom HTML" }),
     }).returning().get();
+    db.update(schema.emailTemplates).set({
+      htmlSource: source.htmlSource.replace("V1", "V2"), compiledHtml: compiled.compiledHtml!.replace("V1", "V2"),
+      textSource: source.textSource.replace("V1", "V2"),
+    }).where(eq(schema.emailTemplates.id, template.id)).run();
     sesMock.on(SendEmailCommand).resolves({ MessageId: "custom-template-message" });
 
     await sendCampaign(db, testConfig, campaign.id);
 
     const raw = new TextDecoder().decode(sesMock.commandCalls(SendEmailCommand)[0]!.args[0].input.Content!.Raw!.Data as Uint8Array);
-    expect(raw).toContain("V1 Reader");
-    expect(raw).not.toContain("V2 Reader");
+    expect(raw).toContain("V2 Reader");
+    expect(raw).not.toContain("V1 Reader");
     expect(raw).toContain("Hello custom HTML");
     expect(raw).toContain("multipart/alternative");
   });

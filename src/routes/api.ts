@@ -23,7 +23,6 @@ import {
   subscriberListInput,
   subscriberOutput,
   subscriberSummaryOutput,
-  templateActivateInput,
   templateArchiveInput,
   templateCreateInput,
   templateDetailOutput,
@@ -179,15 +178,7 @@ export function apiRoutes(db: Db, config: Config) {
         params: templateSlugInput,
         body: templateUpdateInput.omit({ slug: true }),
         response: { 200: dataOutput(templateDetailOutput), ...errorResponses },
-        detail: { summary: "Create a new email template version", tags: ["Email Templates"], ...authenticatedRoute },
-      })
-      .post("/v1/email-templates/:slug/activate", async ({ principal, params, body }) => ({
-        data: await operationCatalog.templateActivate.run(context(principal), { ...body, slug: params.slug }),
-      }), {
-        params: templateSlugInput,
-        body: templateActivateInput.omit({ slug: true }),
-        response: { 200: dataOutput(templateDetailOutput), ...errorResponses },
-        detail: { summary: "Activate an email template version", tags: ["Email Templates"], ...authenticatedRoute },
+        detail: { summary: "Replace an email template", tags: ["Email Templates"], ...authenticatedRoute },
       })
       .post("/v1/email-templates/:slug/preview", async ({ principal, params, body }) => ({
         data: await operationCatalog.templatePreview.run(context(principal), { ...body, slug: params.slug }),

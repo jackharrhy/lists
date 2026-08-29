@@ -1,60 +1,23 @@
-import { marked } from "marked";
-import { renderNewsletter } from "../../emails/render";
+import { eq } from "drizzle-orm";
 import type { Db } from "../db";
-import type { schema } from "../db";
-import { getTemplateVersion, renderTemplateVersion } from "./email-templates";
+import { schema } from "../db";
+import { renderTemplate } from "./email-templates";
 
 type CampaignRenderModel = Pick<typeof schema.campaigns.$inferSelect,
-  "subject" | "bodyMarkdown" | "templateVersionId" | "templateSections">;
-type SubscriberRenderModel = {
-  email: string;
-  firstName?: string | null;
-  lastName?: string | null;
-};
+  "subject" | "bodyMarkdown" | "templateSlug" | "templateSections">;
 
 export type CampaignRenderInput = {
   campaign: CampaignRenderModel;
-  subscriber: SubscriberRenderModel;
+  subscriber: { email: string; firstName?: string | null; lastName?: string | null };
   list: { name: string; slug?: string };
   links: { unsubscribe: string; preferences: string };
 };
 
-export function substituteLegacyVariables(
-  source: string,
-  subscriber: SubscriberRenderModel,
-  links: CampaignRenderInput["links"],
-) {
-  return source
-    .replace(/\{\{firstName\}\}/g, subscriber.firstName || "")
-    .replace(/\{\{lastName\}\}/g, subscriber.lastName || "")
-    .replace(/\{\{email\}\}/g, subscriber.email)
-    .replace(/\{\{unsubscribeUrl\}\}/g, links.unsubscribe)
-    .replace(/\{\{preferencesUrl\}\}/g, links.preferences);
-}
-
-export async function renderCampaignMessage(db: Db, input: CampaignRenderInput) {
-  const { campaign, subscriber, list, links } = input;
-  const version = campaign.templateVersionId ? getTemplateVersion(db, campaign.templateVersionId) : null;
-  if (version) {
-    return renderTemplateVersion(version, {
-      subscriber,
-      campaign: { subject: campaign.subject },
-      list,
-      links,
-      sectionSources: {
-        ...(JSON.parse(campaign.templateSections) as Record<string, string>),
-        content: campaign.bodyMarkdown,
-      },
-    });
-  }
-
-  const markdown = substituteLegacyVariables(campaign.bodyMarkdown, subscriber, links);
-  const rendered = await renderNewsletter({
-    subject: campaign.subject,
-    contentHtml: await marked(markdown),
-    listName: list.name,
-    unsubscribeUrl: links.unsubscribe,
-    preferencesUrl: links.preferences,
+export async function renderCampaignMessage(db: Db, { campaign, subscriber, list, links }: CampaignRenderInput) {
+  const template = db.select().from(schema.emailTemplates).where(eq(schema.emailTemplates.slug, campaign.templateSlug)).get();
+  if (!template) throw new Error(`Email template not found: ${campaign.templateSlug}`);
+  return renderTemplate(template, {
+    subscriber, campaign: { subject: campaign.subject }, list, links,
+    sectionSources: { ...(JSON.parse(campaign.templateSections) as Record<string, string>), content: campaign.bodyMarkdown },
   });
-  return { ...rendered, subject: campaign.subject };
 }

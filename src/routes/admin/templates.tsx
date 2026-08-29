@@ -1,39 +1,21 @@
-import { desc, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { Html } from "@elysia/html";
 import { z } from "zod";
 import type { App } from "../../http";
 import type { Db } from "../../db";
 import { schema } from "../../db";
-import { renderTemplateVersion, type TemplateSection } from "../../services/email-templates";
+import { renderTemplate, type TemplateSection } from "../../services/email-templates";
 import type { User } from "./layout";
-import { TemplateGalleryPage, TemplateWorkspacePage, type TemplateCard } from "./template-views";
+import { TemplateGalleryPage, TemplateWorkspacePage } from "./template-views";
 
 const slugParams = z.object({ slug: z.string().min(1) });
-const detailQuery = z.object({ version: z.coerce.number().int().positive().optional() });
-const previewQuery = detailQuery.extend({
+const previewQuery = z.object({
   remote: z.enum(["0", "1"]).default("0"),
   mode: z.enum(["html", "text"]).default("html"),
 });
 
-function templateCards(db: Db): TemplateCard[] {
-  return db.select().from(schema.emailTemplates).orderBy(schema.emailTemplates.name).all().map((template) => {
-    const version = template.currentVersionId
-      ? db.select().from(schema.emailTemplateVersions).where(eq(schema.emailTemplateVersions.id, template.currentVersionId)).get() ?? null
-      : db.select().from(schema.emailTemplateVersions).where(eq(schema.emailTemplateVersions.templateId, template.id))
-          .orderBy(desc(schema.emailTemplateVersions.version)).limit(1).get() ?? null;
-    return { template, version, sections: version ? JSON.parse(version.sections) as TemplateSection[] : [] };
-  });
-}
-
-function findTemplateWorkspace(db: Db, slug: string, requestedVersion?: number) {
-  const template = db.select().from(schema.emailTemplates).where(eq(schema.emailTemplates.slug, slug)).get();
-  if (!template) return null;
-  const versions = db.select().from(schema.emailTemplateVersions).where(eq(schema.emailTemplateVersions.templateId, template.id))
-    .orderBy(desc(schema.emailTemplateVersions.version)).all();
-  const selected = requestedVersion
-    ? versions.find((version) => version.version === requestedVersion)
-    : versions.find((version) => version.id === template.currentVersionId) ?? versions[0];
-  return selected ? { template, versions, selected } : null;
+function findTemplate(db: Db, slug: string) {
+  return db.select().from(schema.emailTemplates).where(eq(schema.emailTemplates.slug, slug)).get();
 }
 
 function textDocument(text: string) {
@@ -42,20 +24,20 @@ function textDocument(text: string) {
 }
 
 export function mountTemplateRoutes(app: App, db: Db) {
-  app.get("/templates", (c) => c.html(
-    <TemplateGalleryPage user={c.user as User} cards={templateCards(db)} />,
-  ));
+  app.get("/templates", (c) => c.html(<TemplateGalleryPage
+    user={c.user as User}
+    templates={db.select().from(schema.emailTemplates).orderBy(schema.emailTemplates.name).all()}
+  />));
 
   app.get("/templates/:slug", (c) => {
-    const workspace = findTemplateWorkspace(db, c.params.slug, c.query.version);
-    if (!workspace) return c.notFound();
-    return c.html(<TemplateWorkspacePage user={c.user as User} {...workspace} />);
-  }, { params: slugParams, query: detailQuery });
+    const template = findTemplate(db, c.params.slug);
+    return template ? c.html(<TemplateWorkspacePage user={c.user as User} template={template} />) : c.notFound();
+  }, { params: slugParams });
 
   app.get("/templates/:slug/preview", async (c) => {
-    const workspace = findTemplateWorkspace(db, c.params.slug, c.query.version);
-    if (!workspace) return c.notFound();
-    const definitions = JSON.parse(workspace.selected.sections) as TemplateSection[];
+    const template = findTemplate(db, c.params.slug);
+    if (!template) return c.notFound();
+    const definitions = JSON.parse(template.sections) as TemplateSection[];
     const sectionSources = Object.fromEntries(definitions.map((section) => [
       section.key,
       section.format === "html"
@@ -64,12 +46,10 @@ export function mountTemplateRoutes(app: App, db: Db) {
           ? `# ${section.name}\n\nA representative section rendered with **sample content**.`
           : `${section.name}\n\nA representative plain-text section.`,
     ]));
-    const rendered = await renderTemplateVersion(workspace.selected, {
+    const rendered = await renderTemplate(template, {
       subscriber: { email: "reader@example.com", firstName: "Jane", lastName: "Doe" },
-      campaign: { subject: "Template preview" },
-      list: { name: "Example Newsletter", slug: "example" },
-      links: { unsubscribe: "#unsubscribe", preferences: "#preferences" },
-      sectionSources,
+      campaign: { subject: "Template preview" }, list: { name: "Example Newsletter", slug: "example" },
+      links: { unsubscribe: "#unsubscribe", preferences: "#preferences" }, sectionSources,
     });
     const body = c.query.mode === "text" || !rendered.html ? textDocument(rendered.text) : rendered.html;
     const assets = c.query.remote === "1"
