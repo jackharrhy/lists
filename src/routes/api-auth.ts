@@ -5,6 +5,7 @@ import { authenticateBearer } from "../services/request-auth";
 type BearerAuthOptions = {
   unauthorizedBody?: Record<string, unknown>;
   resourceMetadata?: string;
+  expectedAudience?: string;
 };
 
 export function bearerAuth(db: Db, options: BearerAuthOptions = {}) {
@@ -12,7 +13,7 @@ export function bearerAuth(db: Db, options: BearerAuthOptions = {}) {
     .macro({
       authenticated: {
         resolve({ request, set, status }) {
-          const principal = authenticateBearer(db, request);
+          const principal = authenticateBearer(db, request, options.expectedAudience);
           if (!principal) {
             if (options.resourceMetadata) {
               set.headers["www-authenticate"] = `Bearer resource_metadata="${options.resourceMetadata}"`;

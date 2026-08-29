@@ -2,6 +2,7 @@ import { Html } from "@elysia/html";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import type { App } from "../../http";
 import type { Db } from "../../db";
+import type { Config } from "../../config";
 import { schema } from "../../db";
 import { API_SCOPES, type ApiScope } from "../../services/access";
 import { mintApiToken } from "../../services/api-tokens";
@@ -56,13 +57,13 @@ function TokenPage({ db, user, revealedToken, flash }: { db: Db; user: User; rev
         </form>
       </Card>
       <Table><thead><tr><Th>Name</Th><Th>Client ID</Th><Th>Redirect URIs</Th></tr></thead><tbody>
-        {oauthClients.map((client) => <tr><Td>{client.clientName}</Td><Td><code>{client.clientId}</code></Td><Td>{(JSON.parse(client.redirectUris) as string[]).join(", ")}</Td></tr>)}
+        {oauthClients.map((client) => <tr><Td><span safe>{client.clientName}</span></Td><Td><code>{client.clientId}</code></Td><Td><span safe>{(JSON.parse(client.redirectUris) as string[]).join(", ")}</span></Td></tr>)}
       </tbody></Table>
     </AdminLayout>
   );
 }
 
-export function mountTokenRoutes(app: App, db: Db) {
+export function mountTokenRoutes(app: App, db: Db, config: Config) {
   app.get("/tokens", (c) => TokenPage({ db, user: c.user as User, flash: getFlash(c) }));
   app.post("/tokens", (c) => {
     const user = c.user as User;
@@ -71,7 +72,7 @@ export function mountTokenRoutes(app: App, db: Db) {
     const raw = Array.isArray(body.scopes) ? body.scopes : body.scopes ? [body.scopes] : [];
     const scopes = raw.map(String).filter((scope): scope is ApiScope => API_SCOPES.includes(scope as ApiScope));
     if (!name || scopes.length === 0) return c.text("Name and at least one scope are required", 400);
-    const result = mintApiToken(db, user.id, name, scopes);
+    const result = mintApiToken(db, user.id, name, scopes, null, `${config.baseUrl}/mcp`);
     c.set.status = 201;
     return c.html(TokenPage({ db, user, revealedToken: result.token }));
   });

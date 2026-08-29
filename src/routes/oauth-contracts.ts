@@ -14,7 +14,7 @@ const authorizationFields = {
 export const oauthRegistrationInput = z.object({
   client_name: z.string().min(1).max(255).optional(),
   redirect_uris: z.array(z.url()).min(1),
-  token_endpoint_auth_method: z.literal("none").optional(),
+  token_endpoint_auth_method: z.string().optional(),
   grant_types: z.array(z.string()).optional(),
   response_types: z.array(z.string()).optional(),
   scope: z.string().optional(),

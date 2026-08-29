@@ -24,8 +24,15 @@ async function pkceChallenge(verifier: string) {
 function randomSecret(prefix: string) {
   return `${prefix}${crypto.randomUUID().replaceAll("-", "")}${crypto.randomUUID().replaceAll("-", "")}`;
 }
+function oauthHeaders(c: { set: { headers: Record<string, string | number> } }) {
+  c.set.headers["cache-control"] = "no-store";
+  c.set.headers.pragma = "no-cache";
+}
 function validScopes(raw: string): ApiScope[] {
   return [...new Set(raw.split(/\s+/).filter((scope): scope is ApiScope => API_SCOPES.includes(scope as ApiScope)))];
+}
+function requestedScopeNames(raw: string) {
+  return [...new Set(raw.split(/\s+/).filter(Boolean))];
 }
 
 export function oauthRoutes(db: Db, config: Config) {
@@ -49,11 +56,30 @@ export function oauthRoutes(db: Db, config: Config) {
   }));
 
   app.post("/oauth/register", (c) => {
+    oauthHeaders(c);
     if (!config.oauthDynamicRegistrationEnabled) return c.json({ error: "registration_not_supported" }, 403);
     const redirectUris = c.body.redirect_uris;
+    if (c.body.token_endpoint_auth_method && c.body.token_endpoint_auth_method !== "none") {
+      return c.json({ error: "invalid_client_metadata", error_description: "Only public clients are supported" }, 400);
+    }
+    if (c.body.grant_types?.some((grant) => !["authorization_code", "refresh_token"].includes(grant))
+      || c.body.response_types?.some((response) => response !== "code")) {
+      return c.json({ error: "invalid_client_metadata", error_description: "Unsupported OAuth flow" }, 400);
+    }
+    const requestedScopes = c.body.scope ? requestedScopeNames(c.body.scope) : [...API_SCOPES];
+    const scopes = validScopes(requestedScopes.join(" "));
+    if (scopes.length !== requestedScopes.length) {
+      return c.json({ error: "invalid_client_metadata", error_description: "Unsupported scope" }, 400);
+    }
     try {
-      const client = registerOauthClient(db, c.body.client_name ?? "MCP client", redirectUris);
-      return c.json({ client_id: client.clientId, client_name: client.clientName, redirect_uris: redirectUris, token_endpoint_auth_method: "none" }, 201);
+      const client = registerOauthClient(db, c.body.client_name ?? "MCP client", redirectUris, scopes);
+      return c.json({
+        client_id: client.clientId, client_id_issued_at: Math.floor(Date.now() / 1000),
+        client_name: client.clientName, redirect_uris: redirectUris, token_endpoint_auth_method: "none",
+        grant_types: c.body.grant_types ?? ["authorization_code", "refresh_token"],
+        response_types: c.body.response_types ?? ["code"],
+        scope: scopes.join(" "),
+      }, 201);
     } catch { return c.json({ error: "invalid_redirect_uri" }, 400); }
   }, { body: oauthRegistrationInput });
 
@@ -66,12 +92,17 @@ export function oauthRoutes(db: Db, config: Config) {
     if (!client || !(JSON.parse(client.redirectUris) as string[]).includes(q.redirect_uri ?? "") || q.response_type !== "code" || q.code_challenge_method !== "S256" || !q.code_challenge) {
       return c.text("Invalid OAuth authorization request", 400);
     }
-    const scopes = validScopes(q.scope ?? "");
-    if (scopes.length === 0) return c.text("At least one supported scope is required", 400);
+    if (q.resource !== `${config.baseUrl}/mcp`) return c.text("Invalid OAuth resource", 400);
+    const requestedScopes = requestedScopeNames(q.scope ?? "");
+    const scopes = validScopes(requestedScopes.join(" "));
+    const clientScopes = JSON.parse(client.scopes) as ApiScope[];
+    if (scopes.length === 0 || scopes.length !== requestedScopes.length || scopes.some((scope) => !clientScopes.includes(scope))) {
+      return c.text("Invalid OAuth scope", 400);
+    }
     return c.html(
-      <html><head><title>Authorize {client.clientName}</title></head><body>
+      <html><head><title safe>{`Authorize ${client.clientName}`}</title></head><body>
         <main style="max-width:36rem;margin:3rem auto;font-family:system-ui">
-          <h1>Authorize {client.clientName}</h1><p>Signed in as {user.email}</p>
+          <h1>Authorize <span safe>{client.clientName}</span></h1><p>Signed in as <span safe>{user.email}</span></p>
           <p>This client is requesting:</p><ul>{scopes.map((scope) => <li><code>{scope}</code></li>)}</ul>
           <form method="post" action="/oauth/authorize">
             {Object.entries(q).map(([key, value]) => value ? <input type="hidden" name={key} value={value} /> : null)}
@@ -93,16 +124,22 @@ export function oauthRoutes(db: Db, config: Config) {
       || body.response_type !== "code"
       || body.code_challenge_method !== "S256"
       || !body.code_challenge) return c.text("Invalid authorization request", 400);
+    if (body.resource !== `${config.baseUrl}/mcp`) return c.text("Invalid OAuth resource", 400);
     const redirect = new URL(redirectUri);
     if (body.decision !== "allow") {
       redirect.searchParams.set("error", "access_denied"); if (state) redirect.searchParams.set("state", state);
       return c.redirect(redirect.toString(), 302);
     }
-    const scopes = validScopes(body.scope ?? "");
-    if (scopes.length === 0) return c.text("At least one supported scope is required", 400);
+    const requestedScopes = requestedScopeNames(body.scope ?? "");
+    const scopes = validScopes(requestedScopes.join(" "));
+    const clientScopes = JSON.parse(client.scopes) as ApiScope[];
+    if (scopes.length === 0 || scopes.length !== requestedScopes.length || scopes.some((scope) => !clientScopes.includes(scope))) {
+      return c.text("Invalid OAuth scope", 400);
+    }
     const code = randomSecret("lst_code_");
     db.insert(schema.oauthAuthorizationCodes).values({
       codeHash: hashToken(code), clientId, userId: user.id, redirectUri, scopes: JSON.stringify(scopes),
+      audience: body.resource,
       codeChallenge: body.code_challenge, expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
     }).run();
     redirect.searchParams.set("code", code); if (state) redirect.searchParams.set("state", state);
@@ -110,6 +147,7 @@ export function oauthRoutes(db: Db, config: Config) {
   }, { body: oauthAuthorizationDecision });
 
   app.post("/oauth/token", async (c) => {
+    oauthHeaders(c);
     const body = c.body;
     if (body.grant_type === "authorization_code") {
       const code = db.select().from(schema.oauthAuthorizationCodes).where(and(
@@ -118,11 +156,26 @@ export function oauthRoutes(db: Db, config: Config) {
       if (!code || code.expiresAt <= new Date().toISOString() || code.clientId !== body.client_id || code.redirectUri !== body.redirect_uri || await pkceChallenge(body.code_verifier) !== code.codeChallenge) {
         return c.json({ error: "invalid_grant" }, 400);
       }
-      db.update(schema.oauthAuthorizationCodes).set({ usedAt: new Date().toISOString() }).where(eq(schema.oauthAuthorizationCodes.id, code.id)).run();
+      if (!body.resource || body.resource !== code.audience || body.resource !== `${config.baseUrl}/mcp`) {
+        return c.json({ error: "invalid_target" }, 400);
+      }
       const scopes = JSON.parse(code.scopes) as ApiScope[];
-      const access = mintApiToken(db, code.userId, `OAuth ${code.clientId.slice(0, 16)}`, scopes, new Date(Date.now() + 60 * 60_000).toISOString());
       const refresh = randomSecret("lst_refresh_");
-      db.insert(schema.oauthRefreshTokens).values({ tokenHash: hashToken(refresh), clientId: code.clientId, userId: code.userId, scopes: code.scopes, expiresAt: new Date(Date.now() + 30 * 86400_000).toISOString() }).run();
+      let access;
+      try {
+        access = db.transaction((tx) => {
+          const claimed = tx.update(schema.oauthAuthorizationCodes).set({ usedAt: new Date().toISOString() }).where(and(
+            eq(schema.oauthAuthorizationCodes.id, code.id), isNull(schema.oauthAuthorizationCodes.usedAt),
+          )).returning({ id: schema.oauthAuthorizationCodes.id }).get();
+          if (!claimed) throw Object.assign(new Error("Authorization code already used"), { code: "invalid_grant" });
+          const minted = mintApiToken(tx, code.userId, `OAuth ${code.clientId.slice(0, 16)}`, scopes, new Date(Date.now() + 60 * 60_000).toISOString(), code.audience);
+          tx.insert(schema.oauthRefreshTokens).values({ tokenHash: hashToken(refresh), clientId: code.clientId, userId: code.userId, scopes: code.scopes, audience: code.audience, expiresAt: new Date(Date.now() + 30 * 86400_000).toISOString() }).run();
+          return minted;
+        });
+      } catch (error) {
+        if (error instanceof Error && "code" in error && error.code === "invalid_grant") return c.json({ error: "invalid_grant" }, 400);
+        throw error;
+      }
       return c.json({ access_token: access.token, token_type: "Bearer", expires_in: 3600, refresh_token: refresh, scope: scopes.join(" ") });
     }
     if (body.grant_type === "refresh_token") {
@@ -130,9 +183,22 @@ export function oauthRoutes(db: Db, config: Config) {
         eq(schema.oauthRefreshTokens.tokenHash, hashToken(body.refresh_token)), isNull(schema.oauthRefreshTokens.revokedAt),
       )).get();
       if (!refresh || refresh.expiresAt <= new Date().toISOString() || refresh.clientId !== body.client_id) return c.json({ error: "invalid_grant" }, 400);
-      const scopes = JSON.parse(refresh.scopes) as ApiScope[];
-      const access = mintApiToken(db, refresh.userId, `OAuth ${refresh.clientId.slice(0, 16)}`, scopes, new Date(Date.now() + 60 * 60_000).toISOString());
-      return c.json({ access_token: access.token, token_type: "Bearer", expires_in: 3600, scope: scopes.join(" ") });
+      if (!body.resource || body.resource !== refresh.audience || body.resource !== `${config.baseUrl}/mcp`) {
+        return c.json({ error: "invalid_target" }, 400);
+      }
+      const originalScopes = JSON.parse(refresh.scopes) as ApiScope[];
+      const requestedScopes = body.scope ? validScopes(body.scope) : originalScopes;
+      if (requestedScopes.length === 0 || requestedScopes.some((scope) => !originalScopes.includes(scope))) {
+        return c.json({ error: "invalid_scope" }, 400);
+      }
+      const rotated = randomSecret("lst_refresh_");
+      const response = db.transaction((tx) => {
+        tx.update(schema.oauthRefreshTokens).set({ revokedAt: new Date().toISOString() }).where(eq(schema.oauthRefreshTokens.id, refresh.id)).run();
+        const access = mintApiToken(tx, refresh.userId, `OAuth ${refresh.clientId.slice(0, 16)}`, requestedScopes, new Date(Date.now() + 60 * 60_000).toISOString(), refresh.audience);
+        tx.insert(schema.oauthRefreshTokens).values({ tokenHash: hashToken(rotated), clientId: refresh.clientId, userId: refresh.userId, scopes: JSON.stringify(requestedScopes), audience: refresh.audience, expiresAt: new Date(Date.now() + 30 * 86400_000).toISOString() }).run();
+        return access;
+      });
+      return c.json({ access_token: response.token, token_type: "Bearer", expires_in: 3600, refresh_token: rotated, scope: requestedScopes.join(" ") });
     }
   }, { body: oauthTokenInput });
   return app;
