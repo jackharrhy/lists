@@ -16,6 +16,10 @@ import { sendEmail } from "../../services/mailer";
 import { z } from "zod";
 
 const PAGE_SIZE = 50;
+type SubscriberListRow = Pick<
+  typeof schema.subscribers.$inferSelect,
+  "id" | "email" | "firstName" | "lastName" | "status" | "unsubscribeToken" | "createdAt"
+> & { membershipCount: number };
 const SubscriberIdentitySchema = z.object({
   email: z
     .email()
@@ -78,6 +82,7 @@ export function mountSubscriberRoutes(app: App, db: Db, config: Config) {
     const filterSearch = c.query.search ?? "";
     const filterStatus = c.query.status ?? "";
     const filterConfirmed = c.query.confirmed ?? "";
+    const filterMembership = c.query.membership ?? "";
 
     // Build where conditions
     const conditions: any[] = [];
@@ -91,6 +96,11 @@ export function mountSubscriberRoutes(app: App, db: Db, config: Config) {
       conditions.push(eq(schema.subscribers.status, filterStatus));
     }
 
+    const orphanedCondition = sql`NOT EXISTS (SELECT 1 FROM subscriber_lists sl WHERE sl.subscriber_id = ${schema.subscribers.id})`;
+    if (listAccess === "all" && filterMembership === "orphaned") {
+      conditions.push(orphanedCondition);
+    }
+
     // Base select shape for selectDistinct path
     const baseSelect = {
       id: schema.subscribers.id,
@@ -100,6 +110,7 @@ export function mountSubscriberRoutes(app: App, db: Db, config: Config) {
       status: schema.subscribers.status,
       unsubscribeToken: schema.subscribers.unsubscribeToken,
       createdAt: schema.subscribers.createdAt,
+      membershipCount: sql<number>`(SELECT count(*) FROM subscriber_lists sl WHERE sl.subscriber_id = ${schema.subscribers.id})`,
     };
 
     // Helper: apply confirmed filter via EXISTS subquery
@@ -117,8 +128,16 @@ export function mountSubscriberRoutes(app: App, db: Db, config: Config) {
       conditions.push(confirmedCondition(false));
     }
 
-    let subscribers: (typeof schema.subscribers.$inferSelect)[];
+    let subscribers: SubscriberListRow[];
     let total = 0;
+    const orphanedTotal =
+      listAccess === "all"
+        ? (db
+            .select({ count: sql<number>`count(*)` })
+            .from(schema.subscribers)
+            .where(orphanedCondition)
+            .get()?.count ?? 0)
+        : 0;
 
     if (listAccess === "all") {
       const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
@@ -137,7 +156,7 @@ export function mountSubscriberRoutes(app: App, db: Db, config: Config) {
       total = countRow?.count ?? 0;
 
       // Page
-      const q = db.select().from(schema.subscribers).orderBy(desc(schema.subscribers.createdAt));
+      const q = db.select(baseSelect).from(schema.subscribers).orderBy(desc(schema.subscribers.createdAt));
       subscribers = (whereClause ? q.where(whereClause) : q).limit(PAGE_SIZE).offset(offset).all();
     } else if (listAccess.length === 0) {
       subscribers = [];
@@ -166,7 +185,7 @@ export function mountSubscriberRoutes(app: App, db: Db, config: Config) {
         .all();
     }
 
-    const hasFilters = !!(filterSearch || filterStatus || filterConfirmed);
+    const hasFilters = !!(filterSearch || filterStatus || filterConfirmed || filterMembership);
     const start = total === 0 ? 0 : offset + 1;
     const end = Math.min(offset + PAGE_SIZE, total);
 
@@ -175,6 +194,7 @@ export function mountSubscriberRoutes(app: App, db: Db, config: Config) {
         ...(filterSearch ? { search: filterSearch } : {}),
         ...(filterStatus ? { status: filterStatus } : {}),
         ...(filterConfirmed ? { confirmed: filterConfirmed } : {}),
+        ...(filterMembership ? { membership: filterMembership } : {}),
         page: String(page),
         ...params,
       });
@@ -184,7 +204,14 @@ export function mountSubscriberRoutes(app: App, db: Db, config: Config) {
     return c.html(
       <AdminLayout title="Subscribers" user={user} flash={flash}>
         <PageHeader title="Subscribers">
-          <LinkButton href="/admin/subscribers/new">Add Subscriber</LinkButton>
+          <div class="flex items-center gap-2">
+            {orphanedTotal > 0 && (
+              <LinkButton href="/admin/subscribers?membership=orphaned" variant="secondary">
+                {orphanedTotal} orphaned
+              </LinkButton>
+            )}
+            <LinkButton href="/admin/subscribers/new">Add subscriber</LinkButton>
+          </div>
         </PageHeader>
 
         {/* Filters */}
@@ -221,6 +248,19 @@ export function mountSubscriberRoutes(app: App, db: Db, config: Config) {
               </option>
             </Select>
           </div>
+          {listAccess === "all" && (
+            <div>
+              <label class="block text-xs font-medium text-gray-500 mb-1">Membership</label>
+              <Select name="membership" size="sm">
+                <option value="" selected={!filterMembership}>
+                  All
+                </option>
+                <option value="orphaned" selected={filterMembership === "orphaned"}>
+                  Orphaned
+                </option>
+              </Select>
+            </div>
+          )}
           <div>
             <label class="block text-xs font-medium text-gray-500 mb-1">Confirmed</label>
             <Select name="confirmed" size="sm">
@@ -252,6 +292,7 @@ export function mountSubscriberRoutes(app: App, db: Db, config: Config) {
               <Th>Email</Th>
               <Th>Name</Th>
               <Th>Status</Th>
+              <Th>Lists</Th>
               <Th>Created</Th>
               <Th></Th>
             </tr>
@@ -266,6 +307,15 @@ export function mountSubscriberRoutes(app: App, db: Db, config: Config) {
                 </Td>
                 <Td>{displayName(sub)}</Td>
                 <Td>{sub.status}</Td>
+                <Td>
+                  {sub.membershipCount === 0 ? (
+                    <span class="inline-block rounded bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
+                      Orphaned
+                    </span>
+                  ) : (
+                    sub.membershipCount
+                  )}
+                </Td>
                 <Td>{fmtDate(sub.createdAt)}</Td>
                 <Td>
                   <form
@@ -286,6 +336,7 @@ export function mountSubscriberRoutes(app: App, db: Db, config: Config) {
                 <Td class="text-gray-400">
                   <span>No subscribers match the current filters.</span>
                 </Td>
+                <Td></Td>
                 <Td></Td>
                 <Td></Td>
                 <Td></Td>

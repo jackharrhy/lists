@@ -286,7 +286,7 @@ describe("Full HTTP flow: campaign create+send (specific subscribers)", () => {
   test("POST with audienceMode=specific stores flat array in audienceData and sends to correct subscribers", async () => {
     const db = createTestDb();
     await seedOwner(db);
-    seedList(db, { slug: "newsletter", name: "Newsletter", fromDomain: "example.com" });
+    const list = seedList(db, { slug: "newsletter", name: "Newsletter", fromDomain: "example.com" });
 
     const sub1 = createSubscriber(db, "pick1@example.com", "Pick", "One", ["newsletter"]);
     confirmSubscriber(db, sub1.unsubscribeToken);
@@ -868,6 +868,34 @@ describe("Inbound list groups by thread", () => {
     // The reply count for the thread should be 2 (outbound reply + follow-up inbound)
     // Look for "2" in the replies column -- the thread has 3 messages total, minus 1 root = 2
     expect(html).toContain(">2<");
+  });
+});
+
+describe("Subscriber orphan cleanup", () => {
+  test("labels and filters subscribers without list memberships", async () => {
+    const db = createTestDb();
+    await seedOwner(db);
+    const list = seedList(db, { slug: "newsletter", name: "Newsletter", fromDomain: "example.com" });
+    createSubscriber(db, "member@example.com", "List", "Member", ["newsletter"]);
+    createSubscriber(db, "orphan@example.com", "No", "Lists", []);
+    const app = createApp(db);
+    const cookie = await login(app);
+
+    const indexHtml = await (await authGet(app, "/admin/subscribers", cookie)).text();
+    expect(indexHtml).toContain("1 orphaned");
+    expect(indexHtml).toContain("orphan@example.com");
+    expect(indexHtml).toContain("Orphaned");
+
+    const filteredHtml = await (await authGet(app, "/admin/subscribers?membership=orphaned", cookie)).text();
+    expect(filteredHtml).toContain("orphan@example.com");
+    expect(filteredHtml).not.toContain("member@example.com");
+
+    const deleted = await authPost(app, `/admin/lists/${list.id}/delete`, cookie, {});
+    expect(deleted.status).toBe(302);
+    const afterDeleteHtml = await (await authGet(app, "/admin/subscribers?membership=orphaned", cookie)).text();
+    expect(afterDeleteHtml).toContain("2 orphaned");
+    expect(afterDeleteHtml).toContain("orphan@example.com");
+    expect(afterDeleteHtml).toContain("member@example.com");
   });
 });
 
