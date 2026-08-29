@@ -13,7 +13,11 @@ const authorizationFields = {
 export const oauthRegistrationInput = z.object({
   client_name: z.string().min(1).max(255).optional(),
   redirect_uris: z.array(z.url()).min(1),
-}).strict();
+  token_endpoint_auth_method: z.literal("none").optional(),
+  grant_types: z.array(z.string()).optional(),
+  response_types: z.array(z.string()).optional(),
+  scope: z.string().optional(),
+}).passthrough();
 
 export const oauthAuthorizationQuery = z.object(authorizationFields).strict();
 
@@ -29,10 +33,13 @@ export const oauthTokenInput = z.discriminatedUnion("grant_type", [
     client_id: z.string().min(1),
     redirect_uri: z.url(),
     code_verifier: z.string().min(43).max(128),
-  }).strict(),
+    resource: z.url().optional(),
+  }).passthrough(),
   z.object({
     grant_type: z.literal("refresh_token"),
     refresh_token: z.string().min(1),
     client_id: z.string().min(1),
-  }).strict(),
+    scope: z.string().optional(),
+    resource: z.url().optional(),
+  }).passthrough(),
 ]);

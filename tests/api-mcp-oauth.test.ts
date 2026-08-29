@@ -372,6 +372,24 @@ describe("OAuth PKCE", () => {
     expect((await app.request("/api/v1/lists", { headers: bearer(tokens.access_token) })).status).toBe(200);
   });
 
+  test("accepts standard dynamic-registration metadata sent by MCP clients", async () => {
+    const { app } = setup();
+    const response = await app.request("/oauth/register", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        client_name: "Codex",
+        redirect_uris: ["http://127.0.0.1:1455/callback"],
+        token_endpoint_auth_method: "none",
+        grant_types: ["authorization_code", "refresh_token"],
+        response_types: ["code"],
+        scope: "lists:read templates:read",
+        software_id: "codex-cli",
+      }),
+    });
+    expect(response.status).toBe(201);
+    expect((await response.json() as any).token_endpoint_auth_method).toBe("none");
+  });
+
   test("rejects malformed protocol inputs before credential logic", async () => {
     const { app, db } = setup();
     const registration = await app.request("/oauth/register", {
