@@ -41,13 +41,13 @@ export class TemplateValidationError extends Error {
 const MAX_RENDERED_BYTES = 10_000_000;
 
 const BUILT_IN_HTML = `<!doctype html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>{{campaign.subject}}</title></head>
-<body style="background:#fff;font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;margin:0">
-  <div style="margin:0 auto;padding:32px 24px;max-width:600px">
-    <div style="font-size:13px;font-weight:600;color:#666;text-transform:uppercase;letter-spacing:.5px;margin:0 0 24px">{{list.name}}</div>
-    <div style="font-size:16px;line-height:26px;color:#1a1a1a">{{{sections.content.html}}}</div>
-    <hr style="border:0;border-top:1px solid #e5e5e5;margin:32px 0 24px">
-    <p style="color:#999;font-size:12px;line-height:20px;text-align:center"><a href="{{links.unsubscribe}}" style="color:#999">Unsubscribe</a> · <a href="{{links.preferences}}" style="color:#999">Manage preferences</a></p>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>{{campaign.subject}}</title></head>
+<body style="background:#fff;color:#202020;font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;margin:0">
+  <div style="margin:0 auto;padding:40px 24px 32px;max-width:580px">
+    <div style="border-bottom:1px solid #dedede;color:#202020;font-size:16px;font-weight:600;line-height:22px;margin:0 0 32px;padding:0 0 16px">{{list.name}}</div>
+    <div style="color:#202020;font-size:16px;line-height:1.65">{{{sections.content.html}}}</div>
+    <hr style="border:0;border-top:1px solid #dedede;margin:40px 0 18px">
+    <p style="color:#737373;font-size:13px;line-height:20px;margin:0"><a href="{{links.preferences}}" style="color:#5c5c5c;text-decoration:underline">Manage preferences</a>&nbsp;&nbsp;&nbsp;<a href="{{links.unsubscribe}}" style="color:#5c5c5c;text-decoration:underline">Unsubscribe</a></p>
   </div>
 </body></html>`;
 const BUILT_IN_TEXT = `{{sections.content.text}}\n\nUnsubscribe: {{links.unsubscribe}}\nManage preferences: {{links.preferences}}`;

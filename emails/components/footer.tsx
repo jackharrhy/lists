@@ -12,12 +12,12 @@ export function Footer({ unsubscribeUrl, preferencesUrl }: FooterProps) {
     <>
       <Hr style={hr} />
       <Text style={footerText}>
-        <Link href={unsubscribeUrl} style={link}>
-          Unsubscribe
-        </Link>
-        {" · "}
         <Link href={preferencesUrl} style={link}>
           Manage preferences
+        </Link>
+        {"\u00a0\u00a0\u00a0"}
+        <Link href={unsubscribeUrl} style={link}>
+          Unsubscribe
         </Link>
       </Text>
     </>
@@ -25,18 +25,18 @@ export function Footer({ unsubscribeUrl, preferencesUrl }: FooterProps) {
 }
 
 const hr = {
-  borderColor: "#e5e5e5",
-  margin: "32px 0 24px",
+  borderColor: "#dedede",
+  margin: "40px 0 18px",
 };
 
 const footerText = {
-  color: "#999999",
-  fontSize: "12px",
+  color: "#737373",
+  fontSize: "13px",
   lineHeight: "20px",
-  textAlign: "center" as const,
+  margin: 0,
 };
 
 const link = {
-  color: "#999999",
+  color: "#5c5c5c",
   textDecoration: "underline",
 };

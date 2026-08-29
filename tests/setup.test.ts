@@ -2,6 +2,8 @@ import { test, expect } from "bun:test";
 import { createTestDb } from "./helpers";
 import * as schema from "../src/db/schema";
 import { Database } from "bun:sqlite";
+import { eq } from "drizzle-orm";
+import { seedBuiltInTemplates } from "../src/services/email-templates";
 
 test("test DB initializes with all tables", () => {
   const db = createTestDb();
@@ -13,6 +15,28 @@ test("test DB initializes with all tables", () => {
   expect(campaigns).toEqual([]);
   const messages = db.select().from(schema.messages).all();
   expect(messages).toEqual([]);
+});
+
+test("built-in newsletter uses the quiet default design", () => {
+  const db = createTestDb();
+  const template = db.select().from(schema.emailTemplates).where(eq(schema.emailTemplates.slug, "newsletter")).get()!;
+
+  expect(template.htmlSource).toContain("font-size:16px;font-weight:600;line-height:22px");
+  expect(template.htmlSource).toContain("Manage preferences</a>&nbsp;&nbsp;&nbsp;<a");
+  expect(template.htmlSource).not.toContain("text-transform:uppercase");
+  expect(template.htmlSource).not.toContain(" · ");
+});
+
+test("built-in newsletter seeding never overwrites an existing template", () => {
+  const db = createTestDb();
+  const template = db.select().from(schema.emailTemplates).where(eq(schema.emailTemplates.slug, "newsletter")).get()!;
+  db.update(schema.emailTemplates)
+    .set({ htmlSource: "<p>Production template</p>", compiledHtml: "<p>Production template</p>" })
+    .where(eq(schema.emailTemplates.id, template.id))
+    .run();
+
+  const preserved = seedBuiltInTemplates(db);
+  expect(preserved.htmlSource).toBe("<p>Production template</p>");
 });
 
 test("mutable-template migration preserves the selected template source", async () => {

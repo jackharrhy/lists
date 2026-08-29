@@ -32,25 +32,27 @@ export default Newsletter;
 const body = {
   backgroundColor: "#ffffff",
   fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+  margin: 0,
 };
 
 const container = {
   margin: "0 auto",
-  padding: "32px 24px",
-  maxWidth: "600px",
+  padding: "40px 24px 32px",
+  maxWidth: "580px",
 };
 
 const listNameText = {
-  fontSize: "13px",
+  fontSize: "16px",
   fontWeight: 600 as const,
-  color: "#666666",
-  textTransform: "uppercase" as const,
-  letterSpacing: "0.5px",
-  margin: "0 0 24px",
+  lineHeight: "22px",
+  color: "#202020",
+  margin: "0 0 32px",
+  paddingBottom: "16px",
+  borderBottom: "1px solid #dedede",
 };
 
 const content = {
   fontSize: "16px",
-  lineHeight: "26px",
-  color: "#1a1a1a",
+  lineHeight: "1.65",
+  color: "#202020",
 };
