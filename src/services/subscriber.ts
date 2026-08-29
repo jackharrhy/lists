@@ -41,18 +41,18 @@ export function createSubscriber(
     }
 
     for (const list of requestedLists) {
-      const existing = tx.select().from(schema.subscriberLists).where(and(
-        eq(schema.subscriberLists.subscriberId, subscriber.id),
-        eq(schema.subscriberLists.listId, list.id),
-      )).get();
+      const existing = tx
+        .select()
+        .from(schema.subscriberLists)
+        .where(and(eq(schema.subscriberLists.subscriberId, subscriber.id), eq(schema.subscriberLists.listId, list.id)))
+        .get();
       if (existing) {
         if (existing.status === "unsubscribed") {
           tx.update(schema.subscriberLists)
             .set({ status: "unconfirmed" })
-            .where(and(
-              eq(schema.subscriberLists.subscriberId, subscriber.id),
-              eq(schema.subscriberLists.listId, list.id),
-            ))
+            .where(
+              and(eq(schema.subscriberLists.subscriberId, subscriber.id), eq(schema.subscriberLists.listId, list.id)),
+            )
             .run();
         }
         continue;
@@ -80,10 +80,7 @@ export function confirmSubscriber(db: Db, token: string): boolean {
     .select({ listId: schema.subscriberLists.listId })
     .from(schema.subscriberLists)
     .where(
-      and(
-        eq(schema.subscriberLists.subscriberId, subscriber.id),
-        eq(schema.subscriberLists.status, "unconfirmed"),
-      ),
+      and(eq(schema.subscriberLists.subscriberId, subscriber.id), eq(schema.subscriberLists.status, "unconfirmed")),
     )
     .all();
 
@@ -91,10 +88,7 @@ export function confirmSubscriber(db: Db, token: string): boolean {
     db.update(schema.subscriberLists)
       .set({ status: "confirmed" })
       .where(
-        and(
-          eq(schema.subscriberLists.subscriberId, subscriber.id),
-          eq(schema.subscriberLists.status, "unconfirmed"),
-        ),
+        and(eq(schema.subscriberLists.subscriberId, subscriber.id), eq(schema.subscriberLists.status, "unconfirmed")),
       )
       .run();
 
@@ -144,10 +138,7 @@ export function confirmSubscriberDomain(db: Db, token: string, domain: string): 
       db.update(schema.subscriberLists)
         .set({ status: "confirmed" })
         .where(
-          and(
-            eq(schema.subscriberLists.subscriberId, subscriber.id),
-            eq(schema.subscriberLists.listId, sub.listId),
-          ),
+          and(eq(schema.subscriberLists.subscriberId, subscriber.id), eq(schema.subscriberLists.listId, sub.listId)),
         )
         .run();
     }
@@ -172,12 +163,7 @@ export function unsubscribeAll(db: Db, token: string): boolean {
   const activeSubs = db
     .select({ listId: schema.subscriberLists.listId })
     .from(schema.subscriberLists)
-    .where(
-      and(
-        eq(schema.subscriberLists.subscriberId, subscriber.id),
-        eq(schema.subscriberLists.status, "confirmed"),
-      ),
-    )
+    .where(and(eq(schema.subscriberLists.subscriberId, subscriber.id), eq(schema.subscriberLists.status, "confirmed")))
     .all();
   const listNames = activeSubs
     .map((s) => db.select().from(schema.lists).where(eq(schema.lists.id, s.listId)).get()?.name)
@@ -206,12 +192,7 @@ export function unsubscribeFromList(db: Db, token: string, listId: number): bool
 
   db.update(schema.subscriberLists)
     .set({ status: "unsubscribed" })
-    .where(
-      and(
-        eq(schema.subscriberLists.subscriberId, subscriber.id),
-        eq(schema.subscriberLists.listId, listId),
-      ),
-    )
+    .where(and(eq(schema.subscriberLists.subscriberId, subscriber.id), eq(schema.subscriberLists.listId, listId)))
     .run();
 
   logEvent(db, {
@@ -229,7 +210,11 @@ export function getSubscriberPreferences(db: Db, token: string) {
 
   const allLists = db.select().from(schema.lists).all();
 
-  const subscriptions = db.select().from(schema.subscriberLists).where(eq(schema.subscriberLists.subscriberId, subscriber.id)).all();
+  const subscriptions = db
+    .select()
+    .from(schema.subscriberLists)
+    .where(eq(schema.subscriberLists.subscriberId, subscriber.id))
+    .all();
 
   const subsByListId = new Map(subscriptions.map((s) => [s.listId, s]));
 
@@ -244,11 +229,7 @@ export function getSubscriberPreferences(db: Db, token: string) {
   return { subscriber, lists: listsWithStatus };
 }
 
-export function updatePreferences(
-  db: Db,
-  token: string,
-  subscribedListIds: number[],
-): boolean {
+export function updatePreferences(db: Db, token: string, subscribedListIds: number[]): boolean {
   const subscriber = db.select().from(schema.subscribers).where(eq(schema.subscribers.unsubscribeToken, token)).get();
   if (!subscriber) return false;
 
@@ -256,10 +237,11 @@ export function updatePreferences(
   const wantedIds = new Set(subscribedListIds);
 
   for (const list of allLists) {
-    const existing = db.select().from(schema.subscriberLists).where(and(
-      eq(schema.subscriberLists.subscriberId, subscriber.id),
-      eq(schema.subscriberLists.listId, list.id),
-    )).get();
+    const existing = db
+      .select()
+      .from(schema.subscriberLists)
+      .where(and(eq(schema.subscriberLists.subscriberId, subscriber.id), eq(schema.subscriberLists.listId, list.id)))
+      .get();
 
     if (wantedIds.has(list.id)) {
       if (!existing) {
@@ -274,10 +256,7 @@ export function updatePreferences(
         db.update(schema.subscriberLists)
           .set({ status: "confirmed" })
           .where(
-            and(
-              eq(schema.subscriberLists.subscriberId, subscriber.id),
-              eq(schema.subscriberLists.listId, list.id),
-            ),
+            and(eq(schema.subscriberLists.subscriberId, subscriber.id), eq(schema.subscriberLists.listId, list.id)),
           )
           .run();
       }
@@ -286,10 +265,7 @@ export function updatePreferences(
         db.update(schema.subscriberLists)
           .set({ status: "unsubscribed" })
           .where(
-            and(
-              eq(schema.subscriberLists.subscriberId, subscriber.id),
-              eq(schema.subscriberLists.listId, list.id),
-            ),
+            and(eq(schema.subscriberLists.subscriberId, subscriber.id), eq(schema.subscriberLists.listId, list.id)),
           )
           .run();
       }
@@ -316,10 +292,7 @@ export function getConfirmedSubscribers(db: Db, listId: number) {
       unsubscribeToken: schema.subscribers.unsubscribeToken,
     })
     .from(schema.subscribers)
-    .innerJoin(
-      schema.subscriberLists,
-      eq(schema.subscribers.id, schema.subscriberLists.subscriberId),
-    )
+    .innerJoin(schema.subscriberLists, eq(schema.subscribers.id, schema.subscriberLists.subscriberId))
     .where(
       and(
         eq(schema.subscriberLists.listId, listId),

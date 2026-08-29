@@ -15,7 +15,7 @@ export const API_SCOPES = [
   "dmarc:read",
 ] as const;
 
-export type ApiScope = typeof API_SCOPES[number];
+export type ApiScope = (typeof API_SCOPES)[number];
 
 export type Principal = {
   userId: number;
@@ -45,15 +45,17 @@ export function principalForUser(
   user: typeof schema.users.$inferSelect,
   scopes: Iterable<ApiScope> = API_SCOPES,
 ): Principal {
-  const listIds = user.role === "owner" || user.role === "admin"
-    ? "all" as const
-    : new Set(
-        db.select({ listId: schema.userLists.listId })
-          .from(schema.userLists)
-          .where(eq(schema.userLists.userId, user.id))
-          .all()
-          .map((row) => row.listId),
-      );
+  const listIds =
+    user.role === "owner" || user.role === "admin"
+      ? ("all" as const)
+      : new Set(
+          db
+            .select({ listId: schema.userLists.listId })
+            .from(schema.userLists)
+            .where(eq(schema.userLists.userId, user.id))
+            .all()
+            .map((row) => row.listId),
+        );
 
   return {
     userId: user.id,
@@ -67,12 +69,15 @@ export function principalForUser(
 export function canAccessSubscriber(db: Db, principal: Principal, subscriberId: number): boolean {
   if (principal.listIds === "all") return true;
   if (principal.listIds.size === 0) return false;
-  return db.select({ subscriberId: schema.subscriberLists.subscriberId })
+  return db
+    .select({ subscriberId: schema.subscriberLists.subscriberId })
     .from(schema.subscriberLists)
-    .where(and(
-      eq(schema.subscriberLists.subscriberId, subscriberId),
-      inArray(schema.subscriberLists.listId, [...principal.listIds]),
-    ))
+    .where(
+      and(
+        eq(schema.subscriberLists.subscriberId, subscriberId),
+        inArray(schema.subscriberLists.listId, [...principal.listIds]),
+      ),
+    )
     .all()
     .some((row) => row.subscriberId === subscriberId);
 }

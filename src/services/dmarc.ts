@@ -211,7 +211,8 @@ export function parseDmarcAttachment(attachment: DmarcAttachment): DmarcReport {
     const evaluated = row?.policy_evaluated ?? {};
     if (!row) throw new DmarcParseError(`DMARC record ${index + 1} has no row`);
     const count = Number(requiredString(row.count, `record ${index + 1} count`));
-    if (!Number.isSafeInteger(count) || count < 0) throw new DmarcParseError(`DMARC record ${index + 1} count is invalid`);
+    if (!Number.isSafeInteger(count) || count < 0)
+      throw new DmarcParseError(`DMARC record ${index + 1} count is invalid`);
 
     return {
       sourceIp: requiredString(row.source_ip, `record ${index + 1} source IP`),
@@ -268,9 +269,17 @@ export function findDmarcAttachment(attachments: DmarcAttachment[]): DmarcAttach
     const name = attachment.filename?.toLowerCase() ?? "";
     const type = attachment.contentType?.toLowerCase() ?? "";
     const bytes = attachment.content;
-    return name.endsWith(".xml") || name.endsWith(".xml.gz") || name.endsWith(".gz") || name.endsWith(".zip") ||
-      type.includes("xml") || type.includes("gzip") || type.includes("zip") ||
-      (bytes[0] === 0x1f && bytes[1] === 0x8b) || (bytes[0] === 0x50 && bytes[1] === 0x4b);
+    return (
+      name.endsWith(".xml") ||
+      name.endsWith(".xml.gz") ||
+      name.endsWith(".gz") ||
+      name.endsWith(".zip") ||
+      type.includes("xml") ||
+      type.includes("gzip") ||
+      type.includes("zip") ||
+      (bytes[0] === 0x1f && bytes[1] === 0x8b) ||
+      (bytes[0] === 0x50 && bytes[1] === 0x4b)
+    );
   });
   if (!candidate) throw new DmarcParseError("Email contains no DMARC XML, gzip, or ZIP attachment");
   return candidate;

@@ -13,8 +13,25 @@
   background: var(--color-blue-600);
 }
 
-#global-progress.htmx-request { opacity: 1; }
-.htmx-request button[type="submit"] { cursor: wait; opacity: 0.7; }
+#global-progress.htmx-request {
+  opacity: 1;
+}
+.htmx-request button[type="submit"] {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+:where(a, button, input, select, textarea, summary):focus-visible {
+  outline: 2px solid var(--color-blue-500);
+  outline-offset: 2px;
+}
+
+nav .nav-link[aria-current="page"] {
+  color: white;
+}
+.admin-table tbody tr:last-child td {
+  border-bottom: 0;
+}
 
 .template-source {
   max-height: 600px;

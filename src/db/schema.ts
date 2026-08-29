@@ -1,32 +1,32 @@
-import {
-  sqliteTable,
-  text,
-  integer,
-  index,
-} from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, index } from "drizzle-orm/sqlite-core";
 
 export const users = sqliteTable("users", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   email: text("email").unique().notNull(),
   name: text("name"),
   passwordHash: text("password_hash").notNull(),
-  role: text("role", { enum: ["owner", "admin", "member"] }).notNull().default("member"),
+  role: text("role", { enum: ["owner", "admin", "member"] })
+    .notNull()
+    .default("member"),
   createdAt: text("created_at")
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
 });
 
-export const sessions = sqliteTable("sessions", {
-  tokenHash: text("token_hash").primaryKey(),
-  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
-  expiresAt: text("expires_at").notNull(),
-  createdAt: text("created_at")
-    .notNull()
-    .$defaultFn(() => new Date().toISOString()),
-}, (table) => [
-  index("sessions_user_idx").on(table.userId),
-  index("sessions_expiry_idx").on(table.expiresAt),
-]);
+export const sessions = sqliteTable(
+  "sessions",
+  {
+    tokenHash: text("token_hash").primaryKey(),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    expiresAt: text("expires_at").notNull(),
+    createdAt: text("created_at")
+      .notNull()
+      .$defaultFn(() => new Date().toISOString()),
+  },
+  (table) => [index("sessions_user_idx").on(table.userId), index("sessions_expiry_idx").on(table.expiresAt)],
+);
 
 export const subscribers = sqliteTable("subscribers", {
   id: integer("id").primaryKey({ autoIncrement: true }),
@@ -62,59 +62,88 @@ export const userLists = sqliteTable("user_lists", {
     .references(() => lists.id),
 });
 
-export const apiTokens = sqliteTable("api_tokens", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
-  name: text("name").notNull(),
-  tokenHash: text("token_hash").notNull().unique(),
-  tokenPrefix: text("token_prefix").notNull(),
-  scopes: text("scopes").notNull(),
-  audience: text("audience"),
-  expiresAt: text("expires_at"),
-  lastUsedAt: text("last_used_at"),
-  revokedAt: text("revoked_at"),
-  createdAt: text("created_at")
-    .notNull()
-    .$defaultFn(() => new Date().toISOString()),
-}, (table) => [
-  index("api_tokens_user_idx").on(table.userId),
-  index("api_tokens_hash_idx").on(table.tokenHash),
-]);
+export const apiTokens = sqliteTable(
+  "api_tokens",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    tokenHash: text("token_hash").notNull().unique(),
+    tokenPrefix: text("token_prefix").notNull(),
+    scopes: text("scopes").notNull(),
+    audience: text("audience"),
+    expiresAt: text("expires_at"),
+    lastUsedAt: text("last_used_at"),
+    revokedAt: text("revoked_at"),
+    createdAt: text("created_at")
+      .notNull()
+      .$defaultFn(() => new Date().toISOString()),
+  },
+  (table) => [index("api_tokens_user_idx").on(table.userId), index("api_tokens_hash_idx").on(table.tokenHash)],
+);
 
 export const oauthClients = sqliteTable("oauth_clients", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   clientId: text("client_id").notNull().unique(),
   clientName: text("client_name").notNull(),
   redirectUris: text("redirect_uris").notNull(),
-  scopes: text("scopes").notNull().default('["lists:read","subscribers:read","subscribers:write","campaigns:read","campaigns:write","campaigns:send","templates:read","templates:write","deliverability:read","dmarc:read"]'),
-  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  scopes: text("scopes")
+    .notNull()
+    .default(
+      '["lists:read","subscribers:read","subscribers:write","campaigns:read","campaigns:write","campaigns:send","templates:read","templates:write","deliverability:read","dmarc:read"]',
+    ),
+  createdAt: text("created_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
 });
 
-export const oauthAuthorizationCodes = sqliteTable("oauth_authorization_codes", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  codeHash: text("code_hash").notNull().unique(),
-  clientId: text("client_id").notNull().references(() => oauthClients.clientId, { onDelete: "cascade" }),
-  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
-  redirectUri: text("redirect_uri").notNull(),
-  scopes: text("scopes").notNull(),
-  audience: text("audience"),
-  codeChallenge: text("code_challenge").notNull(),
-  expiresAt: text("expires_at").notNull(),
-  usedAt: text("used_at"),
-  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
-}, (table) => [index("oauth_codes_hash_idx").on(table.codeHash)]);
+export const oauthAuthorizationCodes = sqliteTable(
+  "oauth_authorization_codes",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    codeHash: text("code_hash").notNull().unique(),
+    clientId: text("client_id")
+      .notNull()
+      .references(() => oauthClients.clientId, { onDelete: "cascade" }),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    redirectUri: text("redirect_uri").notNull(),
+    scopes: text("scopes").notNull(),
+    audience: text("audience"),
+    codeChallenge: text("code_challenge").notNull(),
+    expiresAt: text("expires_at").notNull(),
+    usedAt: text("used_at"),
+    createdAt: text("created_at")
+      .notNull()
+      .$defaultFn(() => new Date().toISOString()),
+  },
+  (table) => [index("oauth_codes_hash_idx").on(table.codeHash)],
+);
 
-export const oauthRefreshTokens = sqliteTable("oauth_refresh_tokens", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  tokenHash: text("token_hash").notNull().unique(),
-  clientId: text("client_id").notNull().references(() => oauthClients.clientId, { onDelete: "cascade" }),
-  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
-  scopes: text("scopes").notNull(),
-  audience: text("audience"),
-  expiresAt: text("expires_at").notNull(),
-  revokedAt: text("revoked_at"),
-  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
-}, (table) => [index("oauth_refresh_hash_idx").on(table.tokenHash)]);
+export const oauthRefreshTokens = sqliteTable(
+  "oauth_refresh_tokens",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    tokenHash: text("token_hash").notNull().unique(),
+    clientId: text("client_id")
+      .notNull()
+      .references(() => oauthClients.clientId, { onDelete: "cascade" }),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    scopes: text("scopes").notNull(),
+    audience: text("audience"),
+    expiresAt: text("expires_at").notNull(),
+    revokedAt: text("revoked_at"),
+    createdAt: text("created_at")
+      .notNull()
+      .$defaultFn(() => new Date().toISOString()),
+  },
+  (table) => [index("oauth_refresh_hash_idx").on(table.tokenHash)],
+);
 
 export const subscriberLists = sqliteTable("subscriber_lists", {
   subscriberId: integer("subscriber_id")
@@ -155,7 +184,9 @@ export const emailTemplates = sqliteTable("email_templates", {
   slug: text("slug").notNull().unique(),
   name: text("name").notNull(),
   description: text("description"),
-  status: text("status", { enum: ["draft", "active", "archived"] }).notNull().default("draft"),
+  status: text("status", { enum: ["draft", "active", "archived"] })
+    .notNull()
+    .default("draft"),
   builtIn: integer("built_in", { mode: "boolean" }).notNull().default(false),
   sourceFormat: text("source_format", { enum: ["html", "mjml", "text"] }).notNull(),
   subjectSource: text("subject_source"),
@@ -164,8 +195,12 @@ export const emailTemplates = sqliteTable("email_templates", {
   compiledHtml: text("compiled_html"),
   sections: text("sections").notNull().default("[]"),
   partials: text("partials").notNull().default("{}"),
-  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
-  updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
+  createdAt: text("created_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
 });
 
 export const campaigns = sqliteTable("campaigns", {
@@ -183,7 +218,9 @@ export const campaigns = sqliteTable("campaigns", {
   audienceData: text("audience_data"),
   status: text("status", {
     enum: ["draft", "scheduled", "sending", "sent", "failed"],
-  }).notNull().default("draft"),
+  })
+    .notNull()
+    .default("draft"),
   scheduledAt: text("scheduled_at"),
   batchSize: integer("batch_size"),
   batchInterval: integer("batch_interval"),
@@ -196,15 +233,32 @@ export const campaigns = sqliteTable("campaigns", {
 
 export const campaignSends = sqliteTable("campaign_sends", {
   id: integer("id").primaryKey({ autoIncrement: true }),
-  campaignId: integer("campaign_id").notNull().references(() => campaigns.id),
-  subscriberId: integer("subscriber_id").notNull().references(() => subscribers.id),
+  campaignId: integer("campaign_id")
+    .notNull()
+    .references(() => campaigns.id),
+  subscriberId: integer("subscriber_id")
+    .notNull()
+    .references(() => subscribers.id),
   idempotencyKey: text("idempotency_key").unique(),
   sesMessageId: text("ses_message_id"),
   rfc822MessageId: text("rfc822_message_id"),
-  status: text("status", { enum: [
-    "pending", "attempting", "accepted", "delivered", "delivery_delayed",
-    "deferred", "rejected", "failed", "bounced", "complained", "sent",
-  ] }).notNull().default("pending"),
+  status: text("status", {
+    enum: [
+      "pending",
+      "attempting",
+      "accepted",
+      "delivered",
+      "delivery_delayed",
+      "deferred",
+      "rejected",
+      "failed",
+      "bounced",
+      "complained",
+      "sent",
+    ],
+  })
+    .notNull()
+    .default("pending"),
   sentAt: text("sent_at"),
   attemptCount: integer("attempt_count").notNull().default(0),
   nextAttemptAt: text("next_attempt_at"),
@@ -231,61 +285,73 @@ export const deliveryEvents = sqliteTable("delivery_events", {
     .$defaultFn(() => new Date().toISOString()),
 });
 
-export const dmarcReports = sqliteTable("dmarc_reports", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  reportKey: text("report_key").notNull().unique(),
-  reporterOrg: text("reporter_org").notNull(),
-  reporterEmail: text("reporter_email"),
-  externalReportId: text("external_report_id").notNull(),
-  domain: text("domain").notNull(),
-  dateBegin: text("date_begin").notNull(),
-  dateEnd: text("date_end").notNull(),
-  policy: text("policy").notNull(),
-  subdomainPolicy: text("subdomain_policy"),
-  nonexistentSubdomainPolicy: text("nonexistent_subdomain_policy"),
-  adkim: text("adkim").notNull().default("r"),
-  aspf: text("aspf").notNull().default("r"),
-  testing: text("testing"),
-  discoveryMethod: text("discovery_method"),
-  messageCount: integer("message_count").notNull(),
-  createdAt: text("created_at")
-    .notNull()
-    .$defaultFn(() => new Date().toISOString()),
-}, (table) => [
-  index("dmarc_reports_domain_range_idx").on(table.domain, table.dateBegin, table.dateEnd),
-]);
+export const dmarcReports = sqliteTable(
+  "dmarc_reports",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    reportKey: text("report_key").notNull().unique(),
+    reporterOrg: text("reporter_org").notNull(),
+    reporterEmail: text("reporter_email"),
+    externalReportId: text("external_report_id").notNull(),
+    domain: text("domain").notNull(),
+    dateBegin: text("date_begin").notNull(),
+    dateEnd: text("date_end").notNull(),
+    policy: text("policy").notNull(),
+    subdomainPolicy: text("subdomain_policy"),
+    nonexistentSubdomainPolicy: text("nonexistent_subdomain_policy"),
+    adkim: text("adkim").notNull().default("r"),
+    aspf: text("aspf").notNull().default("r"),
+    testing: text("testing"),
+    discoveryMethod: text("discovery_method"),
+    messageCount: integer("message_count").notNull(),
+    createdAt: text("created_at")
+      .notNull()
+      .$defaultFn(() => new Date().toISOString()),
+  },
+  (table) => [index("dmarc_reports_domain_range_idx").on(table.domain, table.dateBegin, table.dateEnd)],
+);
 
-export const dmarcReportRecords = sqliteTable("dmarc_report_records", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  reportId: integer("report_id").notNull().references(() => dmarcReports.id, { onDelete: "cascade" }),
-  sourceIp: text("source_ip").notNull(),
-  count: integer("count").notNull(),
-  disposition: text("disposition").notNull(),
-  dkimResult: text("dkim_result").notNull(),
-  spfResult: text("spf_result").notNull(),
-  dmarcPass: integer("dmarc_pass", { mode: "boolean" }).notNull(),
-  headerFrom: text("header_from").notNull(),
-  envelopeFrom: text("envelope_from"),
-  envelopeTo: text("envelope_to"),
-  overrideReasons: text("override_reasons").notNull().default("[]"),
-  authResults: text("auth_results").notNull().default("{}"),
-}, (table) => [
-  index("dmarc_records_report_idx").on(table.reportId),
-  index("dmarc_records_source_idx").on(table.sourceIp),
-]);
+export const dmarcReportRecords = sqliteTable(
+  "dmarc_report_records",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    reportId: integer("report_id")
+      .notNull()
+      .references(() => dmarcReports.id, { onDelete: "cascade" }),
+    sourceIp: text("source_ip").notNull(),
+    count: integer("count").notNull(),
+    disposition: text("disposition").notNull(),
+    dkimResult: text("dkim_result").notNull(),
+    spfResult: text("spf_result").notNull(),
+    dmarcPass: integer("dmarc_pass", { mode: "boolean" }).notNull(),
+    headerFrom: text("header_from").notNull(),
+    envelopeFrom: text("envelope_from"),
+    envelopeTo: text("envelope_to"),
+    overrideReasons: text("override_reasons").notNull().default("[]"),
+    authResults: text("auth_results").notNull().default("{}"),
+  },
+  (table) => [
+    index("dmarc_records_report_idx").on(table.reportId),
+    index("dmarc_records_source_idx").on(table.sourceIp),
+  ],
+);
 
-export const dmarcIngestions = sqliteTable("dmarc_ingestions", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  sesMessageId: text("ses_message_id").notNull().unique(),
-  rawS3Key: text("raw_s3_key").notNull(),
-  status: text("status", { enum: ["processing", "parsed", "rejected"] }).notNull().default("processing"),
-  error: text("error"),
-  reportId: integer("report_id").references(() => dmarcReports.id, { onDelete: "set null" }),
-  receivedAt: text("received_at").notNull(),
-  processedAt: text("processed_at"),
-}, (table) => [
-  index("dmarc_ingestions_status_idx").on(table.status),
-]);
+export const dmarcIngestions = sqliteTable(
+  "dmarc_ingestions",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    sesMessageId: text("ses_message_id").notNull().unique(),
+    rawS3Key: text("raw_s3_key").notNull(),
+    status: text("status", { enum: ["processing", "parsed", "rejected"] })
+      .notNull()
+      .default("processing"),
+    error: text("error"),
+    reportId: integer("report_id").references(() => dmarcReports.id, { onDelete: "set null" }),
+    receivedAt: text("received_at").notNull(),
+    processedAt: text("processed_at"),
+  },
+  (table) => [index("dmarc_ingestions_status_idx").on(table.status)],
+);
 
 export const messages = sqliteTable("messages", {
   id: integer("id").primaryKey({ autoIncrement: true }),

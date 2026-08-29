@@ -12,12 +12,7 @@ export async function startScheduler(db: Db, config: Config) {
       const dueCampaigns = db
         .select()
         .from(schema.campaigns)
-        .where(
-          and(
-            eq(schema.campaigns.status, "scheduled"),
-            lte(schema.campaigns.scheduledAt, now),
-          ),
-        )
+        .where(and(eq(schema.campaigns.status, "scheduled"), lte(schema.campaigns.scheduledAt, now)))
         .all();
 
       for (const campaign of dueCampaigns) {

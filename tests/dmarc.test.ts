@@ -35,25 +35,43 @@ describe("DMARC aggregate parser", () => {
     expect(report.domain).toBe("jackharrhy.dev");
     expect(report.nonexistentSubdomainPolicy).toBe("reject");
     expect(report.discoveryMethod).toBe("treewalk");
-    expect(report.records[0]).toMatchObject({ sourceIp: "192.0.2.10", count: 42, dkimResult: "pass", spfResult: "pass" });
+    expect(report.records[0]).toMatchObject({
+      sourceIp: "192.0.2.10",
+      count: 42,
+      dkimResult: "pass",
+      spfResult: "pass",
+    });
     expect(report.records[0]!.authResults.spf[0]!.domain).toBe("mail.jackharrhy.dev");
   });
 
   test("parses gzip and ZIP reports by magic bytes", () => {
-    expect(parseDmarcAttachment({ content: gzipSync(Buffer.from(xml)), filename: "wrong.bin" }).reportId).toBe("report-123");
+    expect(parseDmarcAttachment({ content: gzipSync(Buffer.from(xml)), filename: "wrong.bin" }).reportId).toBe(
+      "report-123",
+    );
     const zipped = zipSync({ "nested/report.xml": Buffer.from(xml) });
     expect(parseDmarcAttachment({ content: zipped, filename: "report.zip" }).records[0]!.count).toBe(42);
   });
 
   test("rejects entity declarations and non-DMARC XML", () => {
-    expect(() => parseDmarcAttachment({ content: Buffer.from("<!DOCTYPE x [<!ENTITY y SYSTEM 'file:///etc/passwd'>]><feedback>&y;</feedback>") }))
-      .toThrow(DmarcParseError);
-    expect(() => parseDmarcAttachment({ content: Buffer.from("<not-a-report />") })).toThrow("not a DMARC aggregate report");
-    expect(() => parseDmarcAttachment({ content: Buffer.from("<feedback><broken></feedback>") })).toThrow("Invalid DMARC XML");
+    expect(() =>
+      parseDmarcAttachment({
+        content: Buffer.from("<!DOCTYPE x [<!ENTITY y SYSTEM 'file:///etc/passwd'>]><feedback>&y;</feedback>"),
+      }),
+    ).toThrow(DmarcParseError);
+    expect(() => parseDmarcAttachment({ content: Buffer.from("<not-a-report />") })).toThrow(
+      "not a DMARC aggregate report",
+    );
+    expect(() => parseDmarcAttachment({ content: Buffer.from("<feedback><broken></feedback>") })).toThrow(
+      "Invalid DMARC XML",
+    );
   });
 
   test("finds report attachments without trusting only the filename", () => {
-    const attachment = { content: gzipSync(Buffer.from(xml)), filename: "opaque.dat", contentType: "application/octet-stream" };
+    const attachment = {
+      content: gzipSync(Buffer.from(xml)),
+      filename: "opaque.dat",
+      contentType: "application/octet-stream",
+    };
     expect(findDmarcAttachment([attachment])).toBe(attachment);
     expect(() => findDmarcAttachment([{ content: Buffer.from("hello"), filename: "notes.txt" }])).toThrow("no DMARC");
   });

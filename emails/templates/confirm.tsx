@@ -1,14 +1,6 @@
 /** @jsxRuntime automatic */
 /** @jsxImportSource react */
-import {
-  Body,
-  Button,
-  Container,
-  Head,
-  Html,
-  Preview,
-  Text,
-} from "@react-email/components";
+import { Body, Button, Container, Head, Html, Preview, Text } from "@react-email/components";
 
 export interface ConfirmProps {
   confirmUrl: string;
@@ -16,8 +8,7 @@ export interface ConfirmProps {
 }
 
 export function Confirm({ confirmUrl, listNames }: ConfirmProps) {
-  const listLabel =
-    listNames.length === 1 ? listNames[0] : listNames.join(", ");
+  const listLabel = listNames.length === 1 ? listNames[0] : listNames.join(", ");
 
   return (
     <Html>
@@ -27,15 +18,12 @@ export function Confirm({ confirmUrl, listNames }: ConfirmProps) {
         <Container style={container}>
           <Text style={heading}>Confirm your subscription</Text>
           <Text style={paragraph}>
-            You asked to subscribe to <strong>{listLabel}</strong>. Click the
-            button below to confirm.
+            You asked to subscribe to <strong>{listLabel}</strong>. Click the button below to confirm.
           </Text>
           <Button href={confirmUrl} style={button}>
             Confirm subscription
           </Button>
-          <Text style={footnote}>
-            If you didn't request this, you can safely ignore this email.
-          </Text>
+          <Text style={footnote}>If you didn't request this, you can safely ignore this email.</Text>
         </Container>
       </Body>
     </Html>
@@ -46,8 +34,7 @@ export default Confirm;
 
 const body = {
   backgroundColor: "#ffffff",
-  fontFamily:
-    "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+  fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
 };
 
 const container = {

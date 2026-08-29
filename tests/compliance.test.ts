@@ -1,10 +1,5 @@
 import { test, expect, describe } from "bun:test";
-import {
-  generateToken,
-  buildUnsubscribeUrl,
-  buildPreferencesUrl,
-  buildListUnsubscribeHeader,
-} from "../src/compliance";
+import { generateToken, buildUnsubscribeUrl, buildPreferencesUrl, buildListUnsubscribeHeader } from "../src/compliance";
 
 describe("generateToken", () => {
   test("returns a 64-char hex string", () => {
@@ -41,9 +36,7 @@ describe("buildPreferencesUrl", () => {
 
 describe("buildListUnsubscribeHeader", () => {
   test("returns correct RFC 8058 headers", () => {
-    const headers = buildListUnsubscribeHeader(
-      "https://example.com/unsubscribe/abc123",
-    );
+    const headers = buildListUnsubscribeHeader("https://example.com/unsubscribe/abc123");
     expect(headers).toEqual({
       "List-Unsubscribe": "<https://example.com/unsubscribe/abc123>",
       "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",

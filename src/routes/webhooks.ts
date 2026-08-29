@@ -104,7 +104,19 @@ const SesMail = z.object({
 });
 
 const SesEventNotification = z.object({
-  eventType: z.enum(["Bounce", "Complaint", "Delivery", "Send", "Reject", "Open", "Click", "Rendering Failure", "RenderingFailure", "DeliveryDelay", "Subscription"]),
+  eventType: z.enum([
+    "Bounce",
+    "Complaint",
+    "Delivery",
+    "Send",
+    "Reject",
+    "Open",
+    "Click",
+    "Rendering Failure",
+    "RenderingFailure",
+    "DeliveryDelay",
+    "Subscription",
+  ]),
   mail: SesMail,
   bounce: SesBounce.optional(),
   complaint: SesComplaint.optional(),
@@ -187,37 +199,51 @@ export function webhookRoutes(db: Db) {
         | { success: false };
       const legacy = !event.success ? SesLegacyNotification.safeParse(message) : null;
 
-      const eventType = event.success
-        ? event.data.eventType
-        : legacy?.success
-          ? legacy.data.notificationType
-          : null;
+      const eventType = event.success ? event.data.eventType : legacy?.success ? legacy.data.notificationType : null;
 
       if (!eventType) return c.text("OK", 200);
 
-      const sesMessageId = event.success ? event.data.mail.messageId : legacy?.success ? legacy.data.mail.messageId : null;
-      const recorded = db.insert(schema.deliveryEvents).values({
-        providerEventId: body.MessageId,
-        sesMessageId,
-        eventType,
-        payload: body.Message,
-      }).onConflictDoNothing({ target: schema.deliveryEvents.providerEventId }).returning().get();
+      const sesMessageId = event.success
+        ? event.data.mail.messageId
+        : legacy?.success
+          ? legacy.data.mail.messageId
+          : null;
+      const recorded = db
+        .insert(schema.deliveryEvents)
+        .values({
+          providerEventId: body.MessageId,
+          sesMessageId,
+          eventType,
+          payload: body.Message,
+        })
+        .onConflictDoNothing({ target: schema.deliveryEvents.providerEventId })
+        .returning()
+        .get();
       if (!recorded) return c.text("OK", 200);
 
       const now = new Date().toISOString();
       if (sesMessageId) {
-        const lifecycle = eventType === "Delivery" ? "delivered"
-          : eventType === "DeliveryDelay" ? "delivery_delayed"
-          : eventType === "Reject" ? "rejected"
-          : eventType === "Rendering Failure" || eventType === "RenderingFailure" ? "failed"
-          : eventType === "Send" ? "accepted"
-          : null;
+        const lifecycle =
+          eventType === "Delivery"
+            ? "delivered"
+            : eventType === "DeliveryDelay"
+              ? "delivery_delayed"
+              : eventType === "Reject"
+                ? "rejected"
+                : eventType === "Rendering Failure" || eventType === "RenderingFailure"
+                  ? "failed"
+                  : eventType === "Send"
+                    ? "accepted"
+                    : null;
         if (lifecycle) {
-          db.update(schema.campaignSends).set({
-            status: lifecycle,
-            ...(lifecycle === "delivered" ? { deliveredAt: now } : {}),
-            updatedAt: now,
-          }).where(eq(schema.campaignSends.sesMessageId, sesMessageId)).run();
+          db.update(schema.campaignSends)
+            .set({
+              status: lifecycle,
+              ...(lifecycle === "delivered" ? { deliveredAt: now } : {}),
+              updatedAt: now,
+            })
+            .where(eq(schema.campaignSends.sesMessageId, sesMessageId))
+            .run();
         }
       }
 
@@ -254,13 +280,16 @@ export function webhookRoutes(db: Db) {
           }
 
           if (sesMessageId) {
-            db.update(schema.campaignSends).set({
-              status: "bounced",
-              bounceType: `${bounce.bounceType}:${bounce.bounceSubType}`,
-              diagnosticCode: recipient.diagnosticCode ?? null,
-              lastError: recipient.diagnosticCode ?? `${bounce.bounceType} bounce`,
-              updatedAt: now,
-            }).where(eq(schema.campaignSends.sesMessageId, sesMessageId)).run();
+            db.update(schema.campaignSends)
+              .set({
+                status: "bounced",
+                bounceType: `${bounce.bounceType}:${bounce.bounceSubType}`,
+                diagnosticCode: recipient.diagnosticCode ?? null,
+                lastError: recipient.diagnosticCode ?? `${bounce.bounceType} bounce`,
+                updatedAt: now,
+              })
+              .where(eq(schema.campaignSends.sesMessageId, sesMessageId))
+              .run();
           }
         }
       } else if (eventType === "Complaint" && complaint) {
@@ -285,11 +314,14 @@ export function webhookRoutes(db: Db) {
           console.log(`Complaint: blocklisted ${recipient.emailAddress} (${feedbackType})`);
 
           if (sesMessageId) {
-            db.update(schema.campaignSends).set({
-              status: "complained",
-              complaintType: feedbackType,
-              updatedAt: now,
-            }).where(eq(schema.campaignSends.sesMessageId, sesMessageId)).run();
+            db.update(schema.campaignSends)
+              .set({
+                status: "complained",
+                complaintType: feedbackType,
+                updatedAt: now,
+              })
+              .where(eq(schema.campaignSends.sesMessageId, sesMessageId))
+              .run();
           }
         }
       }

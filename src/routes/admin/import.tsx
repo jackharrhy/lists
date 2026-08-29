@@ -8,7 +8,7 @@ import { getAccessibleLists } from "../../auth";
 import { createSubscriber, confirmSubscriber } from "../../services/subscriber";
 import { logEvent } from "../../services/events";
 import { AdminLayout, getFlash, type User } from "./layout";
-import { Button, Input, Label, FormGroup, Table, Th, Td, Card } from "./ui";
+import { Button, Input, Label, FormGroup, Table, Th, Td, Card, PageHeader } from "./ui";
 
 function parseCSV(text: string): string[][] {
   const rows: string[][] = [];
@@ -33,24 +33,18 @@ function parseCSV(text: string): string[][] {
   return rows;
 }
 
-export function mountImportRoutes(app: App, db: Db, config: Config) {
+export function mountImportRoutes(app: App, db: Db, _config: Config) {
   app.get("/import", (c) => {
     const user = c.user as User;
     const flash = getFlash(c);
     return c.html(
       <AdminLayout title="Import Subscribers" user={user} flash={flash}>
-        <h1 class="text-2xl font-bold mt-0 mb-4">Import Subscribers</h1>
+        <PageHeader title="Import subscribers" />
         <Card>
           <form method="post" action="/admin/import/upload" enctype="multipart/form-data">
             <FormGroup>
               <Label for="csv">CSV File</Label>
-              <Input
-                type="file"
-                id="csv"
-                name="csv"
-                accept=".csv"
-                required
-              />
+              <Input type="file" id="csv" name="csv" accept=".csv" required />
             </FormGroup>
             <Button type="submit">Upload CSV</Button>
           </form>
@@ -74,11 +68,13 @@ export function mountImportRoutes(app: App, db: Db, config: Config) {
     if (allRows.length < 2) {
       return c.html(
         <AdminLayout title="Import Subscribers" user={user}>
-          <h1 class="text-2xl font-bold mt-0 mb-4">Import Subscribers</h1>
+          <PageHeader title="Import subscribers" />
           <div class="bg-red-100 border border-red-300 text-red-800 px-4 py-3 rounded-md mb-4 text-sm">
             CSV file must contain a header row and at least one data row.
           </div>
-          <a href="/admin/import" class="text-blue-600 hover:text-blue-800">Back to Import</a>
+          <a href="/admin/import" class="text-blue-600 hover:text-blue-800">
+            Back to Import
+          </a>
         </AdminLayout>,
       );
     }
@@ -102,7 +98,7 @@ export function mountImportRoutes(app: App, db: Db, config: Config) {
 
     return c.html(
       <AdminLayout title="Map Columns" user={user}>
-        <h1 class="text-2xl font-bold mt-0 mb-4">Map Columns</h1>
+        <PageHeader title="Map columns" />
         <form method="post" action="/admin/import/process">
           <Card class="overflow-x-auto">
             <Table>
@@ -114,17 +110,27 @@ export function mountImportRoutes(app: App, db: Db, config: Config) {
                         name={`col_${i}`}
                         class="w-full px-2 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                       >
-                        <option value="ignore" selected={autoMappings[i] === "ignore"}>Ignore</option>
-                        <option value="email" selected={autoMappings[i] === "email"}>Email</option>
-                        <option value="firstName" selected={autoMappings[i] === "firstName"}>First Name</option>
-                        <option value="lastName" selected={autoMappings[i] === "lastName"}>Last Name</option>
+                        <option value="ignore" selected={autoMappings[i] === "ignore"}>
+                          Ignore
+                        </option>
+                        <option value="email" selected={autoMappings[i] === "email"}>
+                          Email
+                        </option>
+                        <option value="firstName" selected={autoMappings[i] === "firstName"}>
+                          First Name
+                        </option>
+                        <option value="lastName" selected={autoMappings[i] === "lastName"}>
+                          Last Name
+                        </option>
                       </select>
                     </Th>
                   ))}
                 </tr>
                 <tr>
                   {headers.map((h) => (
-                    <th class="bg-gray-50 px-4 py-2 text-left text-xs font-medium text-gray-700 border-b border-gray-200">{h}</th>
+                    <th class="bg-gray-50 px-4 py-2 text-left text-xs font-medium text-gray-700 border-b border-gray-200">
+                      {h}
+                    </th>
                   ))}
                 </tr>
               </thead>
@@ -138,9 +144,7 @@ export function mountImportRoutes(app: App, db: Db, config: Config) {
                 ))}
               </tbody>
             </Table>
-            {dataRows.length > 5 && (
-              <p class="text-sm text-gray-500">Showing 5 of {dataRows.length} rows.</p>
-            )}
+            {dataRows.length > 5 && <p class="text-sm text-gray-500">Showing 5 of {dataRows.length} rows.</p>}
           </Card>
 
           {allLists.length > 0 && (
@@ -203,11 +207,13 @@ export function mountImportRoutes(app: App, db: Db, config: Config) {
     if (emailCol === -1) {
       return c.html(
         <AdminLayout title="Import Error" user={user}>
-          <h1 class="text-2xl font-bold mt-0 mb-4">Import Error</h1>
+          <PageHeader title="Import error" />
           <div class="bg-red-100 border border-red-300 text-red-800 px-4 py-3 rounded-md mb-4 text-sm">
             No column mapped to "email". Please go back and map at least one column as email.
           </div>
-          <a href="/admin/import" class="text-blue-600 hover:text-blue-800">Back to Import</a>
+          <a href="/admin/import" class="text-blue-600 hover:text-blue-800">
+            Back to Import
+          </a>
         </AdminLayout>,
       );
     }
@@ -215,9 +221,7 @@ export function mountImportRoutes(app: App, db: Db, config: Config) {
     // Get list slugs
     let listSlugs: string[] = [];
     if (body["lists"]) {
-      listSlugs = Array.isArray(body["lists"])
-        ? (body["lists"] as string[])
-        : [body["lists"] as string];
+      listSlugs = Array.isArray(body["lists"]) ? (body["lists"] as string[]) : [body["lists"] as string];
     }
 
     const preconfirm = body["preconfirm"] === "1";
@@ -230,11 +234,7 @@ export function mountImportRoutes(app: App, db: Db, config: Config) {
       if (existing) {
         tagId = existing.id;
       } else {
-        const created = db
-          .insert(schema.tags)
-          .values({ name: importTag })
-          .returning({ id: schema.tags.id })
-          .get();
+        const created = db.insert(schema.tags).values({ name: importTag }).returning({ id: schema.tags.id }).get();
         tagId = created.id;
       }
     }
@@ -255,11 +255,7 @@ export function mountImportRoutes(app: App, db: Db, config: Config) {
 
       try {
         // Check if subscriber already exists before creating
-        const existingBefore = db
-          .select()
-          .from(schema.subscribers)
-          .where(eq(schema.subscribers.email, email))
-          .get();
+        const existingBefore = db.select().from(schema.subscribers).where(eq(schema.subscribers.email, email)).get();
 
         const subscriber = createSubscriber(db, email, firstName, lastName, listSlugs);
 
@@ -274,10 +270,7 @@ export function mountImportRoutes(app: App, db: Db, config: Config) {
         }
 
         if (tagId !== null) {
-          db.insert(schema.subscriberTags)
-            .values({ subscriberId: subscriber.id, tagId })
-            .onConflictDoNothing()
-            .run();
+          db.insert(schema.subscriberTags).values({ subscriberId: subscriber.id, tagId }).onConflictDoNothing().run();
         }
       } catch {
         errors++;
@@ -292,7 +285,7 @@ export function mountImportRoutes(app: App, db: Db, config: Config) {
 
     return c.html(
       <AdminLayout title="Import Complete" user={user}>
-        <h1 class="text-2xl font-bold mt-0 mb-4">Import Complete</h1>
+        <PageHeader title="Import complete" />
         <Card>
           <div class="flex gap-4 mb-4">
             <div class="inline-flex flex-col items-center bg-green-50 border border-green-200 rounded-lg px-6 py-4 min-w-[120px] text-center">
@@ -308,7 +301,9 @@ export function mountImportRoutes(app: App, db: Db, config: Config) {
               <span class="text-xs text-gray-500 uppercase tracking-wide">Errors</span>
             </div>
           </div>
-          <a href="/admin/subscribers" class="text-blue-600 hover:text-blue-800">View subscribers</a>
+          <a href="/admin/subscribers" class="text-blue-600 hover:text-blue-800">
+            View subscribers
+          </a>
         </Card>
       </AdminLayout>,
     );

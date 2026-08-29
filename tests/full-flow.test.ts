@@ -10,10 +10,7 @@ import { publicRoutes } from "../src/routes/public";
 import { adminRoutes } from "../src/routes/admin";
 import * as schema from "../src/db/schema";
 import type { Config } from "../src/config";
-import {
-  createSubscriber,
-  confirmSubscriber,
-} from "../src/services/subscriber";
+import { createSubscriber, confirmSubscriber } from "../src/services/subscriber";
 
 const sesMock = mockClient(SESv2Client);
 const s3Mock = mockClient(S3Client);
@@ -70,12 +67,7 @@ async function login(app: App, email = "owner@example.com", password = "password
   return cookie;
 }
 
-async function authPost(
-  app: App,
-  path: string,
-  cookie: string,
-  formData: Record<string, string>,
-) {
+async function authPost(app: App, path: string, cookie: string, formData: Record<string, string>) {
   return app.request(path, {
     method: "POST",
     body: new URLSearchParams(formData),
@@ -136,11 +128,7 @@ describe("Full HTTP flow: campaign create+send (list audience)", () => {
     expect(sendRes.status).toBe(302);
 
     // Verify campaign is now "sent"
-    const updated = db
-      .select()
-      .from(schema.campaigns)
-      .where(eq(schema.campaigns.id, campaign!.id))
-      .get();
+    const updated = db.select().from(schema.campaigns).where(eq(schema.campaigns.id, campaign!.id)).get();
     expect(updated!.status).toBe("sent");
     expect(updated!.sentAt).not.toBeNull();
 
@@ -149,11 +137,7 @@ describe("Full HTTP flow: campaign create+send (list audience)", () => {
     expect(sesCalls).toHaveLength(1);
 
     // Verify campaignSends record
-    const sends = db
-      .select()
-      .from(schema.campaignSends)
-      .where(eq(schema.campaignSends.campaignId, campaign!.id))
-      .all();
+    const sends = db.select().from(schema.campaignSends).where(eq(schema.campaignSends.campaignId, campaign!.id)).all();
     expect(sends).toHaveLength(1);
     expect(sends[0].subscriberId).toBe(sub.id);
     expect(sends[0].status).toBe("accepted");
@@ -166,21 +150,44 @@ describe("Full HTTP flow: delete campaign", () => {
     const owner = await seedOwner(db);
     const list = seedList(db, { slug: "newsletter", fromDomain: "example.com" });
     const sub = createSubscriber(db, "reader@example.com", "Reader", null, ["newsletter"]);
-    const campaign = db.insert(schema.campaigns).values({
-      audienceType: "list", audienceId: list.id, subject: "Delete me",
-      bodyMarkdown: "Hello", fromAddress: "news@example.com", status: "draft",
-    }).returning().get();
-    db.insert(schema.campaignSends).values({
-      campaignId: campaign.id, subscriberId: sub.id,
-      idempotencyKey: `campaign:${campaign.id}:subscriber:${sub.id}`,
-    }).run();
-    db.insert(schema.events).values({
-      type: "campaign.created", campaignId: campaign.id, userId: owner.id,
-    }).run();
-    const message = db.insert(schema.messages).values({
-      threadId: 1, direction: "outbound", fromAddr: "news@example.com",
-      toAddr: sub.email, subject: "Delete me", campaignId: campaign.id,
-    }).returning().get();
+    const campaign = db
+      .insert(schema.campaigns)
+      .values({
+        audienceType: "list",
+        audienceId: list.id,
+        subject: "Delete me",
+        bodyMarkdown: "Hello",
+        fromAddress: "news@example.com",
+        status: "draft",
+      })
+      .returning()
+      .get();
+    db.insert(schema.campaignSends)
+      .values({
+        campaignId: campaign.id,
+        subscriberId: sub.id,
+        idempotencyKey: `campaign:${campaign.id}:subscriber:${sub.id}`,
+      })
+      .run();
+    db.insert(schema.events)
+      .values({
+        type: "campaign.created",
+        campaignId: campaign.id,
+        userId: owner.id,
+      })
+      .run();
+    const message = db
+      .insert(schema.messages)
+      .values({
+        threadId: 1,
+        direction: "outbound",
+        fromAddr: "news@example.com",
+        toAddr: sub.email,
+        subject: "Delete me",
+        campaignId: campaign.id,
+      })
+      .returning()
+      .get();
 
     const config = { ...testConfig, s3MediaBucket: "media-bucket" };
     const app = createApp(db, config);
@@ -191,9 +198,11 @@ describe("Full HTTP flow: delete campaign", () => {
   test("keeps database records when required S3 cleanup is denied", async () => {
     const { db, campaign, app, cookie } = await setupCampaignDeletion();
 
-    s3Mock.on(ListObjectsV2Command).rejects(Object.assign(new Error("Access denied"), {
-      name: "AccessDenied",
-    }));
+    s3Mock.on(ListObjectsV2Command).rejects(
+      Object.assign(new Error("Access denied"), {
+        name: "AccessDenied",
+      }),
+    );
     const response = await authPost(app, `/admin/campaigns/${campaign.id}/delete`, cookie, {});
 
     expect(response.status).toBe(500);
@@ -213,9 +222,14 @@ describe("Full HTTP flow: delete campaign", () => {
     expect(db.select().from(schema.campaigns).all()).toEqual([]);
     expect(db.select().from(schema.campaignSends).all()).toEqual([]);
     expect(db.select().from(schema.messages).where(eq(schema.messages.id, message.id)).get()!.campaignId).toBeNull();
-    expect(db.select().from(schema.events).where(eq(schema.events.type, "campaign.created")).get()!.campaignId).toBeNull();
-    const deletionEvent = db.select().from(schema.events)
-      .where(eq(schema.events.type, "admin.campaign_deleted")).get()!;
+    expect(
+      db.select().from(schema.events).where(eq(schema.events.type, "campaign.created")).get()!.campaignId,
+    ).toBeNull();
+    const deletionEvent = db
+      .select()
+      .from(schema.events)
+      .where(eq(schema.events.type, "admin.campaign_deleted"))
+      .get()!;
     expect(deletionEvent.campaignId).toBeNull();
     expect(JSON.parse(deletionEvent.meta!)).toEqual({ campaignId: campaign.id });
   });
@@ -244,11 +258,13 @@ describe("Full HTTP flow: create list", () => {
   test("member cannot create a list by posting directly", async () => {
     const db = createTestDb();
     const passwordHash = await Bun.password.hash("password");
-    db.insert(schema.users).values({
-      email: "member@example.com",
-      passwordHash,
-      role: "member",
-    }).run();
+    db.insert(schema.users)
+      .values({
+        email: "member@example.com",
+        passwordHash,
+        role: "member",
+      })
+      .run();
     const app = createApp(db);
     const cookie = await login(app, "member@example.com", "password");
 
@@ -313,11 +329,7 @@ describe("Full HTTP flow: campaign create+send (specific subscribers)", () => {
     expect(sesCalls).toHaveLength(2);
 
     // Verify sends
-    const sends = db
-      .select()
-      .from(schema.campaignSends)
-      .where(eq(schema.campaignSends.campaignId, campaign!.id))
-      .all();
+    const sends = db.select().from(schema.campaignSends).where(eq(schema.campaignSends.campaignId, campaign!.id)).all();
     expect(sends).toHaveLength(2);
     const sentIds = sends.map((s) => s.subscriberId).sort();
     expect(sentIds).toEqual([sub1.id, sub3.id].sort());
@@ -373,11 +385,7 @@ describe("Full HTTP flow: campaign create+send (tag audience)", () => {
     expect(sesCalls).toHaveLength(2);
 
     // Verify sends target sub1 and sub2
-    const sends = db
-      .select()
-      .from(schema.campaignSends)
-      .where(eq(schema.campaignSends.campaignId, campaign!.id))
-      .all();
+    const sends = db.select().from(schema.campaignSends).where(eq(schema.campaignSends.campaignId, campaign!.id)).all();
     expect(sends).toHaveLength(2);
     const sentIds = sends.map((s) => s.subscriberId).sort();
     expect(sentIds).toEqual([sub1.id, sub2.id].sort());
@@ -430,11 +438,7 @@ describe("Full HTTP flow: campaign create+send (all subscribers)", () => {
     const sesCalls = sesMock.commandCalls(SendEmailCommand);
     expect(sesCalls).toHaveLength(3);
 
-    const sends = db
-      .select()
-      .from(schema.campaignSends)
-      .where(eq(schema.campaignSends.campaignId, campaign!.id))
-      .all();
+    const sends = db.select().from(schema.campaignSends).where(eq(schema.campaignSends.campaignId, campaign!.id)).all();
     expect(sends).toHaveLength(3);
   });
 });
@@ -507,10 +511,7 @@ describe("Full HTTP flow: subscribe → confirm → receive campaign", () => {
     expect(sesMock.commandCalls(SendEmailCommand)).toHaveLength(1);
 
     // 2. GET /confirm/:token/:domain
-    const confirmRes = await app.request(
-      `/confirm/${subscriber!.unsubscribeToken}/example.com`,
-      { method: "GET" },
-    );
+    const confirmRes = await app.request(`/confirm/${subscriber!.unsubscribeToken}/example.com`, { method: "GET" });
     expect(confirmRes.status).toBe(200);
     const confirmHtml = await confirmRes.text();
     expect(confirmHtml).toContain("Confirmed");
@@ -529,11 +530,7 @@ describe("Full HTTP flow: subscribe → confirm → receive campaign", () => {
     sesMock.on(SendEmailCommand).resolves({ MessageId: "campaign-msg-id" });
 
     const cookie = await login(app);
-    const list = db
-      .select()
-      .from(schema.lists)
-      .where(eq(schema.lists.slug, "newsletter"))
-      .get();
+    const list = db.select().from(schema.lists).where(eq(schema.lists.slug, "newsletter")).get();
 
     await authPost(app, "/admin/campaigns/new", cookie, {
       audienceMode: "list",
@@ -550,11 +547,7 @@ describe("Full HTTP flow: subscribe → confirm → receive campaign", () => {
     const sesCalls = sesMock.commandCalls(SendEmailCommand);
     expect(sesCalls).toHaveLength(1);
 
-    const sends = db
-      .select()
-      .from(schema.campaignSends)
-      .where(eq(schema.campaignSends.campaignId, campaign!.id))
-      .all();
+    const sends = db.select().from(schema.campaignSends).where(eq(schema.campaignSends.campaignId, campaign!.id)).all();
     expect(sends).toHaveLength(1);
     expect(sends[0].subscriberId).toBe(subscriber!.id);
     expect(sends[0].status).toBe("accepted");
@@ -592,10 +585,7 @@ describe("Full HTTP flow: reply to inbound message", () => {
       .get();
 
     // Update threadId to own id (simulating the poller setting it)
-    db.update(schema.messages)
-      .set({ threadId: inbound.id })
-      .where(eq(schema.messages.id, inbound.id))
-      .run();
+    db.update(schema.messages).set({ threadId: inbound.id }).where(eq(schema.messages.id, inbound.id)).run();
 
     sesMock.on(SendEmailCommand).resolves({ MessageId: "ses-reply-id" });
 
@@ -625,11 +615,7 @@ describe("Full HTTP flow: reply to inbound message", () => {
     expect(rawEmail).toContain("References: <original@gmail.com>");
 
     // Verify outbound message created in DB
-    const outbound = db
-      .select()
-      .from(schema.messages)
-      .where(eq(schema.messages.direction, "outbound"))
-      .get();
+    const outbound = db.select().from(schema.messages).where(eq(schema.messages.direction, "outbound")).get();
     expect(outbound).toBeDefined();
     expect(outbound!.threadId).toBe(inbound.id);
     expect(outbound!.parentId).toBe(inbound.id);
@@ -681,11 +667,7 @@ describe("Full HTTP flow: campaign edit then send", () => {
     expect(editRes.status).toBe(302);
 
     // Verify updated in DB
-    const updated = db
-      .select()
-      .from(schema.campaigns)
-      .where(eq(schema.campaigns.id, campaign!.id))
-      .get();
+    const updated = db.select().from(schema.campaigns).where(eq(schema.campaigns.id, campaign!.id)).get();
     expect(updated!.subject).toBe("Updated Subject");
     expect(updated!.bodyMarkdown).toBe("Updated body with {{firstName}}");
 
@@ -704,11 +686,7 @@ describe("Full HTTP flow: campaign edit then send", () => {
     expect(rawEmail).toContain("Updated body with Reader");
 
     // Campaign should be sent
-    const final = db
-      .select()
-      .from(schema.campaigns)
-      .where(eq(schema.campaigns.id, campaign!.id))
-      .get();
+    const final = db.select().from(schema.campaigns).where(eq(schema.campaigns.id, campaign!.id)).get();
     expect(final!.status).toBe("sent");
   });
 });
@@ -717,12 +695,14 @@ describe("Campaign editor validation and authorization", () => {
   test("member cannot bypass audience controls by posting an all-subscribers campaign", async () => {
     const db = createTestDb();
     const passwordHash = await Bun.password.hash("password");
-    db.insert(schema.users).values({
-      email: "member@example.com",
-      name: "Member",
-      passwordHash,
-      role: "member",
-    }).run();
+    db.insert(schema.users)
+      .values({
+        email: "member@example.com",
+        name: "Member",
+        passwordHash,
+        role: "member",
+      })
+      .run();
     const app = createApp(db);
     const cookie = await login(app, "member@example.com");
 
@@ -741,15 +721,19 @@ describe("Campaign editor validation and authorization", () => {
     const db = createTestDb();
     await seedOwner(db);
     const list = seedList(db, { slug: "scheduled", name: "Scheduled", fromDomain: "example.com" });
-    const campaign = db.insert(schema.campaigns).values({
-      audienceType: "list",
-      audienceId: list.id,
-      fromAddress: "news@example.com",
-      subject: "Before",
-      bodyMarkdown: "Before",
-      status: "scheduled",
-      scheduledAt: "2026-09-01T12:00:00.000Z",
-    }).returning().get();
+    const campaign = db
+      .insert(schema.campaigns)
+      .values({
+        audienceType: "list",
+        audienceId: list.id,
+        fromAddress: "news@example.com",
+        subject: "Before",
+        bodyMarkdown: "Before",
+        status: "scheduled",
+        scheduledAt: "2026-09-01T12:00:00.000Z",
+      })
+      .returning()
+      .get();
     const app = createApp(db);
     const cookie = await login(app);
 
@@ -922,7 +906,7 @@ describe("HTMX application shell", () => {
     expect(html).not.toContain("transition:true");
     expect(html).toContain('hx-get="/admin/subscribers"');
     expect(html).toContain("keyup changed delay:350ms");
-    expect(html).toContain('class="bg-gray-900 py-3 mb-6"');
+    expect(html).toContain('aria-label="Admin navigation"');
     expect(html).toContain('href="/design" hx-boost="false"');
     expect(html).toContain(">Dashboard</a>");
     expect(html).not.toContain("app-surface");
@@ -934,10 +918,13 @@ describe("Email template gallery", () => {
   test("escapes template metadata in the gallery and inspector", async () => {
     const db = createTestDb();
     await seedOwner(db);
-    db.update(schema.emailTemplates).set({
-      name: '<img src=x onerror="alert(1)">',
-      description: "<script>alert(1)</script>",
-    }).where(eq(schema.emailTemplates.slug, "newsletter")).run();
+    db.update(schema.emailTemplates)
+      .set({
+        name: '<img src=x onerror="alert(1)">',
+        description: "<script>alert(1)</script>",
+      })
+      .where(eq(schema.emailTemplates.slug, "newsletter"))
+      .run();
     const app = createApp(db);
     const cookie = await login(app);
 

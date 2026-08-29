@@ -25,49 +25,80 @@ function textDocument(text: string) {
 }
 
 export function mountTemplateRoutes(app: App, db: Db) {
-  app.get("/templates", (c) => c.html(<TemplateGalleryPage
-    user={c.user as User}
-    templates={db.select().from(schema.emailTemplates).orderBy(schema.emailTemplates.name).all()}
-  />));
+  app.get("/templates", (c) =>
+    c.html(
+      <TemplateGalleryPage
+        user={c.user as User}
+        templates={db.select().from(schema.emailTemplates).orderBy(schema.emailTemplates.name).all()}
+      />,
+    ),
+  );
 
-  app.get("/templates/:slug", async (c) => {
-    const template = findTemplate(db, c.params.slug);
-    if (!template) return c.notFound();
-    const partials = JSON.parse(template.partials) as Record<string, string>;
-    const [html, text, highlightedPartials] = await Promise.all([
-      highlightTemplateSource(template.htmlSource, template.sourceFormat),
-      highlightTemplateSource(template.textSource, "text"),
-      Promise.all(Object.entries(partials).map(async ([name, source]) => [name, await highlightTemplateSource(source, "html")] as const)),
-    ]);
-    return c.html(<TemplateWorkspacePage user={c.user as User} template={template} sources={{
-      html, text, partials: Object.fromEntries(highlightedPartials),
-    }} />);
-  }, { params: slugParams });
+  app.get(
+    "/templates/:slug",
+    async (c) => {
+      const template = findTemplate(db, c.params.slug);
+      if (!template) return c.notFound();
+      const partials = JSON.parse(template.partials) as Record<string, string>;
+      const [html, text, highlightedPartials] = await Promise.all([
+        highlightTemplateSource(template.htmlSource, template.sourceFormat),
+        highlightTemplateSource(template.textSource, "text"),
+        Promise.all(
+          Object.entries(partials).map(
+            async ([name, source]) => [name, await highlightTemplateSource(source, "html")] as const,
+          ),
+        ),
+      ]);
+      return c.html(
+        <TemplateWorkspacePage
+          user={c.user as User}
+          template={template}
+          sources={{
+            html,
+            text,
+            partials: Object.fromEntries(highlightedPartials),
+          }}
+        />,
+      );
+    },
+    { params: slugParams },
+  );
 
-  app.get("/templates/:slug/preview", async (c) => {
-    const template = findTemplate(db, c.params.slug);
-    if (!template) return c.notFound();
-    const definitions = JSON.parse(template.sections) as TemplateSection[];
-    const sectionSources = Object.fromEntries(definitions.map((section) => [
-      section.key,
-      section.format === "html"
-        ? `<h1>${section.name}</h1><p>A representative HTML section with <strong>sample content</strong>.</p>`
-        : section.format === "markdown"
-          ? `# ${section.name}\n\nA representative section rendered with **sample content**.`
-          : `${section.name}\n\nA representative plain-text section.`,
-    ]));
-    const rendered = await renderTemplate(template, {
-      subscriber: { email: "reader@example.com", firstName: "Jane", lastName: "Doe" },
-      campaign: { subject: "Template preview" }, list: { name: "Example Newsletter", slug: "example" },
-      links: { unsubscribe: "#unsubscribe", preferences: "#preferences" }, sectionSources,
-    });
-    const body = c.query.mode === "text" || !rendered.html ? textDocument(rendered.text) : rendered.html;
-    const assets = c.query.remote === "1"
-      ? "style-src 'unsafe-inline' https:; img-src https: data: cid:; font-src https: data:;"
-      : "style-src 'unsafe-inline'; img-src data: cid:; font-src data:;";
-    return new Response(body, { headers: {
-      "Content-Type": "text/html; charset=utf-8",
-      "Content-Security-Policy": `default-src 'none'; ${assets}`,
-    } });
-  }, { params: slugParams, query: previewQuery });
+  app.get(
+    "/templates/:slug/preview",
+    async (c) => {
+      const template = findTemplate(db, c.params.slug);
+      if (!template) return c.notFound();
+      const definitions = JSON.parse(template.sections) as TemplateSection[];
+      const sectionSources = Object.fromEntries(
+        definitions.map((section) => [
+          section.key,
+          section.format === "html"
+            ? `<h1>${section.name}</h1><p>A representative HTML section with <strong>sample content</strong>.</p>`
+            : section.format === "markdown"
+              ? `# ${section.name}\n\nA representative section rendered with **sample content**.`
+              : `${section.name}\n\nA representative plain-text section.`,
+        ]),
+      );
+      const rendered = await renderTemplate(template, {
+        subscriber: { email: "reader@example.com", firstName: "Jane", lastName: "Doe" },
+        campaign: { subject: "Template preview" },
+        list: { name: "Example Newsletter", slug: "example" },
+        links: { unsubscribe: "#unsubscribe", preferences: "#preferences" },
+        sectionSources,
+      });
+      const body = c.query.mode === "text" || !rendered.html ? textDocument(rendered.text) : rendered.html;
+      const assets =
+        c.query.remote === "1"
+          ? "style-src 'unsafe-inline' https:; img-src https: data: cid:; font-src https: data:;"
+          : "style-src 'unsafe-inline'; img-src data: cid:; font-src data:;";
+      return new Response(body, {
+        headers: {
+          "Content-Type": "text/html; charset=utf-8",
+          "Content-Security-Policy": `default-src 'none'; ${assets}`,
+        },
+      });
+    },
+    { params: slugParams, query: previewQuery },
+  );
 }

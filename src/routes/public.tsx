@@ -28,7 +28,15 @@ function Layout({ children }: { children: any }) {
         <link rel="stylesheet" href={assetUrl("/static/styles.css")} />
         <script src={assetUrl("/static/app.js")} defer></script>
       </head>
-      <body class="public-page font-sans text-gray-900 bg-gray-50 m-0 p-0" hx-boost="true" hx-target="#app-shell" hx-select="#app-shell" hx-swap="outerHTML" hx-push-url="true" hx-indicator="#global-progress">
+      <body
+        class="public-page font-sans text-gray-900 bg-gray-50 m-0 p-0"
+        hx-boost="true"
+        hx-target="#app-shell"
+        hx-select="#app-shell"
+        hx-swap="outerHTML"
+        hx-push-url="true"
+        hx-indicator="#global-progress"
+      >
         <div id="global-progress" class="htmx-indicator" role="progressbar" aria-label="Loading"></div>
         <div id="app-shell" class="max-w-lg mx-auto px-6 py-12">
           {children}
@@ -61,84 +69,92 @@ export function publicRoutes(db: Db, config: Config) {
         <h1 class="text-2xl font-bold mb-2">Lists</h1>
         <p class="text-gray-600 mb-8">
           Email lists affiliated with{" "}
-          <a href="https://jackharrhy.dev" class="text-blue-600 hover:text-blue-800">Jack Harrhy</a>.
-          Subscribe to hear about things being worked on, written about, or found interesting.
+          <a href="https://jackharrhy.dev" class="text-blue-600 hover:text-blue-800">
+            Jack Harrhy
+          </a>
+          . Subscribe to hear about things being worked on, written about, or found interesting.
         </p>
 
         {!publicSubscriptionsEnabled ? (
           <p class="text-gray-600">Public subscriptions are temporarily unavailable.</p>
         ) : domains.length > 0 ? (
           <>
-          <details class="mb-6">
-            <summary class="cursor-pointer text-sm font-medium text-blue-600 hover:text-blue-800 select-none">
-              Subscribe to a list
-            </summary>
-            <form method="post" action="/subscribe" class="mt-4 space-y-4" hx-disabled-elt="find button">
-              <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">
-                  Email
-                  <input
-                    type="email"
-                    name="email"
-                    required
-                    class="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  />
-                </label>
-              </div>
-              <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">
-                  First name (optional)
-                  <input
-                    type="text"
-                    name="firstName"
-                    class="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  />
-                </label>
-              </div>
-              <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">
-                  Last name (optional)
-                  <input
-                    type="text"
-                    name="lastName"
-                    class="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  />
-                </label>
-              </div>
-
-              {domains.map(([domain, lists]) => (
-                <div class="space-y-2">
-                  {multipleDomains && (
-                    <p class="text-xs font-medium text-gray-400 uppercase tracking-wide">{domain}</p>
-                  )}
-                  {lists.map((list) => (
-                    <label class="flex items-start gap-2 text-sm text-gray-800">
-                      <input type="checkbox" name="lists" value={list.slug} data-domain={list.fromDomain} class="rounded mt-0.5" />
-                      <span>
-                        <span class="font-medium">{list.name}</span>
-                        {list.description ? <span class="text-gray-500"> - {list.description}</span> : ""}
-                      </span>
-                    </label>
-                  ))}
+            <details class="mb-6">
+              <summary class="cursor-pointer text-sm font-medium text-blue-600 hover:text-blue-800 select-none">
+                Subscribe to a list
+              </summary>
+              <form method="post" action="/subscribe" class="mt-4 space-y-4" hx-disabled-elt="find button">
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-1">
+                    Email
+                    <input
+                      type="email"
+                      name="email"
+                      required
+                      class="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </label>
                 </div>
-              ))}
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-1">
+                    First name (optional)
+                    <input
+                      type="text"
+                      name="firstName"
+                      class="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </label>
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-1">
+                    Last name (optional)
+                    <input
+                      type="text"
+                      name="lastName"
+                      class="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </label>
+                </div>
 
-              {multipleDomains && (
-                <p id="multi-domain-hint" class="text-xs text-gray-400 hidden">
-                  Selecting lists from different domains will send a separate confirmation email for each.
-                </p>
-              )}
+                {domains.map(([domain, lists]) => (
+                  <div class="space-y-2">
+                    {multipleDomains && (
+                      <p class="text-xs font-medium text-gray-400 uppercase tracking-wide">{domain}</p>
+                    )}
+                    {lists.map((list) => (
+                      <label class="flex items-start gap-2 text-sm text-gray-800">
+                        <input
+                          type="checkbox"
+                          name="lists"
+                          value={list.slug}
+                          data-domain={list.fromDomain}
+                          class="rounded mt-0.5"
+                        />
+                        <span>
+                          <span class="font-medium">{list.name}</span>
+                          {list.description ? <span class="text-gray-500"> - {list.description}</span> : ""}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                ))}
 
-              <button
-                type="submit"
-                class="w-full px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none disabled:opacity-60"
-              >
-                Subscribe
-              </button>
-            </form>
-          </details>
-          {multipleDomains && (
-            <script>{`
+                {multipleDomains && (
+                  <p id="multi-domain-hint" class="text-xs text-gray-400 hidden">
+                    Selecting lists from different domains will send a separate confirmation email for each.
+                  </p>
+                )}
+
+                <button
+                  type="submit"
+                  class="w-full px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none disabled:opacity-60"
+                >
+                  Subscribe
+                </button>
+              </form>
+            </details>
+            {multipleDomains && (
+              <script>{`
               document.querySelectorAll('input[name="lists"]').forEach(function(cb) {
                 cb.addEventListener('change', function() {
                   var checked = document.querySelectorAll('input[name="lists"]:checked');
@@ -149,8 +165,8 @@ export function publicRoutes(db: Db, config: Config) {
                 });
               });
             `}</script>
-          )}
-        </>
+            )}
+          </>
         ) : (
           <p class="text-gray-400 text-sm">No lists yet.</p>
         )}
@@ -172,8 +188,14 @@ export function publicRoutes(db: Db, config: Config) {
 
     const body = c.body as Record<string, any>;
     const email = String(body["email"] ?? "").trim();
-    const firstName = String(body["firstName"] ?? "").trim().slice(0, 255) || null;
-    const lastName = String(body["lastName"] ?? "").trim().slice(0, 255) || null;
+    const firstName =
+      String(body["firstName"] ?? "")
+        .trim()
+        .slice(0, 255) || null;
+    const lastName =
+      String(body["lastName"] ?? "")
+        .trim()
+        .slice(0, 255) || null;
 
     let listSlugs: string[] = [];
     const raw = body["lists"];
@@ -186,7 +208,12 @@ export function publicRoutes(db: Db, config: Config) {
     const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!email || !emailRe.test(email)) {
       c.set.status = 400;
-      return c.html(<Layout><h1>Invalid email</h1><p>Please enter a valid email address.</p></Layout>);
+      return c.html(
+        <Layout>
+          <h1>Invalid email</h1>
+          <p>Please enter a valid email address.</p>
+        </Layout>,
+      );
     }
 
     if (listSlugs.length === 0) {
@@ -194,9 +221,7 @@ export function publicRoutes(db: Db, config: Config) {
       return c.html(
         <Layout>
           <h1 class="text-2xl font-bold mb-6">Subscribe</h1>
-          <p class="text-sm text-gray-700 mb-4">
-            Please provide an email and select at least one list.
-          </p>
+          <p class="text-sm text-gray-700 mb-4">Please provide an email and select at least one list.</p>
           <a href="/subscribe" class="text-blue-600 hover:text-blue-800">
             Back
           </a>
@@ -224,7 +249,8 @@ export function publicRoutes(db: Db, config: Config) {
       const confirmUrl = buildConfirmUrl(config.baseUrl, subscriber.unsubscribeToken, domain);
       const { html } = await renderConfirmation({ confirmUrl, listNames });
 
-      await sendEmail(config,
+      await sendEmail(
+        config,
         new SendEmailCommand({
           FromEmailAddress: `noreply@${domain}`,
           Destination: { ToAddresses: [email] },
@@ -251,14 +277,17 @@ export function publicRoutes(db: Db, config: Config) {
         <h1 class="text-2xl font-bold mb-6">Check your email</h1>
         <div class="bg-white rounded-lg border border-gray-200 p-6">
           <p class="text-sm text-gray-700">
-            We sent {multipleConfirms ? `${domainsSent.length} confirmation emails` : "a confirmation link"} to <strong>{email}</strong>.
+            We sent {multipleConfirms ? `${domainsSent.length} confirmation emails` : "a confirmation link"} to{" "}
+            <strong>{email}</strong>.
             {multipleConfirms
               ? " You'll need to confirm each one separately."
               : " Click the link to confirm your subscription."}
           </p>
           {multipleConfirms && (
             <ul class="mt-3 text-sm text-gray-500 list-disc list-inside">
-              {domainsSent.map((d) => <li>From {d}</li>)}
+              {domainsSent.map((d) => (
+                <li>From {d}</li>
+              ))}
             </ul>
           )}
         </div>
@@ -290,9 +319,7 @@ export function publicRoutes(db: Db, config: Config) {
       <Layout>
         <h1 class="text-2xl font-bold mb-6">Invalid link</h1>
         <div class="bg-white rounded-lg border border-gray-200 p-6">
-          <p class="text-sm text-gray-700">
-            This confirmation link is invalid or has expired.
-          </p>
+          <p class="text-sm text-gray-700">This confirmation link is invalid or has expired.</p>
         </div>
       </Layout>,
     );
@@ -308,9 +335,7 @@ export function publicRoutes(db: Db, config: Config) {
         <Layout>
           <h1 class="text-2xl font-bold mb-6">Confirmed</h1>
           <div class="bg-white rounded-lg border border-gray-200 p-6">
-            <p class="text-sm text-gray-700">
-              Your subscription has been confirmed.
-            </p>
+            <p class="text-sm text-gray-700">Your subscription has been confirmed.</p>
           </div>
         </Layout>,
       );
@@ -321,9 +346,7 @@ export function publicRoutes(db: Db, config: Config) {
       <Layout>
         <h1 class="text-2xl font-bold mb-6">Invalid link</h1>
         <div class="bg-white rounded-lg border border-gray-200 p-6">
-          <p class="text-sm text-gray-700">
-            This confirmation link is invalid or has expired.
-          </p>
+          <p class="text-sm text-gray-700">This confirmation link is invalid or has expired.</p>
         </div>
       </Layout>,
     );
@@ -391,9 +414,7 @@ export function publicRoutes(db: Db, config: Config) {
         <Layout>
           <h1 class="text-2xl font-bold mb-6">Unsubscribed</h1>
           <div class="bg-white rounded-lg border border-gray-200 p-6">
-            <p class="text-sm text-gray-700 mb-4">
-              You have been unsubscribed from all lists.
-            </p>
+            <p class="text-sm text-gray-700 mb-4">You have been unsubscribed from all lists.</p>
             <a href={`/preferences/${token}`} class="text-blue-600 hover:text-blue-800 text-sm">
               Changed your mind? Manage your subscriptions
             </a>
@@ -431,9 +452,7 @@ export function publicRoutes(db: Db, config: Config) {
         <Layout>
           <h1 class="text-2xl font-bold mb-6">Invalid link</h1>
           <div class="bg-white rounded-lg border border-gray-200 p-6">
-            <p class="text-sm text-gray-700">
-              This preferences link is invalid.
-            </p>
+            <p class="text-sm text-gray-700">This preferences link is invalid.</p>
           </div>
         </Layout>,
       );
@@ -480,7 +499,7 @@ export function publicRoutes(db: Db, config: Config) {
     const body = c.body as Record<string, any>;
 
     const rawIds = Array.isArray(body["listIds"]) ? body["listIds"] : [body["listIds"]].filter(Boolean);
-    const listIds = rawIds.map(Number).filter(n => Number.isInteger(n) && n > 0);
+    const listIds = rawIds.map(Number).filter((n) => Number.isInteger(n) && n > 0);
 
     updatePreferences(db, token, listIds);
 

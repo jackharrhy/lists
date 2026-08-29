@@ -31,6 +31,28 @@ export function getFlash(c: any): string | undefined {
 
 export type User = typeof schema.users.$inferSelect;
 
+function NavLink({
+  href,
+  children,
+  secondary = false,
+  boost = true,
+}: {
+  href: string;
+  children: string;
+  secondary?: boolean;
+  boost?: boolean;
+}) {
+  return (
+    <a
+      href={href}
+      hx-boost={boost ? undefined : "false"}
+      class={`nav-link whitespace-nowrap text-sm no-underline hover:text-white ${secondary ? "text-xs text-gray-500" : "text-gray-400"}`}
+    >
+      {children}
+    </a>
+  );
+}
+
 export function AdminLayout({
   title,
   children,
@@ -63,46 +85,76 @@ export function AdminLayout({
       >
         <div id="global-progress" class="htmx-indicator" role="progressbar" aria-label="Loading"></div>
         <div id="app-shell">
-          <nav class="bg-gray-900 py-3 mb-6">
-            <div class="max-w-5xl mx-auto px-6 flex items-center gap-4">
-              <a href="/admin/" class="text-white font-bold text-base no-underline">
+          <nav class="bg-gray-900 py-3 mb-6 overflow-x-auto" aria-label="Admin navigation">
+            <div class="max-w-5xl min-w-max mx-auto px-4 sm:px-6 flex items-center gap-4">
+              <a href="/admin/" class="nav-link text-white font-bold text-base no-underline">
                 Lists
               </a>
 
               <div class="flex items-center gap-3 ml-4">
-                <a href="/admin/" class="text-gray-400 text-sm no-underline hover:text-white">Dashboard</a>
-                <a href="/admin/subscribers" class="text-gray-400 text-sm no-underline hover:text-white">Subscribers</a>
-                <a href="/admin/lists" class="text-gray-400 text-sm no-underline hover:text-white">Lists</a>
-                <a href="/admin/campaigns" class="text-gray-400 text-sm no-underline hover:text-white">Campaigns</a>
-                <a href="/admin/inbound" class="text-gray-400 text-sm no-underline hover:text-white">Inbound</a>
-                {isAdmin && <a href="/admin/dmarc" class="text-gray-400 text-sm no-underline hover:text-white">DMARC</a>}
+                <NavLink href="/admin/">Dashboard</NavLink>
+                <NavLink href="/admin/subscribers">Subscribers</NavLink>
+                <NavLink href="/admin/lists">Lists</NavLink>
+                <NavLink href="/admin/campaigns">Campaigns</NavLink>
+                <NavLink href="/admin/inbound">Inbound</NavLink>
+                {isAdmin && <NavLink href="/admin/dmarc">DMARC</NavLink>}
               </div>
 
-              <span class="text-gray-700">|</span>
-
-              <div class="flex items-center gap-3">
-                <a href="/admin/activity" class="text-gray-500 text-xs no-underline hover:text-white">Activity</a>
-                <a href="/admin/tags" class="text-gray-500 text-xs no-underline hover:text-white">Tags</a>
-                <a href="/admin/import" class="text-gray-500 text-xs no-underline hover:text-white">Import</a>
-                {isAdmin && <a href="/admin/users" class="text-gray-500 text-xs no-underline hover:text-white">Users</a>}
-                <a href="/admin/tokens" class="text-gray-500 text-xs no-underline hover:text-white">API</a>
-                <a href="/admin/templates" class="text-gray-500 text-xs no-underline hover:text-white">Templates</a>
-                <a href="/design" hx-boost="false" class="text-gray-600 text-xs no-underline hover:text-white">Design</a>
+              <div class="flex items-center gap-3 border-l border-gray-700 pl-4">
+                <NavLink href="/admin/activity" secondary>
+                  Activity
+                </NavLink>
+                <NavLink href="/admin/tags" secondary>
+                  Tags
+                </NavLink>
+                <NavLink href="/admin/import" secondary>
+                  Import
+                </NavLink>
+                {isAdmin && (
+                  <NavLink href="/admin/users" secondary>
+                    Users
+                  </NavLink>
+                )}
+                <NavLink href="/admin/tokens" secondary>
+                  API
+                </NavLink>
+                <NavLink href="/admin/templates" secondary>
+                  Templates
+                </NavLink>
+                <NavLink href="/design" secondary boost={false}>
+                  Design
+                </NavLink>
               </div>
 
               <div class="flex items-center gap-3 ml-auto">
-                <span class="text-gray-500 text-xs">{user?.name ?? user?.email ?? ""}</span>
+                <span safe class="max-w-40 truncate text-gray-500 text-xs">
+                  {user?.name ?? user?.email ?? ""}
+                </span>
                 <form method="post" action="/admin/logout" class="m-0">
-                  <button type="submit" class="bg-transparent text-gray-500 border-none cursor-pointer text-xs p-0 hover:text-white">Logout</button>
+                  <button
+                    type="submit"
+                    class="bg-transparent text-gray-500 border-none cursor-pointer text-xs p-0 hover:text-white"
+                  >
+                    Logout
+                  </button>
                 </form>
               </div>
             </div>
           </nav>
-          <main class="max-w-5xl mx-auto px-6 py-4">
+          <main class="max-w-5xl mx-auto px-4 sm:px-6 py-4">
             {flash && (
-              <div id="flash-msg" class="bg-green-100 border border-green-300 text-green-800 px-4 py-3 rounded-md mb-4 text-sm flex items-center justify-between">
+              <div
+                id="flash-msg"
+                class="bg-green-100 border border-green-300 text-green-800 px-4 py-3 rounded-md mb-4 text-sm flex items-center justify-between"
+              >
                 <span>{flash}</span>
-                <button onclick="this.closest('#flash-msg').remove()" type="button" class="bg-transparent border-none cursor-pointer text-green-600 hover:text-green-800 text-lg leading-none p-0 ml-2">&times;</button>
+                <button
+                  onclick="this.closest('#flash-msg').remove()"
+                  type="button"
+                  class="bg-transparent border-none cursor-pointer text-green-600 hover:text-green-800 text-lg leading-none p-0 ml-2"
+                >
+                  &times;
+                </button>
               </div>
             )}
             {children}
@@ -122,13 +174,22 @@ export function extractEmail(addr: string): string {
   return match?.[1] ?? addr.trim();
 }
 
-export function VerdictChips({ spf, dkim, dmarc }: { spf?: string | null; dkim?: string | null; dmarc?: string | null }) {
+export function VerdictChips({
+  spf,
+  dkim,
+  dmarc,
+}: {
+  spf?: string | null;
+  dkim?: string | null;
+  dmarc?: string | null;
+}) {
   const chip = (label: string, value?: string | null) => {
     if (!value) return null;
     const pass = value === "PASS";
     return (
       <span class={`text-[10px] font-medium ${pass ? "text-green-600" : "text-red-600"}`}>
-        {label}{pass ? "\u2713" : "\u2717"}
+        {label}
+        {pass ? "\u2713" : "\u2717"}
       </span>
     );
   };
@@ -167,12 +228,16 @@ export function fmtDateTime(d: string | null): string {
   return `${dt.toLocaleDateString("en-CA")} ${dt.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}`;
 }
 
-export function describeAudience(campaign: { audienceType: string; audienceId: number | null; audienceData: string | null }, lists: Map<number, string>, tags: Map<number, string>): string {
+export function describeAudience(
+  campaign: { audienceType: string; audienceId: number | null; audienceData: string | null },
+  lists: Map<number, string>,
+  tags: Map<number, string>,
+): string {
   if (campaign.audienceType === "list") return lists.get(campaign.audienceId!) ?? "Unknown list";
   if (campaign.audienceType === "all") return "All subscribers";
   if (campaign.audienceType === "tag") return `Tag: ${tags.get(campaign.audienceId!) ?? "Unknown"}`;
   if (campaign.audienceType === "subscribers") {
-    const ids = campaign.audienceData ? JSON.parse(campaign.audienceData) as number[] : [];
+    const ids = campaign.audienceData ? (JSON.parse(campaign.audienceData) as number[]) : [];
     return `${ids.length} specific`;
   }
   return "Unknown";

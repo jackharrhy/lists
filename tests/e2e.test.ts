@@ -6,15 +6,16 @@ import { createHttpApp, type App } from "../src/http";
 
 import { createTestDb, seedList } from "./helpers";
 import { sendCampaign } from "../src/services/sender";
-import { processDueDeliveries, recoverAbandonedDeliveries, rescheduleInterruptedCampaigns } from "../src/services/delivery-worker";
+import {
+  processDueDeliveries,
+  recoverAbandonedDeliveries,
+  rescheduleInterruptedCampaigns,
+} from "../src/services/delivery-worker";
 import { publicRoutes } from "../src/routes/public";
 import { adminRoutes } from "../src/routes/admin";
 import * as schema from "../src/db/schema";
 import type { Config } from "../src/config";
-import {
-  createSubscriber,
-  confirmSubscriber,
-} from "../src/services/subscriber";
+import { createSubscriber, confirmSubscriber } from "../src/services/subscriber";
 import { createSession } from "../src/auth";
 import { compileTemplate } from "../src/services/email-templates";
 
@@ -45,9 +46,7 @@ describe("Full campaign send flow", () => {
     const list = seedList(db, { slug: "newsletter", fromDomain: "example.com" });
 
     // create confirmed subscriber
-    const sub = createSubscriber(db, "reader@example.com", "Reader", null, [
-      "newsletter",
-    ]);
+    const sub = createSubscriber(db, "reader@example.com", "Reader", null, ["newsletter"]);
     confirmSubscriber(db, sub.unsubscribeToken);
 
     // create draft campaign
@@ -70,20 +69,12 @@ describe("Full campaign send flow", () => {
     await sendCampaign(db, testConfig, campaign.id);
 
     // campaign should be "sent"
-    const updated = db
-      .select()
-      .from(schema.campaigns)
-      .where(eq(schema.campaigns.id, campaign.id))
-      .get();
+    const updated = db.select().from(schema.campaigns).where(eq(schema.campaigns.id, campaign.id)).get();
     expect(updated!.status).toBe("sent");
     expect(updated!.sentAt).not.toBeNull();
 
     // campaignSends should have 1 entry with status "sent"
-    const sends = db
-      .select()
-      .from(schema.campaignSends)
-      .where(eq(schema.campaignSends.campaignId, campaign.id))
-      .all();
+    const sends = db.select().from(schema.campaignSends).where(eq(schema.campaignSends.campaignId, campaign.id)).all();
     expect(sends).toHaveLength(1);
     expect(sends[0].status).toBe("accepted");
     expect(sends[0].sesMessageId).toBe("test-msg-id");
@@ -96,11 +87,13 @@ describe("Full campaign send flow", () => {
     const input = sesCalls[0].args[0].input;
     expect(input.Content?.Raw?.Data).toBeDefined();
     expect(input.ConfigurationSetName).toBe("test-config-set");
-    expect(input.EmailTags).toEqual(expect.arrayContaining([
-      { Name: "campaign_id", Value: String(campaign.id) },
-      { Name: "subscriber_id", Value: String(sub.id) },
-      { Name: "message_kind", Value: "campaign" },
-    ]));
+    expect(input.EmailTags).toEqual(
+      expect.arrayContaining([
+        { Name: "campaign_id", Value: String(campaign.id) },
+        { Name: "subscriber_id", Value: String(sub.id) },
+        { Name: "message_kind", Value: "campaign" },
+      ]),
+    );
   });
 
   test("sends the current mutable custom HTML and text template", async () => {
@@ -110,29 +103,55 @@ describe("Full campaign send flow", () => {
     confirmSubscriber(db, subscriber.unsubscribeToken);
     const source = {
       sourceFormat: "html" as const,
-      htmlSource: "<html><body><h1>V1 {{subscriber.firstName}}</h1>{{{sections.message.html}}}<a href=\"{{links.unsubscribe}}\">bye</a></body></html>",
+      htmlSource:
+        '<html><body><h1>V1 {{subscriber.firstName}}</h1>{{{sections.message.html}}}<a href="{{links.unsubscribe}}">bye</a></body></html>',
       textSource: "V1 {{subscriber.firstName}}\n{{sections.message.text}}\n{{links.unsubscribe}}",
-      sections: [{ key: "message", name: "Message", format: "markdown" as const, required: true }], partials: {},
+      sections: [{ key: "message", name: "Message", format: "markdown" as const, required: true }],
+      partials: {},
     };
     const compiled = await compileTemplate(source);
-    const template = db.insert(schema.emailTemplates).values({
-      slug: "letter", name: "Letter", status: "active", ...source, compiledHtml: compiled.compiledHtml,
-      sections: JSON.stringify(source.sections), partials: "{}",
-    }).returning().get();
-    const campaign = db.insert(schema.campaigns).values({
-      audienceType: "list", audienceId: list.id, subject: "Mutable template", bodyMarkdown: "# Hello custom HTML",
-      fromAddress: "news@example.com", status: "draft", templateSlug: template.slug,
-      templateSections: JSON.stringify({ message: "# Hello custom HTML" }),
-    }).returning().get();
-    db.update(schema.emailTemplates).set({
-      htmlSource: source.htmlSource.replace("V1", "V2"), compiledHtml: compiled.compiledHtml!.replace("V1", "V2"),
-      textSource: source.textSource.replace("V1", "V2"),
-    }).where(eq(schema.emailTemplates.id, template.id)).run();
+    const template = db
+      .insert(schema.emailTemplates)
+      .values({
+        slug: "letter",
+        name: "Letter",
+        status: "active",
+        ...source,
+        compiledHtml: compiled.compiledHtml,
+        sections: JSON.stringify(source.sections),
+        partials: "{}",
+      })
+      .returning()
+      .get();
+    const campaign = db
+      .insert(schema.campaigns)
+      .values({
+        audienceType: "list",
+        audienceId: list.id,
+        subject: "Mutable template",
+        bodyMarkdown: "# Hello custom HTML",
+        fromAddress: "news@example.com",
+        status: "draft",
+        templateSlug: template.slug,
+        templateSections: JSON.stringify({ message: "# Hello custom HTML" }),
+      })
+      .returning()
+      .get();
+    db.update(schema.emailTemplates)
+      .set({
+        htmlSource: source.htmlSource.replace("V1", "V2"),
+        compiledHtml: compiled.compiledHtml!.replace("V1", "V2"),
+        textSource: source.textSource.replace("V1", "V2"),
+      })
+      .where(eq(schema.emailTemplates.id, template.id))
+      .run();
     sesMock.on(SendEmailCommand).resolves({ MessageId: "custom-template-message" });
 
     await sendCampaign(db, testConfig, campaign.id);
 
-    const raw = new TextDecoder().decode(sesMock.commandCalls(SendEmailCommand)[0]!.args[0].input.Content!.Raw!.Data as Uint8Array);
+    const raw = new TextDecoder().decode(
+      sesMock.commandCalls(SendEmailCommand)[0]!.args[0].input.Content!.Raw!.Data as Uint8Array,
+    );
     expect(raw).toContain("V2 Reader");
     expect(raw).not.toContain("V1 Reader");
     expect(raw).toContain("Hello custom HTML");
@@ -144,10 +163,18 @@ describe("Full campaign send flow", () => {
     const list = seedList(db, { slug: "newsletter", fromDomain: "example.com" });
     const sub = createSubscriber(db, "retry@example.com", "Retry", null, ["newsletter"]);
     confirmSubscriber(db, sub.unsubscribeToken);
-    const campaign = db.insert(schema.campaigns).values({
-      audienceType: "list", audienceId: list.id, subject: "Retry me",
-      bodyMarkdown: "Hello", fromAddress: "news@example.com", status: "draft",
-    }).returning().get();
+    const campaign = db
+      .insert(schema.campaigns)
+      .values({
+        audienceType: "list",
+        audienceId: list.id,
+        subject: "Retry me",
+        bodyMarkdown: "Hello",
+        fromAddress: "news@example.com",
+        status: "draft",
+      })
+      .returning()
+      .get();
 
     const throttle = Object.assign(new Error("rate limited"), {
       name: "ThrottlingException",
@@ -162,8 +189,10 @@ describe("Full campaign send flow", () => {
     expect(delivery.nextAttemptAt).not.toBeNull();
     expect(db.select().from(schema.campaigns).get()!.status).toBe("sending");
 
-    db.update(schema.campaignSends).set({ nextAttemptAt: new Date(0).toISOString() })
-      .where(eq(schema.campaignSends.id, delivery.id)).run();
+    db.update(schema.campaignSends)
+      .set({ nextAttemptAt: new Date(0).toISOString() })
+      .where(eq(schema.campaignSends.id, delivery.id))
+      .run();
     sesMock.on(SendEmailCommand).resolves({ MessageId: "retried-ses-id" });
     await processDueDeliveries(db, testConfig);
 
@@ -178,37 +207,54 @@ describe("Full campaign send flow", () => {
     const db = createTestDb();
     const list = seedList(db, { slug: "newsletter", fromDomain: "example.com" });
     const sub = createSubscriber(db, "stranded@example.com", "Stranded", null, ["newsletter"]);
-    const campaign = db.insert(schema.campaigns).values({
-      audienceType: "list", audienceId: list.id, subject: "Interrupted",
-      bodyMarkdown: "Hello", fromAddress: "news@example.com", status: "sending",
-    }).returning().get();
-    const delivery = db.insert(schema.campaignSends).values({
-      campaignId: campaign.id,
-      subscriberId: sub.id,
-      idempotencyKey: `campaign:${campaign.id}:subscriber:${sub.id}`,
-      status: "attempting",
-      attemptCount: 1,
-      lastAttemptAt: "2026-01-01T00:00:00.000Z",
-      updatedAt: "2026-01-01T00:00:00.000Z",
-    }).returning().get();
+    const campaign = db
+      .insert(schema.campaigns)
+      .values({
+        audienceType: "list",
+        audienceId: list.id,
+        subject: "Interrupted",
+        bodyMarkdown: "Hello",
+        fromAddress: "news@example.com",
+        status: "sending",
+      })
+      .returning()
+      .get();
+    const delivery = db
+      .insert(schema.campaignSends)
+      .values({
+        campaignId: campaign.id,
+        subscriberId: sub.id,
+        idempotencyKey: `campaign:${campaign.id}:subscriber:${sub.id}`,
+        status: "attempting",
+        attemptCount: 1,
+        lastAttemptAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      })
+      .returning()
+      .get();
 
     expect(recoverAbandonedDeliveries(db, new Date("2026-01-01T00:16:00.000Z"))).toBe(1);
-    const recovered = db.select().from(schema.campaignSends)
-      .where(eq(schema.campaignSends.id, delivery.id)).get()!;
+    const recovered = db.select().from(schema.campaignSends).where(eq(schema.campaignSends.id, delivery.id)).get()!;
     expect(recovered.status).toBe("deferred");
     expect(recovered.nextAttemptAt).toBe("2026-01-01T00:16:00.000Z");
   });
 
   test("reschedules a campaign interrupted by a restart", () => {
     const db = createTestDb();
-    const campaign = db.insert(schema.campaigns).values({
-      audienceType: "all", subject: "Interrupted campaign", bodyMarkdown: "Hello",
-      fromAddress: "news@example.com", status: "sending",
-    }).returning().get();
+    const campaign = db
+      .insert(schema.campaigns)
+      .values({
+        audienceType: "all",
+        subject: "Interrupted campaign",
+        bodyMarkdown: "Hello",
+        fromAddress: "news@example.com",
+        status: "sending",
+      })
+      .returning()
+      .get();
 
     expect(rescheduleInterruptedCampaigns(db, new Date("2026-01-01T00:00:00.000Z"))).toBe(1);
-    const recovered = db.select().from(schema.campaigns)
-      .where(eq(schema.campaigns.id, campaign.id)).get()!;
+    const recovered = db.select().from(schema.campaigns).where(eq(schema.campaigns.id, campaign.id)).get()!;
     expect(recovered.status).toBe("scheduled");
     expect(recovered.scheduledAt).toBe("2026-01-01T00:15:00.000Z");
   });
@@ -222,9 +268,7 @@ describe("Campaign send failure flow", () => {
     const db = createTestDb();
     const list = seedList(db, { slug: "newsletter", fromDomain: "example.com" });
 
-    const sub = createSubscriber(db, "reader@example.com", "Reader", null, [
-      "newsletter",
-    ]);
+    const sub = createSubscriber(db, "reader@example.com", "Reader", null, ["newsletter"]);
     confirmSubscriber(db, sub.unsubscribeToken);
 
     const campaign = db
@@ -240,36 +284,27 @@ describe("Campaign send failure flow", () => {
       .returning()
       .get();
 
-    sesMock
-      .on(SendEmailCommand)
-      .rejects(new Error("SES rate limit exceeded"));
+    sesMock.on(SendEmailCommand).rejects(new Error("SES rate limit exceeded"));
 
-    await expect(sendCampaign(db, testConfig, campaign.id)).rejects.toThrow(
-      "failed for 1 recipient",
-    );
+    await expect(sendCampaign(db, testConfig, campaign.id)).rejects.toThrow("failed for 1 recipient");
 
-    const updated = db
-      .select()
-      .from(schema.campaigns)
-      .where(eq(schema.campaigns.id, campaign.id))
-      .get();
+    const updated = db.select().from(schema.campaigns).where(eq(schema.campaigns.id, campaign.id)).get();
     expect(updated!.status).toBe("failed");
     expect(updated!.lastError).toContain("SES rate limit exceeded");
 
     // campaignSends should have an entry with status "bounced"
-    const sends = db
-      .select()
-      .from(schema.campaignSends)
-      .where(eq(schema.campaignSends.campaignId, campaign.id))
-      .all();
+    const sends = db.select().from(schema.campaignSends).where(eq(schema.campaignSends.campaignId, campaign.id)).all();
     expect(sends).toHaveLength(1);
     expect(sends[0].status).toBe("failed");
     expect(sends[0].sesMessageId).toBeNull();
 
     sesMock.on(SendEmailCommand).resolves({ MessageId: "manual-retry-id" });
     await sendCampaign(db, testConfig, campaign.id);
-    const retried = db.select().from(schema.campaignSends)
-      .where(eq(schema.campaignSends.campaignId, campaign.id)).all();
+    const retried = db
+      .select()
+      .from(schema.campaignSends)
+      .where(eq(schema.campaignSends.campaignId, campaign.id))
+      .all();
     expect(retried).toHaveLength(1);
     expect(retried[0].status).toBe("accepted");
     expect(retried[0].attemptCount).toBe(2);
@@ -278,9 +313,7 @@ describe("Campaign send failure flow", () => {
 
   test("throws for non-existent campaign", async () => {
     const db = createTestDb();
-    expect(sendCampaign(db, testConfig, 9999)).rejects.toThrow(
-      "Campaign 9999 not found",
-    );
+    expect(sendCampaign(db, testConfig, 9999)).rejects.toThrow("Campaign 9999 not found");
   });
 
   test("throws for campaign that is already sent", async () => {
@@ -300,9 +333,7 @@ describe("Campaign send failure flow", () => {
       .returning()
       .get();
 
-    expect(sendCampaign(db, testConfig, campaign.id)).rejects.toThrow(
-      "must be draft, failed, scheduled, or sending",
-    );
+    expect(sendCampaign(db, testConfig, campaign.id)).rejects.toThrow("must be draft, failed, scheduled, or sending");
   });
 });
 
@@ -315,15 +346,11 @@ describe("Campaign retry skips already sent", () => {
     const list = seedList(db, { slug: "newsletter", fromDomain: "example.com" });
 
     // subscriber 1: already sent
-    const sub1 = createSubscriber(db, "already@example.com", "Already", null, [
-      "newsletter",
-    ]);
+    const sub1 = createSubscriber(db, "already@example.com", "Already", null, ["newsletter"]);
     confirmSubscriber(db, sub1.unsubscribeToken);
 
     // subscriber 2: not yet sent
-    const sub2 = createSubscriber(db, "pending@example.com", "Pending", null, [
-      "newsletter",
-    ]);
+    const sub2 = createSubscriber(db, "pending@example.com", "Pending", null, ["newsletter"]);
     confirmSubscriber(db, sub2.unsubscribeToken);
 
     // create a "failed" campaign (eligible for retry)
@@ -360,11 +387,7 @@ describe("Campaign retry skips already sent", () => {
     expect(sesCalls).toHaveLength(1);
 
     // should have 2 total sends: 1 pre-existing + 1 new
-    const sends = db
-      .select()
-      .from(schema.campaignSends)
-      .where(eq(schema.campaignSends.campaignId, campaign.id))
-      .all();
+    const sends = db.select().from(schema.campaignSends).where(eq(schema.campaignSends.campaignId, campaign.id)).all();
     expect(sends).toHaveLength(2);
 
     const newSend = sends.find((s) => s.subscriberId === sub2.id);
@@ -427,11 +450,7 @@ describe("Inbound message processing", () => {
       const match = toAddr.match(/^([^@]+)@reply\./);
       if (!match) continue;
       const slug = match[1];
-      const matchedList = db
-        .select()
-        .from(schema.lists)
-        .where(eq(schema.lists.slug, slug!))
-        .get();
+      const matchedList = db.select().from(schema.lists).where(eq(schema.lists.slug, slug!)).get();
       if (!matchedList) continue;
       const matchedCampaign = db
         .select()
@@ -451,9 +470,7 @@ describe("Inbound message processing", () => {
       }
     }
 
-    const s3Key =
-      payload.action.objectKey ||
-      payload.action.objectKeyPrefix + payload.messageId;
+    const s3Key = payload.action.objectKey || payload.action.objectKeyPrefix + payload.messageId;
 
     const fromAddr = payload.from[0] ?? payload.source;
     const toAddr = payload.to[0] ?? "";
@@ -480,11 +497,7 @@ describe("Inbound message processing", () => {
       .run();
 
     // verify it was inserted
-    const inbound = db
-      .select()
-      .from(schema.messages)
-      .where(eq(schema.messages.sesMessageId, "inbound-msg-001"))
-      .get();
+    const inbound = db.select().from(schema.messages).where(eq(schema.messages.sesMessageId, "inbound-msg-001")).get();
 
     expect(inbound).toBeDefined();
     expect(inbound!.fromAddr).toBe("replier@gmail.com");
@@ -514,19 +527,13 @@ describe("Per-list unsubscribe flow via App", () => {
       fromDomain: "example.com",
     });
 
-    const subscriber = createSubscriber(db, "reader@example.com", "Reader", null, [
-      "list-a",
-      "list-b",
-    ]);
+    const subscriber = createSubscriber(db, "reader@example.com", "Reader", null, ["list-a", "list-b"]);
     confirmSubscriber(db, subscriber.unsubscribeToken);
 
     const app = createHttpApp();
     app.use(publicRoutes(db, testConfig));
 
-    const res = await app.request(
-      `/unsubscribe/${subscriber.unsubscribeToken}/${listA.id}`,
-      { method: "GET" },
-    );
+    const res = await app.request(`/unsubscribe/${subscriber.unsubscribeToken}/${listA.id}`, { method: "GET" });
 
     expect(res.status).toBe(200);
     const html = await res.text();
@@ -538,12 +545,7 @@ describe("Per-list unsubscribe flow via App", () => {
     const subListA = db
       .select()
       .from(schema.subscriberLists)
-      .where(
-        and(
-          eq(schema.subscriberLists.subscriberId, subscriber.id),
-          eq(schema.subscriberLists.listId, listA.id),
-        ),
-      )
+      .where(and(eq(schema.subscriberLists.subscriberId, subscriber.id), eq(schema.subscriberLists.listId, listA.id)))
       .get();
     expect(subListA!.status).toBe("unsubscribed");
 
@@ -551,12 +553,7 @@ describe("Per-list unsubscribe flow via App", () => {
     const subListB = db
       .select()
       .from(schema.subscriberLists)
-      .where(
-        and(
-          eq(schema.subscriberLists.subscriberId, subscriber.id),
-          eq(schema.subscriberLists.listId, listB.id),
-        ),
-      )
+      .where(and(eq(schema.subscriberLists.subscriberId, subscriber.id), eq(schema.subscriberLists.listId, listB.id)))
       .get();
     expect(subListB!.status).toBe("confirmed");
   });
@@ -574,23 +571,17 @@ describe("Per-list unsubscribe flow via App", () => {
       fromDomain: "example.com",
     });
 
-    const subscriber = createSubscriber(db, "reader@example.com", "Reader", null, [
-      "list-a",
-      "list-b",
-    ]);
+    const subscriber = createSubscriber(db, "reader@example.com", "Reader", null, ["list-a", "list-b"]);
     confirmSubscriber(db, subscriber.unsubscribeToken);
 
     const app = createHttpApp();
     app.use(publicRoutes(db, testConfig));
 
-    const res = await app.request(
-      `/unsubscribe/${subscriber.unsubscribeToken}/${listA.id}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: "List-Unsubscribe=One-Click",
-      },
-    );
+    const res = await app.request(`/unsubscribe/${subscriber.unsubscribeToken}/${listA.id}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: "List-Unsubscribe=One-Click",
+    });
 
     expect(res.status).toBe(200);
     const text = await res.text();
@@ -600,12 +591,7 @@ describe("Per-list unsubscribe flow via App", () => {
     const subListA = db
       .select()
       .from(schema.subscriberLists)
-      .where(
-        and(
-          eq(schema.subscriberLists.subscriberId, subscriber.id),
-          eq(schema.subscriberLists.listId, listA.id),
-        ),
-      )
+      .where(and(eq(schema.subscriberLists.subscriberId, subscriber.id), eq(schema.subscriberLists.listId, listA.id)))
       .get();
     expect(subListA!.status).toBe("unsubscribed");
 
@@ -613,12 +599,7 @@ describe("Per-list unsubscribe flow via App", () => {
     const subListB = db
       .select()
       .from(schema.subscriberLists)
-      .where(
-        and(
-          eq(schema.subscriberLists.subscriberId, subscriber.id),
-          eq(schema.subscriberLists.listId, listB.id),
-        ),
-      )
+      .where(and(eq(schema.subscriberLists.subscriberId, subscriber.id), eq(schema.subscriberLists.listId, listB.id)))
       .get();
     expect(subListB!.status).toBe("confirmed");
   });
@@ -757,9 +738,7 @@ describe("GET /campaigns/:id/preview?subscriberId=N", () => {
       fromDomain: "example.com",
     });
 
-    const sub = createSubscriber(db, "reader@example.com", "Reader", null, [
-      "newsletter",
-    ]);
+    const sub = createSubscriber(db, "reader@example.com", "Reader", null, ["newsletter"]);
     confirmSubscriber(db, sub.unsubscribeToken);
 
     const campaign = db
@@ -780,10 +759,9 @@ describe("GET /campaigns/:id/preview?subscriberId=N", () => {
     const app = createHttpApp();
     app.group("/admin", (app) => app.use(adminRoutes(db, testConfig)));
 
-    const res = await app.request(
-      `/admin/campaigns/${campaign.id}/preview?subscriberId=${sub.id}`,
-      { headers: { Cookie: `session=${sessionToken}` } },
-    );
+    const res = await app.request(`/admin/campaigns/${campaign.id}/preview?subscriberId=${sub.id}`, {
+      headers: { Cookie: `session=${sessionToken}` },
+    });
 
     expect(res.status).toBe(200);
     const html = await res.text();
@@ -880,11 +858,7 @@ describe("Poller stores rfc822MessageId", () => {
       .onConflictDoNothing({ target: schema.messages.sesMessageId })
       .run();
 
-    const inbound = db
-      .select()
-      .from(schema.messages)
-      .where(eq(schema.messages.sesMessageId, "rfc822-test-001"))
-      .get();
+    const inbound = db.select().from(schema.messages).where(eq(schema.messages.sesMessageId, "rfc822-test-001")).get();
 
     expect(inbound).toBeDefined();
     expect(inbound!.rfc822MessageId).toBe("<CAF4Ud9Q123@mail.gmail.com>");

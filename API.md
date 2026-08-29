@@ -22,19 +22,19 @@ Scopes:
 
 The versioned base path is `/api/v1`.
 
-| Method | Path | Scope |
-| --- | --- | --- |
-| GET | `/lists` | `lists:read` |
-| GET, POST | `/subscribers` | `subscribers:read` / `subscribers:write` |
-| GET, DELETE | `/subscribers/:id` | `subscribers:read` / `subscribers:write` |
-| GET, POST | `/campaigns` | `campaigns:read` / `campaigns:write` |
-| GET | `/campaigns/:id` | `campaigns:read` |
-| POST | `/campaigns/:id/send` | `campaigns:send` |
-| GET | `/deliverability` | `deliverability:read` |
-| GET | `/dmarc` | `dmarc:read` |
-| GET, POST | `/email-templates` | `templates:read` / `templates:write` |
-| GET, PUT, DELETE | `/email-templates/:slug` | `templates:read` / `templates:write` |
-| POST | `/email-templates/:slug/preview` | `templates:read` |
+| Method           | Path                             | Scope                                    |
+| ---------------- | -------------------------------- | ---------------------------------------- |
+| GET              | `/lists`                         | `lists:read`                             |
+| GET, POST        | `/subscribers`                   | `subscribers:read` / `subscribers:write` |
+| GET, DELETE      | `/subscribers/:id`               | `subscribers:read` / `subscribers:write` |
+| GET, POST        | `/campaigns`                     | `campaigns:read` / `campaigns:write`     |
+| GET              | `/campaigns/:id`                 | `campaigns:read`                         |
+| POST             | `/campaigns/:id/send`            | `campaigns:send`                         |
+| GET              | `/deliverability`                | `deliverability:read`                    |
+| GET              | `/dmarc`                         | `dmarc:read`                             |
+| GET, POST        | `/email-templates`               | `templates:read` / `templates:write`     |
+| GET, PUT, DELETE | `/email-templates/:slug`         | `templates:read` / `templates:write`     |
+| POST             | `/email-templates/:slug/preview` | `templates:read`                         |
 
 Destructive actions and sending require explicit confirmation. Campaign send bodies must contain
 `{"confirm":true}`; subscriber deletion requires `?confirm=true`.

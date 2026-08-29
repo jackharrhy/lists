@@ -17,19 +17,35 @@ import { z } from "zod";
 
 const PAGE_SIZE = 50;
 const SubscriberIdentitySchema = z.object({
-  email: z.email().trim().transform((email) => email.toLowerCase()),
-  firstName: z.string().trim().default("").transform((name) => name || null),
-  lastName: z.string().trim().default("").transform((name) => name || null),
+  email: z
+    .email()
+    .trim()
+    .transform((email) => email.toLowerCase()),
+  firstName: z
+    .string()
+    .trim()
+    .default("")
+    .transform((name) => name || null),
+  lastName: z
+    .string()
+    .trim()
+    .default("")
+    .transform((name) => name || null),
 });
 const CreateSubscriberFormSchema = SubscriberIdentitySchema.extend({
   skip_confirm: z.literal("1").optional().transform(Boolean),
-  lists: z.union([z.string(), z.array(z.string())]).optional().transform((lists) => lists ? (Array.isArray(lists) ? lists : [lists]) : []),
+  lists: z
+    .union([z.string(), z.array(z.string())])
+    .optional()
+    .transform((lists) => (lists ? (Array.isArray(lists) ? lists : [lists]) : [])),
 });
 const EditSubscriberFormSchema = SubscriberIdentitySchema.extend({
   status: z.enum(["active", "blocklisted"]).default("active"),
 });
 
-function SubscriberIdentityFields({ subscriber }: {
+function SubscriberIdentityFields({
+  subscriber,
+}: {
   subscriber?: Pick<typeof schema.subscribers.$inferSelect, "email" | "firstName" | "lastName">;
 }) {
   return (
@@ -67,7 +83,9 @@ export function mountSubscriberRoutes(app: App, db: Db, config: Config) {
     const conditions: any[] = [];
     if (filterSearch) {
       const pattern = `%${filterSearch}%`;
-      conditions.push(sql`(${like(schema.subscribers.email, pattern)} OR ${like(schema.subscribers.firstName, pattern)} OR ${like(schema.subscribers.lastName, pattern)})`);
+      conditions.push(
+        sql`(${like(schema.subscribers.email, pattern)} OR ${like(schema.subscribers.firstName, pattern)} OR ${like(schema.subscribers.lastName, pattern)})`,
+      );
     }
     if (filterStatus === "active" || filterStatus === "blocklisted") {
       conditions.push(eq(schema.subscribers.status, filterStatus));
@@ -107,16 +125,20 @@ export function mountSubscriberRoutes(app: App, db: Db, config: Config) {
 
       // Count
       const countRow = whereClause
-        ? db.select({ count: sql<number>`count(*)` }).from(schema.subscribers).where(whereClause).get()
-        : db.select({ count: sql<number>`count(*)` }).from(schema.subscribers).get();
+        ? db
+            .select({ count: sql<number>`count(*)` })
+            .from(schema.subscribers)
+            .where(whereClause)
+            .get()
+        : db
+            .select({ count: sql<number>`count(*)` })
+            .from(schema.subscribers)
+            .get();
       total = countRow?.count ?? 0;
 
       // Page
       const q = db.select().from(schema.subscribers).orderBy(desc(schema.subscribers.createdAt));
-      subscribers = (whereClause ? q.where(whereClause) : q)
-        .limit(PAGE_SIZE)
-        .offset(offset)
-        .all();
+      subscribers = (whereClause ? q.where(whereClause) : q).limit(PAGE_SIZE).offset(offset).all();
     } else if (listAccess.length === 0) {
       subscribers = [];
       total = 0;
@@ -166,31 +188,61 @@ export function mountSubscriberRoutes(app: App, db: Db, config: Config) {
         </PageHeader>
 
         {/* Filters */}
-        <form method="get" action="/admin/subscribers" hx-get="/admin/subscribers" hx-trigger="keyup changed delay:350ms from:input[name='search'], change from:select" class="filter-bar flex items-end gap-3 mb-6 flex-wrap">
+        <form
+          method="get"
+          action="/admin/subscribers"
+          hx-get="/admin/subscribers"
+          hx-trigger="keyup changed delay:350ms from:input[name='search'], change from:select"
+          class="filter-bar flex items-end gap-3 mb-6 flex-wrap"
+        >
           <div>
             <label class="block text-xs font-medium text-gray-500 mb-1">Search</label>
-            <Input type="text" name="search" size="sm" value={filterSearch} autofocus={!!filterSearch} placeholder="Email or name…" class="w-48" />
+            <Input
+              type="text"
+              name="search"
+              size="sm"
+              value={filterSearch}
+              autofocus={!!filterSearch}
+              placeholder="Email or name…"
+              class="w-48"
+            />
           </div>
           <div>
             <label class="block text-xs font-medium text-gray-500 mb-1">Status</label>
             <Select name="status" size="sm">
-              <option value="" selected={!filterStatus}>All</option>
-              <option value="active" selected={filterStatus === "active"}>Active</option>
-              <option value="blocklisted" selected={filterStatus === "blocklisted"}>Blocklisted</option>
+              <option value="" selected={!filterStatus}>
+                All
+              </option>
+              <option value="active" selected={filterStatus === "active"}>
+                Active
+              </option>
+              <option value="blocklisted" selected={filterStatus === "blocklisted"}>
+                Blocklisted
+              </option>
             </Select>
           </div>
           <div>
             <label class="block text-xs font-medium text-gray-500 mb-1">Confirmed</label>
             <Select name="confirmed" size="sm">
-              <option value="" selected={!filterConfirmed}>All</option>
-              <option value="confirmed" selected={filterConfirmed === "confirmed"}>Confirmed</option>
-              <option value="unconfirmed" selected={filterConfirmed === "unconfirmed"}>Unconfirmed</option>
+              <option value="" selected={!filterConfirmed}>
+                All
+              </option>
+              <option value="confirmed" selected={filterConfirmed === "confirmed"}>
+                Confirmed
+              </option>
+              <option value="unconfirmed" selected={filterConfirmed === "unconfirmed"}>
+                Unconfirmed
+              </option>
             </Select>
           </div>
           <input type="hidden" name="page" value="1" />
-          <Button type="submit" size="filter">Filter</Button>
+          <Button type="submit" size="filter">
+            Filter
+          </Button>
           {hasFilters && (
-            <a href="/admin/subscribers" class="text-sm text-gray-500 hover:text-gray-700 no-underline">Clear</a>
+            <a href="/admin/subscribers" class="text-sm text-gray-500 hover:text-gray-700 no-underline">
+              Clear
+            </a>
           )}
         </form>
 
@@ -207,20 +259,33 @@ export function mountSubscriberRoutes(app: App, db: Db, config: Config) {
           <tbody>
             {subscribers.map((sub) => (
               <tr>
-                <Td><a href={`/admin/subscribers/${sub.id}`} class="text-blue-600 hover:text-blue-800">{sub.email}</a></Td>
+                <Td>
+                  <a href={`/admin/subscribers/${sub.id}`} class="text-blue-600 hover:text-blue-800">
+                    {sub.email}
+                  </a>
+                </Td>
                 <Td>{displayName(sub)}</Td>
                 <Td>{sub.status}</Td>
                 <Td>{fmtDate(sub.createdAt)}</Td>
                 <Td>
-                  <form method="post" action={`/admin/subscribers/${sub.id}/delete`} class="m-0" onsubmit={`return confirm('Delete ${sub.email}?')`}>
-                    <button type="submit" class="bg-transparent border-none text-red-600 cursor-pointer text-sm p-0">delete</button>
+                  <form
+                    method="post"
+                    action={`/admin/subscribers/${sub.id}/delete`}
+                    class="m-0"
+                    onsubmit={`return confirm('Delete ${sub.email}?')`}
+                  >
+                    <button type="submit" class="bg-transparent border-none text-red-600 cursor-pointer text-sm p-0">
+                      delete
+                    </button>
                   </form>
                 </Td>
               </tr>
             ))}
             {subscribers.length === 0 && (
               <tr>
-                <Td class="text-gray-400" ><span>No subscribers match the current filters.</span></Td>
+                <Td class="text-gray-400">
+                  <span>No subscribers match the current filters.</span>
+                </Td>
                 <Td></Td>
                 <Td></Td>
                 <Td></Td>
@@ -235,7 +300,11 @@ export function mountSubscriberRoutes(app: App, db: Db, config: Config) {
           <Pagination
             previousHref={page > 1 ? buildUrl({ page: page - 1 }) : undefined}
             nextHref={end < total ? buildUrl({ page: page + 1 }) : undefined}
-            summary={<>Showing {start}–{end} of {total}</>}
+            summary={
+              <>
+                Showing {start}–{end} of {total}
+              </>
+            }
           />
         )}
       </AdminLayout>,
@@ -249,7 +318,7 @@ export function mountSubscriberRoutes(app: App, db: Db, config: Config) {
 
     return c.html(
       <AdminLayout title="Add Subscriber" user={user} flash={flash}>
-        <h1 class="text-2xl font-bold mt-0 mb-4">Add Subscriber</h1>
+        <PageHeader title="Add subscriber" />
         <Card>
           <form method="post" action="/admin/subscribers/new">
             <SubscriberIdentityFields />
@@ -277,26 +346,30 @@ export function mountSubscriberRoutes(app: App, db: Db, config: Config) {
     );
   });
 
-  app.post("/subscribers/new", async (c) => {
-    const user = c.user as User;
-    const { email, firstName, lastName, skip_confirm: skipConfirm, lists: listSlugs } = c.body;
+  app.post(
+    "/subscribers/new",
+    async (c) => {
+      const user = c.user as User;
+      const { email, firstName, lastName, skip_confirm: skipConfirm, lists: listSlugs } = c.body;
 
-    const subscriber = createSubscriber(db, email, firstName, lastName, listSlugs);
+      const subscriber = createSubscriber(db, email, firstName, lastName, listSlugs);
 
-    if (skipConfirm) {
-      confirmSubscriber(db, subscriber.unsubscribeToken);
-    }
+      if (skipConfirm) {
+        confirmSubscriber(db, subscriber.unsubscribeToken);
+      }
 
-    logEvent(db, {
-      type: "admin.subscriber_added",
-      detail: email,
-      subscriberId: subscriber.id,
-      userId: user.id,
-    });
+      logEvent(db, {
+        type: "admin.subscriber_added",
+        detail: email,
+        subscriberId: subscriber.id,
+        userId: user.id,
+      });
 
-    setFlash(c, "Subscriber added.");
-    return c.redirect("/admin/subscribers");
-  }, { body: CreateSubscriberFormSchema });
+      setFlash(c, "Subscriber added.");
+      return c.redirect("/admin/subscribers");
+    },
+    { body: CreateSubscriberFormSchema },
+  );
 
   app.get("/subscribers/:id", (c) => {
     const user = c.user as User;
@@ -308,11 +381,7 @@ export function mountSubscriberRoutes(app: App, db: Db, config: Config) {
     const listAccess = getAccessibleListIds(db, user);
     const allLists = getAccessibleLists(db, user);
 
-    const subLists = db
-      .select()
-      .from(schema.subscriberLists)
-      .where(eq(schema.subscriberLists.subscriberId, id))
-      .all();
+    const subLists = db.select().from(schema.subscriberLists).where(eq(schema.subscriberLists.subscriberId, id)).all();
     const subListMap = new Map(subLists.map((sl) => [sl.listId, sl.status]));
 
     // For members, verify this subscriber is on one of their accessible lists
@@ -355,15 +424,19 @@ export function mountSubscriberRoutes(app: App, db: Db, config: Config) {
 
     return c.html(
       <AdminLayout title={sub.email} user={user} flash={flash}>
-        <h1 class="text-2xl font-bold mt-0 mb-4">{sub.email}</h1>
+        <PageHeader title={sub.email} />
 
         <form method="post" action={`/admin/subscribers/${id}/edit`}>
           <SubscriberIdentityFields subscriber={sub} />
           <FormGroup>
             <Label for="status">Status</Label>
             <Select id="status" name="status">
-              <option value="active" selected={sub.status === "active"}>active</option>
-              <option value="blocklisted" selected={sub.status === "blocklisted"}>blocklisted</option>
+              <option value="active" selected={sub.status === "active"}>
+                active
+              </option>
+              <option value="blocklisted" selected={sub.status === "blocklisted"}>
+                blocklisted
+              </option>
             </Select>
           </FormGroup>
 
@@ -389,16 +462,44 @@ export function mountSubscriberRoutes(app: App, db: Db, config: Config) {
                           <span class="text-xs text-gray-400 ml-2">{list.fromDomain}</span>
                         </div>
                         <div class="flex items-center gap-2">
-                          <form method="post" action={`/admin/subscribers/${sub.id}/list/${list.id}/status`} class="flex items-center gap-2 m-0">
-                            <select name="listStatus" class="px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-2 focus:ring-blue-500">
-                              <option value="unconfirmed" selected={listStatus === "unconfirmed"}>unconfirmed</option>
-                              <option value="confirmed" selected={listStatus === "confirmed"}>confirmed</option>
-                              <option value="unsubscribed" selected={listStatus === "unsubscribed"}>unsubscribed</option>
+                          <form
+                            method="post"
+                            action={`/admin/subscribers/${sub.id}/list/${list.id}/status`}
+                            class="flex items-center gap-2 m-0"
+                          >
+                            <select
+                              name="listStatus"
+                              class="px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            >
+                              <option value="unconfirmed" selected={listStatus === "unconfirmed"}>
+                                unconfirmed
+                              </option>
+                              <option value="confirmed" selected={listStatus === "confirmed"}>
+                                confirmed
+                              </option>
+                              <option value="unsubscribed" selected={listStatus === "unsubscribed"}>
+                                unsubscribed
+                              </option>
                             </select>
-                            <button type="submit" class="px-2 py-1 bg-gray-100 text-gray-700 text-xs rounded hover:bg-gray-200 cursor-pointer border border-gray-300">Set</button>
+                            <button
+                              type="submit"
+                              class="px-2 py-1 bg-gray-100 text-gray-700 text-xs rounded hover:bg-gray-200 cursor-pointer border border-gray-300"
+                            >
+                              Set
+                            </button>
                           </form>
-                          <form method="post" action={`/admin/subscribers/${sub.id}/list/${list.id}/remove`} class="m-0" onsubmit={`return confirm('Remove from ${list.name}?')`}>
-                            <button type="submit" class="px-2 py-1 bg-red-50 text-red-600 text-xs rounded hover:bg-red-100 cursor-pointer border border-red-200">Remove</button>
+                          <form
+                            method="post"
+                            action={`/admin/subscribers/${sub.id}/list/${list.id}/remove`}
+                            class="m-0"
+                            onsubmit={`return confirm('Remove from ${list.name}?')`}
+                          >
+                            <button
+                              type="submit"
+                              class="px-2 py-1 bg-red-50 text-red-600 text-xs rounded hover:bg-red-100 cursor-pointer border border-red-200"
+                            >
+                              Remove
+                            </button>
                           </form>
                         </div>
                       </div>
@@ -426,13 +527,22 @@ export function mountSubscriberRoutes(app: App, db: Db, config: Config) {
                 if (domains.length === 0) return null;
                 return (
                   <div class="mb-6 space-y-2">
-                    <p class="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">Send confirmation email</p>
+                    <p class="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">
+                      Send confirmation email
+                    </p>
                     {domains.map(({ domain, count }) => (
                       <div class="flex items-center justify-between bg-white border border-gray-200 rounded-lg px-4 py-2">
-                        <span class="text-sm text-gray-700">{domain}: {count} unconfirmed {count === 1 ? "list" : "lists"}</span>
+                        <span class="text-sm text-gray-700">
+                          {domain}: {count} unconfirmed {count === 1 ? "list" : "lists"}
+                        </span>
                         <form method="post" action={`/admin/subscribers/${sub.id}/send-confirm`} class="m-0">
                           <input type="hidden" name="domain" value={domain} />
-                          <button type="submit" class="px-2 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 cursor-pointer border-none">Send confirmation</button>
+                          <button
+                            type="submit"
+                            class="px-2 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 cursor-pointer border-none"
+                          >
+                            Send confirmation
+                          </button>
                         </form>
                       </div>
                     ))}
@@ -453,11 +563,21 @@ export function mountSubscriberRoutes(app: App, db: Db, config: Config) {
                         <div class="flex items-center gap-2">
                           <form method="post" action={`/admin/subscribers/${sub.id}/list/${list.id}/add`} class="m-0">
                             <input type="hidden" name="listStatus" value="unconfirmed" />
-                            <button type="submit" class="px-2 py-1 bg-white text-gray-700 text-xs rounded hover:bg-gray-100 cursor-pointer border border-gray-300">Add (unconfirmed)</button>
+                            <button
+                              type="submit"
+                              class="px-2 py-1 bg-white text-gray-700 text-xs rounded hover:bg-gray-100 cursor-pointer border border-gray-300"
+                            >
+                              Add (unconfirmed)
+                            </button>
                           </form>
                           <form method="post" action={`/admin/subscribers/${sub.id}/list/${list.id}/add`} class="m-0">
                             <input type="hidden" name="listStatus" value="confirmed" />
-                            <button type="submit" class="px-2 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 cursor-pointer border-none">Add (confirmed)</button>
+                            <button
+                              type="submit"
+                              class="px-2 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 cursor-pointer border-none"
+                            >
+                              Add (confirmed)
+                            </button>
                           </form>
                         </div>
                       </div>
@@ -476,7 +596,12 @@ export function mountSubscriberRoutes(app: App, db: Db, config: Config) {
               <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700">
                 {tag.name}
                 <form method="post" action={`/admin/subscribers/${id}/tags/${tag.id}/remove`} class="m-0 inline">
-                  <button type="submit" class="bg-transparent border-none cursor-pointer text-gray-400 hover:text-red-600 p-0 text-xs leading-none">&times;</button>
+                  <button
+                    type="submit"
+                    class="bg-transparent border-none cursor-pointer text-gray-400 hover:text-red-600 p-0 text-xs leading-none"
+                  >
+                    &times;
+                  </button>
                 </form>
               </span>
             ))}
@@ -484,12 +609,20 @@ export function mountSubscriberRoutes(app: App, db: Db, config: Config) {
           </div>
           {availableTags.length > 0 && (
             <form method="post" action={`/admin/subscribers/${id}/tags/add`} class="flex items-center gap-2">
-              <select name="tagId" class="px-3 py-1.5 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+              <select
+                name="tagId"
+                class="px-3 py-1.5 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              >
                 {availableTags.map((tag) => (
                   <option value={String(tag.id)}>{tag.name}</option>
                 ))}
               </select>
-              <button type="submit" class="inline-block px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none no-underline">Add</button>
+              <button
+                type="submit"
+                class="inline-block px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-md hover:bg-blue-700 cursor-pointer border-none no-underline"
+              >
+                Add
+              </button>
             </form>
           )}
         </div>
@@ -515,7 +648,11 @@ export function mountSubscriberRoutes(app: App, db: Db, config: Config) {
               <tbody>
                 {subSends.map((s) => (
                   <tr>
-                    <Td><a href={`/admin/campaigns/${s.campaignId}`} class="text-blue-600 hover:text-blue-800">{s.subject ?? `Campaign ${s.campaignId}`}</a></Td>
+                    <Td>
+                      <a href={`/admin/campaigns/${s.campaignId}`} class="text-blue-600 hover:text-blue-800">
+                        {s.subject ?? `Campaign ${s.campaignId}`}
+                      </a>
+                    </Td>
                     <Td>{s.status}</Td>
                     <Td>{fmtDateTime(s.sentAt)}</Td>
                   </tr>
@@ -541,33 +678,43 @@ export function mountSubscriberRoutes(app: App, db: Db, config: Config) {
         )}
 
         <hr class="my-8" />
-        <form method="post" action={`/admin/subscribers/${id}/delete`} onsubmit="return confirm('Delete this subscriber and all their list subscriptions? This cannot be undone.')">
-          <Button type="submit" variant="danger">Delete Subscriber</Button>
+        <form
+          method="post"
+          action={`/admin/subscribers/${id}/delete`}
+          onsubmit="return confirm('Delete this subscriber and all their list subscriptions? This cannot be undone.')"
+        >
+          <Button type="submit" variant="danger">
+            Delete Subscriber
+          </Button>
         </form>
       </AdminLayout>,
     );
   });
 
-  app.post("/subscribers/:id/edit", async (c) => {
-    const user = c.user as User;
-    const id = Number(c.params.id);
-    const { email, firstName, lastName, status } = c.body;
+  app.post(
+    "/subscribers/:id/edit",
+    async (c) => {
+      const user = c.user as User;
+      const id = Number(c.params.id);
+      const { email, firstName, lastName, status } = c.body;
 
-    db.update(schema.subscribers)
-      .set({ email, firstName, lastName, status })
-      .where(eq(schema.subscribers.id, id))
-      .run();
+      db.update(schema.subscribers)
+        .set({ email, firstName, lastName, status })
+        .where(eq(schema.subscribers.id, id))
+        .run();
 
-    logEvent(db, {
-      type: "admin.subscriber_edited",
-      detail: email,
-      subscriberId: id,
-      userId: user.id,
-    });
+      logEvent(db, {
+        type: "admin.subscriber_edited",
+        detail: email,
+        subscriberId: id,
+        userId: user.id,
+      });
 
-    setFlash(c, "Subscriber updated.");
-    return c.redirect(`/admin/subscribers/${id}`);
-  }, { body: EditSubscriberFormSchema });
+      setFlash(c, "Subscriber updated.");
+      return c.redirect(`/admin/subscribers/${id}`);
+    },
+    { body: EditSubscriberFormSchema },
+  );
 
   app.post("/subscribers/:id/delete", (c) => {
     const user = c.user as User;
@@ -582,21 +729,13 @@ export function mountSubscriberRoutes(app: App, db: Db, config: Config) {
     });
 
     // delete list subscriptions
-    db.delete(schema.subscriberLists)
-      .where(eq(schema.subscriberLists.subscriberId, id))
-      .run();
+    db.delete(schema.subscriberLists).where(eq(schema.subscriberLists.subscriberId, id)).run();
     // delete subscriber tags
-    db.delete(schema.subscriberTags)
-      .where(eq(schema.subscriberTags.subscriberId, id))
-      .run();
+    db.delete(schema.subscriberTags).where(eq(schema.subscriberTags.subscriberId, id)).run();
     // delete campaign sends
-    db.delete(schema.campaignSends)
-      .where(eq(schema.campaignSends.subscriberId, id))
-      .run();
+    db.delete(schema.campaignSends).where(eq(schema.campaignSends.subscriberId, id)).run();
     // delete subscriber
-    db.delete(schema.subscribers)
-      .where(eq(schema.subscribers.id, id))
-      .run();
+    db.delete(schema.subscribers).where(eq(schema.subscribers.id, id)).run();
     setFlash(c, "Subscriber deleted.");
     return c.redirect("/admin/subscribers");
   });
@@ -638,7 +777,8 @@ export function mountSubscriberRoutes(app: App, db: Db, config: Config) {
     const confirmUrl = buildConfirmUrl(config.baseUrl, sub.unsubscribeToken, sendingDomain);
     const { html } = await renderConfirmation({ confirmUrl, listNames });
 
-    await sendEmail(config,
+    await sendEmail(
+      config,
       new SendEmailCommand({
         FromEmailAddress: `noreply@${sendingDomain}`,
         Destination: { ToAddresses: [sub.email] },
@@ -691,12 +831,7 @@ export function mountSubscriberRoutes(app: App, db: Db, config: Config) {
       rawListStatus === "confirmed" || rawListStatus === "unsubscribed" ? rawListStatus : "unconfirmed";
     db.update(schema.subscriberLists)
       .set({ status: listStatus })
-      .where(
-        and(
-          eq(schema.subscriberLists.subscriberId, subId),
-          eq(schema.subscriberLists.listId, listId),
-        ),
-      )
+      .where(and(eq(schema.subscriberLists.subscriberId, subId), eq(schema.subscriberLists.listId, listId)))
       .run();
     setFlash(c, "Status updated.");
     return c.redirect(`/admin/subscribers/${subId}`);
@@ -706,12 +841,7 @@ export function mountSubscriberRoutes(app: App, db: Db, config: Config) {
     const subId = Number(c.params.id);
     const listId = Number(c.params.listId);
     db.delete(schema.subscriberLists)
-      .where(
-        and(
-          eq(schema.subscriberLists.subscriberId, subId),
-          eq(schema.subscriberLists.listId, listId),
-        ),
-      )
+      .where(and(eq(schema.subscriberLists.subscriberId, subId), eq(schema.subscriberLists.listId, listId)))
       .run();
     setFlash(c, "Removed from list.");
     return c.redirect(`/admin/subscribers/${subId}`);
@@ -723,10 +853,7 @@ export function mountSubscriberRoutes(app: App, db: Db, config: Config) {
     const tagId = Number(body["tagId"]);
 
     if (tagId) {
-      db.insert(schema.subscriberTags)
-        .values({ subscriberId: id, tagId })
-        .onConflictDoNothing()
-        .run();
+      db.insert(schema.subscriberTags).values({ subscriberId: id, tagId }).onConflictDoNothing().run();
     }
 
     return c.redirect(`/admin/subscribers/${id}`);
@@ -737,12 +864,7 @@ export function mountSubscriberRoutes(app: App, db: Db, config: Config) {
     const tagId = Number(c.params.tagId);
 
     db.delete(schema.subscriberTags)
-      .where(
-        and(
-          eq(schema.subscriberTags.subscriberId, id),
-          eq(schema.subscriberTags.tagId, tagId),
-        ),
-      )
+      .where(and(eq(schema.subscriberTags.subscriberId, id), eq(schema.subscriberTags.tagId, tagId)))
       .run();
 
     return c.redirect(`/admin/subscribers/${id}`);

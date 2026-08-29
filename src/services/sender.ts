@@ -5,11 +5,7 @@ import type Mail from "nodemailer/lib/mailer";
 import type { Config } from "../config";
 import { type Db, schema } from "../db";
 import { getConfirmedSubscribers } from "./subscriber";
-import {
-  buildUnsubscribeUrl,
-  buildPreferencesUrl,
-  buildListUnsubscribeHeader,
-} from "../compliance";
+import { buildUnsubscribeUrl, buildPreferencesUrl, buildListUnsubscribeHeader } from "../compliance";
 import { renderCampaignMessage } from "./campaign-renderer";
 import { logEvent } from "./events";
 import { sendEmail } from "./mailer";
@@ -26,12 +22,7 @@ function getAllActiveConfirmedSubscribers(db: Db) {
     })
     .from(schema.subscribers)
     .innerJoin(schema.subscriberLists, eq(schema.subscriberLists.subscriberId, schema.subscribers.id))
-    .where(
-      and(
-        eq(schema.subscribers.status, "active"),
-        eq(schema.subscriberLists.status, "confirmed"),
-      ),
-    )
+    .where(and(eq(schema.subscribers.status, "active"), eq(schema.subscriberLists.status, "confirmed")))
     .all();
 }
 
@@ -130,11 +121,7 @@ export async function buildRawEmail({
   return { raw: info.message as Buffer, messageId };
 }
 
-export async function sendCampaign(
-  db: Db,
-  config: Config,
-  campaignId: number,
-) {
+export async function sendCampaign(db: Db, config: Config, campaignId: number) {
   const campaign = db.select().from(schema.campaigns).where(eq(schema.campaigns.id, campaignId)).get();
   if (!campaign) throw new Error(`Campaign ${campaignId} not found`);
   if (!["draft", "failed", "scheduled", "sending"].includes(campaign.status)) {
@@ -142,9 +129,10 @@ export async function sendCampaign(
   }
 
   // Resolve list when audienceType is "list"
-  const list = campaign.audienceType === "list" && campaign.audienceId
-    ? db.select().from(schema.lists).where(eq(schema.lists.id, campaign.audienceId)).get()
-    : null;
+  const list =
+    campaign.audienceType === "list" && campaign.audienceId
+      ? db.select().from(schema.lists).where(eq(schema.lists.id, campaign.audienceId)).get()
+      : null;
   if (campaign.audienceType === "list" && !list) {
     throw new Error(`List ${campaign.audienceId} not found for campaign ${campaignId}`);
   }
@@ -163,7 +151,13 @@ export async function sendCampaign(
   const isBatched = !!campaign.batchSize;
 
   try {
-    let subscribers: { id: number; email: string; firstName: string | null; lastName: string | null; unsubscribeToken: string }[];
+    let subscribers: {
+      id: number;
+      email: string;
+      firstName: string | null;
+      lastName: string | null;
+      unsubscribeToken: string;
+    }[];
 
     switch (campaign.audienceType) {
       case "list":
@@ -190,12 +184,15 @@ export async function sendCampaign(
 
     // figure out which subscribers already got this (for retries)
     const alreadySent = new Set(
-      db.select({ subscriberId: schema.campaignSends.subscriberId })
+      db
+        .select({ subscriberId: schema.campaignSends.subscriberId })
         .from(schema.campaignSends)
-        .where(and(
-          eq(schema.campaignSends.campaignId, campaignId),
-          inArray(schema.campaignSends.status, ["accepted", "delivered", "delivery_delayed", "sent"]),
-        ))
+        .where(
+          and(
+            eq(schema.campaignSends.campaignId, campaignId),
+            inArray(schema.campaignSends.status, ["accepted", "delivered", "delivery_delayed", "sent"]),
+          ),
+        )
         .all()
         .map((r) => r.subscriberId),
     );
@@ -206,14 +203,10 @@ export async function sendCampaign(
     }
 
     // Derive per-campaign values depending on whether there's a list
-    const emailFromDomain = list
-      ? list.fromDomain
-      : (campaign.fromAddress.split("@")[1] ?? config.fromDomain);
+    const emailFromDomain = list ? list.fromDomain : (campaign.fromAddress.split("@")[1] ?? config.fromDomain);
     const fromLocalPart = campaign.fromAddress.split("@")[0] ?? "noreply";
     const listName = list ? list.name : (campaign.fromName ?? fromLocalPart);
-    const replyTo = list
-      ? `${list.slug}@reply.${list.fromDomain}`
-      : `${fromLocalPart}@reply.${emailFromDomain}`;
+    const replyTo = list ? `${list.slug}@reply.${list.fromDomain}` : `${fromLocalPart}@reply.${emailFromDomain}`;
     // Display name: explicit fromName > list name > local part of fromAddress
     const displayName = campaign.fromName ?? list?.name ?? fromLocalPart;
     const fromWithName = `"${displayName}" <${campaign.fromAddress}>`;
@@ -222,28 +215,41 @@ export async function sendCampaign(
       if (alreadySent.has(subscriber.id)) continue;
 
       const idempotencyKey = `campaign:${campaignId}:subscriber:${subscriber.id}`;
-      let delivery = db.select().from(schema.campaignSends)
-        .where(eq(schema.campaignSends.idempotencyKey, idempotencyKey)).get();
-      if (delivery?.status === "deferred" && delivery.nextAttemptAt && delivery.nextAttemptAt > new Date().toISOString()) continue;
-      if (delivery && ["accepted", "delivered", "delivery_delayed", "bounced", "complained", "sent"].includes(delivery.status)) continue;
+      let delivery = db
+        .select()
+        .from(schema.campaignSends)
+        .where(eq(schema.campaignSends.idempotencyKey, idempotencyKey))
+        .get();
+      if (
+        delivery?.status === "deferred" &&
+        delivery.nextAttemptAt &&
+        delivery.nextAttemptAt > new Date().toISOString()
+      )
+        continue;
+      if (
+        delivery &&
+        ["accepted", "delivered", "delivery_delayed", "bounced", "complained", "sent"].includes(delivery.status)
+      )
+        continue;
 
       if (!delivery) {
-        delivery = db.insert(schema.campaignSends).values({
-          campaignId,
-          subscriberId: subscriber.id,
-          idempotencyKey,
-          status: "pending",
-          updatedAt: new Date().toISOString(),
-        }).returning().get();
+        delivery = db
+          .insert(schema.campaignSends)
+          .values({
+            campaignId,
+            subscriberId: subscriber.id,
+            idempotencyKey,
+            status: "pending",
+            updatedAt: new Date().toISOString(),
+          })
+          .returning()
+          .get();
       }
 
       const unsubscribeUrl = list
         ? buildUnsubscribeUrl(config.baseUrl, subscriber.unsubscribeToken, list.id)
         : buildUnsubscribeUrl(config.baseUrl, subscriber.unsubscribeToken);
-      const preferencesUrl = buildPreferencesUrl(
-        config.baseUrl,
-        subscriber.unsubscribeToken,
-      );
+      const preferencesUrl = buildPreferencesUrl(config.baseUrl, subscriber.unsubscribeToken);
       const listUnsubHeaders = buildListUnsubscribeHeader(unsubscribeUrl);
 
       const rendered = await renderCampaignMessage(db, {
@@ -269,17 +275,21 @@ export async function sendCampaign(
       // Mark the attempt immediately before the network call. This keeps the
       // restart-recovery ambiguity window as small as possible.
       const attemptAt = new Date().toISOString();
-      db.update(schema.campaignSends).set({
-        status: "attempting",
-        attemptCount: delivery.attemptCount + 1,
-        lastAttemptAt: attemptAt,
-        nextAttemptAt: null,
-        lastError: null,
-        updatedAt: attemptAt,
-      }).where(eq(schema.campaignSends.id, delivery.id)).run();
+      db.update(schema.campaignSends)
+        .set({
+          status: "attempting",
+          attemptCount: delivery.attemptCount + 1,
+          lastAttemptAt: attemptAt,
+          nextAttemptAt: null,
+          lastError: null,
+          updatedAt: attemptAt,
+        })
+        .where(eq(schema.campaignSends.id, delivery.id))
+        .run();
 
       try {
-        const result = await sendEmail(config,
+        const result = await sendEmail(
+          config,
           new SendEmailCommand({
             Content: {
               Raw: {
@@ -310,24 +320,30 @@ export async function sendCampaign(
           .run();
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        const metadataStatus = typeof err === "object" && err && "$metadata" in err
-          ? Number((err as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode)
-          : 0;
+        const metadataStatus =
+          typeof err === "object" && err && "$metadata" in err
+            ? Number((err as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode)
+            : 0;
         const errorName = err instanceof Error ? err.name : "";
-        const retryable = metadataStatus === 429 || metadataStatus >= 500 ||
-          ["ThrottlingException", "TooManyRequestsException", "ServiceUnavailableException", "TimeoutError"].includes(errorName);
+        const retryable =
+          metadataStatus === 429 ||
+          metadataStatus >= 500 ||
+          ["ThrottlingException", "TooManyRequestsException", "ServiceUnavailableException", "TimeoutError"].includes(
+            errorName,
+          );
         const attempts = delivery.attemptCount + 1;
         const willRetry = retryable && attempts < 5;
-        const retryAt = willRetry
-          ? new Date(Date.now() + Math.min(60, 2 ** attempts) * 60_000).toISOString()
-          : null;
-        db.update(schema.campaignSends).set({
-          rfc822MessageId,
-          status: willRetry ? "deferred" : "failed",
-          nextAttemptAt: retryAt,
-          lastError: msg,
-          updatedAt: new Date().toISOString(),
-        }).where(eq(schema.campaignSends.id, delivery.id)).run();
+        const retryAt = willRetry ? new Date(Date.now() + Math.min(60, 2 ** attempts) * 60_000).toISOString() : null;
+        db.update(schema.campaignSends)
+          .set({
+            rfc822MessageId,
+            status: willRetry ? "deferred" : "failed",
+            nextAttemptAt: retryAt,
+            lastError: msg,
+            updatedAt: new Date().toISOString(),
+          })
+          .where(eq(schema.campaignSends.id, delivery.id))
+          .run();
         if (!willRetry) sendErrors.push(`${subscriber.email}: ${msg}`);
         console.error(`Failed to send to ${subscriber.email}: ${msg}`);
       }
@@ -342,12 +358,15 @@ export async function sendCampaign(
     // For batched campaigns, check if there are more unsent subscribers remaining
     if (isBatched) {
       const sentSoFar = new Set(
-        db.select({ subscriberId: schema.campaignSends.subscriberId })
+        db
+          .select({ subscriberId: schema.campaignSends.subscriberId })
           .from(schema.campaignSends)
-          .where(and(
-            eq(schema.campaignSends.campaignId, campaignId),
-          inArray(schema.campaignSends.status, ["accepted", "delivered", "delivery_delayed", "sent"]),
-          ))
+          .where(
+            and(
+              eq(schema.campaignSends.campaignId, campaignId),
+              inArray(schema.campaignSends.status, ["accepted", "delivered", "delivery_delayed", "sent"]),
+            ),
+          )
           .all()
           .map((r) => r.subscriberId),
       );
@@ -386,15 +405,18 @@ export async function sendCampaign(
       }
     }
 
-    const outstanding = db.select({ id: schema.campaignSends.id })
+    const outstanding = db
+      .select({ id: schema.campaignSends.id })
       .from(schema.campaignSends)
-      .where(and(
-        eq(schema.campaignSends.campaignId, campaignId),
-        inArray(schema.campaignSends.status, ["pending", "attempting", "deferred"]),
-      )).all();
+      .where(
+        and(
+          eq(schema.campaignSends.campaignId, campaignId),
+          inArray(schema.campaignSends.status, ["pending", "attempting", "deferred"]),
+        ),
+      )
+      .all();
     if (outstanding.length > 0) {
-      db.update(schema.campaigns).set({ status: "sending" })
-        .where(eq(schema.campaigns.id, campaignId)).run();
+      db.update(schema.campaigns).set({ status: "sending" }).where(eq(schema.campaigns.id, campaignId)).run();
       return;
     }
 
@@ -410,9 +432,7 @@ export async function sendCampaign(
       campaignId,
     });
   } catch (err) {
-    const msg = err instanceof Error
-      ? `${err.message}\n${err.stack ?? ""}`
-      : String(err);
+    const msg = err instanceof Error ? `${err.message}\n${err.stack ?? ""}` : String(err);
     console.error(`Campaign ${campaignId} failed: ${msg}`);
     db.update(schema.campaigns)
       .set({ status: "failed", lastError: msg })

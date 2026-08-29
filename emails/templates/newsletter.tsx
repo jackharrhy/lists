@@ -1,14 +1,6 @@
 /** @jsxRuntime automatic */
 /** @jsxImportSource react */
-import {
-  Body,
-  Container,
-  Head,
-  Html,
-  Preview,
-  Section,
-  Text,
-} from "@react-email/components";
+import { Body, Container, Head, Html, Preview, Text } from "@react-email/components";
 import { Footer } from "../components/footer";
 
 export interface NewsletterProps {
@@ -19,13 +11,7 @@ export interface NewsletterProps {
   preferencesUrl: string;
 }
 
-export function Newsletter({
-  subject,
-  contentHtml,
-  listName,
-  unsubscribeUrl,
-  preferencesUrl,
-}: NewsletterProps) {
+export function Newsletter({ subject, contentHtml, listName, unsubscribeUrl, preferencesUrl }: NewsletterProps) {
   return (
     <Html>
       <Head />
@@ -33,14 +19,8 @@ export function Newsletter({
       <Body style={body}>
         <Container style={container}>
           <Text style={listNameText}>{listName}</Text>
-          <div
-            dangerouslySetInnerHTML={{ __html: contentHtml }}
-            style={content}
-          />
-          <Footer
-            unsubscribeUrl={unsubscribeUrl}
-            preferencesUrl={preferencesUrl}
-          />
+          <div dangerouslySetInnerHTML={{ __html: contentHtml }} style={content} />
+          <Footer unsubscribeUrl={unsubscribeUrl} preferencesUrl={preferencesUrl} />
         </Container>
       </Body>
     </Html>
@@ -51,8 +31,7 @@ export default Newsletter;
 
 const body = {
   backgroundColor: "#ffffff",
-  fontFamily:
-    "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+  fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
 };
 
 const container = {

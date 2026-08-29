@@ -56,13 +56,25 @@ export function seedBuiltInTemplates(db: Db) {
   const existing = db.select().from(schema.emailTemplates).where(eq(schema.emailTemplates.slug, "newsletter")).get();
   if (existing) return existing;
   const now = new Date().toISOString();
-  return db.insert(schema.emailTemplates).values({
-      slug: "newsletter", name: "Newsletter", description: "The original minimal Lists newsletter.",
-      status: "active", builtIn: true, createdAt: now, updatedAt: now,
-      sourceFormat: "html", htmlSource: BUILT_IN_HTML, textSource: BUILT_IN_TEXT, compiledHtml: BUILT_IN_HTML,
+  return db
+    .insert(schema.emailTemplates)
+    .values({
+      slug: "newsletter",
+      name: "Newsletter",
+      description: "The original minimal Lists newsletter.",
+      status: "active",
+      builtIn: true,
+      createdAt: now,
+      updatedAt: now,
+      sourceFormat: "html",
+      htmlSource: BUILT_IN_HTML,
+      textSource: BUILT_IN_TEXT,
+      compiledHtml: BUILT_IN_HTML,
       sections: JSON.stringify([{ key: "content", name: "Content", format: "markdown", required: true }]),
       partials: "{}",
-    }).returning().get();
+    })
+    .returning()
+    .get();
 }
 
 function validateHtml(source: string, label: string): string[] {
@@ -71,19 +83,32 @@ function validateHtml(source: string, label: string): string[] {
   const parser = new Parser({
     onopentag(name, attributes) {
       if (forbiddenTags.has(name.toLowerCase())) issues.push(`${label} contains forbidden <${name}>`);
-      if (name.toLowerCase() === "meta" && attributes["http-equiv"]?.toLowerCase() === "refresh") issues.push(`${label} contains a meta refresh`);
+      if (name.toLowerCase() === "meta" && attributes["http-equiv"]?.toLowerCase() === "refresh")
+        issues.push(`${label} contains a meta refresh`);
       for (const [attribute, value] of Object.entries(attributes)) {
         if (attribute.toLowerCase().startsWith("on")) issues.push(`${label} contains event handler ${attribute}`);
-        if (["src", "background"].includes(attribute.toLowerCase()) && value && !/^(https:|data:image\/|cid:|\{\{)/i.test(value)) {
+        if (
+          ["src", "background"].includes(attribute.toLowerCase()) &&
+          value &&
+          !/^(https:|data:image\/|cid:|\{\{)/i.test(value)
+        ) {
           issues.push(`${label} asset URLs must use HTTPS, data:image, or cid`);
         }
         if (attribute.toLowerCase() === "href" && value && !/^(https?:|mailto:|#|\{\{)/i.test(value)) {
           issues.push(`${label} contains an unsafe link protocol`);
         }
-        if (name.toLowerCase() === "link" && attribute.toLowerCase() === "href" && value && !/^(https:|\{\{)/i.test(value)) {
+        if (
+          name.toLowerCase() === "link" &&
+          attribute.toLowerCase() === "href" &&
+          value &&
+          !/^(https:|\{\{)/i.test(value)
+        ) {
           issues.push(`${label} linked assets must use HTTPS`);
         }
-        if (attribute.toLowerCase() === "srcset" && value.split(",").some((candidate) => !/^(https:|data:image\/|cid:|\{\{)/i.test(candidate.trim()))) {
+        if (
+          attribute.toLowerCase() === "srcset" &&
+          value.split(",").some((candidate) => !/^(https:|data:image\/|cid:|\{\{)/i.test(candidate.trim()))
+        ) {
           issues.push(`${label} srcset assets must use HTTPS, data:image, or cid`);
         }
       }
@@ -91,10 +116,12 @@ function validateHtml(source: string, label: string): string[] {
   });
   parser.write(source);
   parser.end();
-  if (/javascript\s*:|vbscript\s*:|expression\s*\(/i.test(source)) issues.push(`${label} contains executable CSS or a dangerous URL`);
+  if (/javascript\s*:|vbscript\s*:|expression\s*\(/i.test(source))
+    issues.push(`${label} contains executable CSS or a dangerous URL`);
   for (const match of source.matchAll(/url\(\s*['"]?([^)'"\s]+)/gi)) {
     const url = match[1] ?? "";
-    if (!/^(https:|data:image\/|cid:|\{\{)/i.test(url)) issues.push(`${label} CSS asset URLs must use HTTPS, data:image, or cid`);
+    if (!/^(https:|data:image\/|cid:|\{\{)/i.test(url))
+      issues.push(`${label} CSS asset URLs must use HTTPS, data:image, or cid`);
   }
   for (const match of source.matchAll(/@import\s+(?:url\()?['"]?([^)'";\s]+)/gi)) {
     if (!/^(https:|\{\{)/i.test(match[1] ?? "")) issues.push(`${label} imported stylesheets must use HTTPS`);
@@ -149,7 +176,8 @@ export async function compileTemplate(source: TemplateSource) {
   } else if (!source.htmlSource?.trim()) {
     issues.push(`${source.sourceFormat.toUpperCase()} source is required`);
   } else if (source.sourceFormat === "mjml") {
-    if (/<mj-include\b/i.test(source.htmlSource)) issues.push("MJML includes are not supported; use stored partials instead");
+    if (/<mj-include\b/i.test(source.htmlSource))
+      issues.push("MJML includes are not supported; use stored partials instead");
     try {
       const result = await mjml2html(source.htmlSource, { validationLevel: "strict", ignoreIncludes: true });
       compiledHtml = result.html;
@@ -167,10 +195,13 @@ export async function compileTemplate(source: TemplateSource) {
   }
   issues.push(...validatePartials(compiledHtml, source.textSource, source.partials));
   if (!source.textSource.includes("links.unsubscribe")) issues.push("Text source must reference links.unsubscribe");
-  if (compiledHtml && !compiledHtml.includes("links.unsubscribe")) issues.push("HTML source must reference links.unsubscribe");
+  if (compiledHtml && !compiledHtml.includes("links.unsubscribe"))
+    issues.push("HTML source must reference links.unsubscribe");
   for (const section of source.sections.filter((item) => item.required)) {
-    if (!source.textSource.includes(`sections.${section.key}.`)) issues.push(`Required section ${section.key} is not rendered in text source`);
-    if (compiledHtml && !compiledHtml.includes(`sections.${section.key}.`)) issues.push(`Required section ${section.key} is not rendered in HTML source`);
+    if (!source.textSource.includes(`sections.${section.key}.`))
+      issues.push(`Required section ${section.key} is not rendered in text source`);
+    if (compiledHtml && !compiledHtml.includes(`sections.${section.key}.`))
+      issues.push(`Required section ${section.key} is not rendered in HTML source`);
   }
   try {
     if (compiledHtml) Handlebars.precompile(compiledHtml, { strict: true });
@@ -194,7 +225,10 @@ function templateRuntime(partials: Record<string, string>) {
   return runtime;
 }
 
-export async function renderTemplate(template: typeof schema.emailTemplates.$inferSelect, context: TemplateRenderContext) {
+export async function renderTemplate(
+  template: typeof schema.emailTemplates.$inferSelect,
+  context: TemplateRenderContext,
+) {
   const definitions = JSON.parse(template.sections) as TemplateSection[];
   const partials = JSON.parse(template.partials) as Record<string, string>;
   const base = {
@@ -211,14 +245,21 @@ export async function renderTemplate(template: typeof schema.emailTemplates.$inf
   const sections: Record<string, { source: string; html: string; text: string }> = {};
   for (const definition of definitions) {
     const raw = context.sectionSources[definition.key] ?? "";
-    if (definition.required && !raw.trim()) throw new TemplateValidationError([`Section ${definition.key} is required`]);
+    if (definition.required && !raw.trim())
+      throw new TemplateValidationError([`Section ${definition.key} is required`]);
     const rendered = templateRuntime({}).compile(raw)(base);
-    const html = definition.format === "markdown" ? await marked(rendered) : definition.format === "html" ? rendered : "";
+    const html =
+      definition.format === "markdown" ? await marked(rendered) : definition.format === "html" ? rendered : "";
     if (html) {
       const issues = validateHtml(html, `Section ${definition.key}`);
       if (issues.length) throw new TemplateValidationError(issues);
     }
-    const text = definition.format === "markdown" ? htmlToText(html) : definition.format === "html" ? htmlToText(rendered) : rendered;
+    const text =
+      definition.format === "markdown"
+        ? htmlToText(html)
+        : definition.format === "html"
+          ? htmlToText(rendered)
+          : rendered;
     sections[definition.key] = { source: raw, html, text };
   }
   const data = { ...base, sections };

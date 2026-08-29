@@ -11,25 +11,37 @@ const xml = `<feedback>
 </feedback>`;
 
 async function reportEmail(content = xml) {
-  return simpleParser([
-    "From: reports@receiver.test",
-    "To: reports@dmarc.jackharrhy.dev",
-    "Subject: DMARC report",
-    "MIME-Version: 1.0",
-    'Content-Type: application/xml; name="report.xml"',
-    "Content-Disposition: attachment; filename=report.xml",
-    "Content-Transfer-Encoding: base64",
-    "",
-    Buffer.from(content).toString("base64"),
-  ].join("\r\n"));
+  return simpleParser(
+    [
+      "From: reports@receiver.test",
+      "To: reports@dmarc.jackharrhy.dev",
+      "Subject: DMARC report",
+      "MIME-Version: 1.0",
+      'Content-Type: application/xml; name="report.xml"',
+      "Content-Disposition: attachment; filename=report.xml",
+      "Content-Transfer-Encoding: base64",
+      "",
+      Buffer.from(content).toString("base64"),
+    ].join("\r\n"),
+  );
 }
 
 describe("DMARC ingestion", () => {
   test("stores normalized reports and deduplicates report deliveries", async () => {
     const db = createTestDb();
     const email = await reportEmail();
-    const first = ingestDmarcEmail(db, { messageId: "ses-1", timestamp: new Date().toISOString() }, email, "dmarc/1.eml");
-    const second = ingestDmarcEmail(db, { messageId: "ses-2", timestamp: new Date().toISOString() }, email, "dmarc/2.eml");
+    const first = ingestDmarcEmail(
+      db,
+      { messageId: "ses-1", timestamp: new Date().toISOString() },
+      email,
+      "dmarc/1.eml",
+    );
+    const second = ingestDmarcEmail(
+      db,
+      { messageId: "ses-2", timestamp: new Date().toISOString() },
+      email,
+      "dmarc/2.eml",
+    );
 
     expect(first.status).toBe("parsed");
     expect(second.status).toBe("parsed");
@@ -41,7 +53,12 @@ describe("DMARC ingestion", () => {
 
   test("records malformed reports as terminal rejections", async () => {
     const db = createTestDb();
-    const result = ingestDmarcEmail(db, { messageId: "ses-bad", timestamp: new Date().toISOString() }, await reportEmail("<hello />"), "dmarc/bad.eml");
+    const result = ingestDmarcEmail(
+      db,
+      { messageId: "ses-bad", timestamp: new Date().toISOString() },
+      await reportEmail("<hello />"),
+      "dmarc/bad.eml",
+    );
     expect(result.status).toBe("rejected");
     expect(result.error).toContain("not a DMARC");
     expect(db.select().from(schema.dmarcReports).all()).toHaveLength(0);

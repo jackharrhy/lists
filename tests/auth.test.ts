@@ -1,20 +1,11 @@
 import { test, expect, describe } from "bun:test";
 import { createHttpApp, type App } from "../src/http";
-import {
-  createSession,
-  destroySession,
-  adminAuth,
-  requireRole,
-  getAccessibleListIds,
-} from "../src/auth";
+import { createSession, destroySession, adminAuth, requireRole, getAccessibleListIds } from "../src/auth";
 import { bootstrapOwner } from "../src/bootstrap";
 import { createTestDb } from "./helpers";
 import * as schema from "../src/db/schema";
 
-function seedUser(
-  db: ReturnType<typeof createTestDb>,
-  overrides: Partial<typeof schema.users.$inferInsert> = {},
-) {
+function seedUser(db: ReturnType<typeof createTestDb>, overrides: Partial<typeof schema.users.$inferInsert> = {}) {
   return db
     .insert(schema.users)
     .values({
@@ -51,9 +42,11 @@ describe("createSession", () => {
     const restartedApp = createHttpApp();
     restartedApp.group("/protected", (app) => app.use(adminAuth(db)).get("/data", (c) => c.text("ok")));
 
-    const res = await restartedApp.handle(new Request("http://localhost/protected/data", {
-      headers: { Cookie: `session=${token}` },
-    }));
+    const res = await restartedApp.handle(
+      new Request("http://localhost/protected/data", {
+        headers: { Cookie: `session=${token}` },
+      }),
+    );
     expect(res.status).toBe(200);
   });
 });
@@ -96,9 +89,7 @@ describe("adminAuth middleware", () => {
     const app = createHttpApp();
     app.group("/protected", (app) => app.use(adminAuth(db)).get("/data", (c) => c.text("ok")));
 
-    const res = await app.handle(
-      new Request("http://localhost/protected/data"),
-    );
+    const res = await app.handle(new Request("http://localhost/protected/data"));
     expect(res.status).toBe(302);
     expect(res.headers.get("Location")).toBe("/admin/login");
   });
@@ -108,10 +99,12 @@ describe("adminAuth middleware", () => {
     const user = seedUser(db, { email: "admin@test.com", role: "admin" });
 
     const app = createHttpApp();
-    app.group("/protected", (app) => app.use(adminAuth(db)).get("/data", (c) => {
-      const u = c.user as typeof user;
-      return c.text(`${u.email}:${u.role}`);
-    }));
+    app.group("/protected", (app) =>
+      app.use(adminAuth(db)).get("/data", (c) => {
+        const u = c.user as typeof user;
+        return c.text(`${u.email}:${u.role}`);
+      }),
+    );
 
     const token = createSession(db, user.id);
     const res = await app.handle(
@@ -145,9 +138,9 @@ describe("requireRole middleware", () => {
     const user = seedUser(db, { email: "member@test.com", role: "member" });
 
     const app = createHttpApp();
-    app.group("/protected", (app) => app
-      .use(adminAuth(db))
-      .get("/data", (c) => c.text("ok"), { beforeHandle: requireRole("owner", "admin") }));
+    app.group("/protected", (app) =>
+      app.use(adminAuth(db)).get("/data", (c) => c.text("ok"), { beforeHandle: requireRole("owner", "admin") }),
+    );
 
     const token = createSession(db, user.id);
     const res = await app.handle(
@@ -163,9 +156,9 @@ describe("requireRole middleware", () => {
     const user = seedUser(db, { email: "owner@test.com", role: "owner" });
 
     const app = createHttpApp();
-    app.group("/protected", (app) => app
-      .use(adminAuth(db))
-      .get("/data", (c) => c.text("ok"), { beforeHandle: requireRole("owner", "admin") }));
+    app.group("/protected", (app) =>
+      app.use(adminAuth(db)).get("/data", (c) => c.text("ok"), { beforeHandle: requireRole("owner", "admin") }),
+    );
 
     const token = createSession(db, user.id);
     const res = await app.handle(
@@ -208,9 +201,7 @@ describe("getAccessibleListIds", () => {
       .get();
 
     // Assign member to list1 only
-    db.insert(schema.userLists)
-      .values({ userId: user.id, listId: list1.id })
-      .run();
+    db.insert(schema.userLists).values({ userId: user.id, listId: list1.id }).run();
 
     const ids = getAccessibleListIds(db, user);
     expect(ids).toEqual([list1.id]);

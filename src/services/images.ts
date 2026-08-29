@@ -14,9 +14,7 @@ export type ProcessedImage = {
 export async function processImage(input: Buffer | ArrayBuffer): Promise<ProcessedImage> {
   const buf = Buffer.isBuffer(input) ? input : Buffer.from(input);
 
-  const image = sharp(buf)
-    .resize({ width: 600, withoutEnlargement: true })
-    .webp({ quality: 80 });
+  const image = sharp(buf).resize({ width: 600, withoutEnlargement: true }).webp({ quality: 80 });
 
   const data = await image.toBuffer();
   const metadata = await sharp(data).metadata();
@@ -69,13 +67,15 @@ export async function processPendingS3Images(
     const base64 = dataUri.replace("data:image/webp;base64,", "");
     const buf = Buffer.from(base64, "base64");
 
-    await s3.send(new PutObjectCommand({
-      Bucket: config.s3MediaBucket,
-      Key: key,
-      Body: buf,
-      ContentType: "image/webp",
-      CacheControl: "public, max-age=31536000",
-    }));
+    await s3.send(
+      new PutObjectCommand({
+        Bucket: config.s3MediaBucket,
+        Key: key,
+        Body: buf,
+        ContentType: "image/webp",
+        CacheControl: "public, max-age=31536000",
+      }),
+    );
 
     const url = `${baseUrl}/${key}`;
     result = result.replace(`<!-- s3-pending:${uuid} -->`, `![image](${url})\n`);
@@ -84,29 +84,30 @@ export async function processPendingS3Images(
   return result;
 }
 
-export async function deleteCampaignS3Images(
-  campaignId: number,
-  config: Config,
-): Promise<void> {
+export async function deleteCampaignS3Images(campaignId: number, config: Config): Promise<void> {
   if (!config.s3MediaBucket) return;
 
   const { S3Client, ListObjectsV2Command, DeleteObjectsCommand } = await import("@aws-sdk/client-s3");
   const s3 = new S3Client(s3ClientConfig(config));
   const prefix = `images/${campaignId}/`;
 
-  const listed = await s3.send(new ListObjectsV2Command({
-    Bucket: config.s3MediaBucket,
-    Prefix: prefix,
-  }));
+  const listed = await s3.send(
+    new ListObjectsV2Command({
+      Bucket: config.s3MediaBucket,
+      Prefix: prefix,
+    }),
+  );
 
   if (!listed.Contents || listed.Contents.length === 0) return;
 
-  await s3.send(new DeleteObjectsCommand({
-    Bucket: config.s3MediaBucket,
-    Delete: {
-      Objects: listed.Contents.map((obj) => ({ Key: obj.Key! })),
-    },
-  }));
+  await s3.send(
+    new DeleteObjectsCommand({
+      Bucket: config.s3MediaBucket,
+      Delete: {
+        Objects: listed.Contents.map((obj) => ({ Key: obj.Key! })),
+      },
+    }),
+  );
 
   console.log(`Deleted ${listed.Contents.length} S3 objects for campaign ${campaignId}`);
 }

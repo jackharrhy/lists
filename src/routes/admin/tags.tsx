@@ -8,7 +8,7 @@ import { logEvent } from "../../services/events";
 import { AdminLayout, displayName, fmtDate, setFlash, getFlash, type User } from "./layout";
 import { Button, LinkButton, Input, Label, FormGroup, Table, Th, Td, Card, PageHeader } from "./ui";
 
-export function mountTagRoutes(app: App, db: Db, config: Config) {
+export function mountTagRoutes(app: App, db: Db, _config: Config) {
   app.get("/tags", (c) => {
     const user = c.user as User;
     const flash = getFlash(c);
@@ -40,7 +40,11 @@ export function mountTagRoutes(app: App, db: Db, config: Config) {
           <tbody>
             {allTags.map((tag) => (
               <tr>
-                <Td><a href={`/admin/tags/${tag.id}`} class="text-blue-600 hover:text-blue-800">{tag.name}</a></Td>
+                <Td>
+                  <a href={`/admin/tags/${tag.id}`} class="text-blue-600 hover:text-blue-800">
+                    {tag.name}
+                  </a>
+                </Td>
                 <Td>{tagCounts.get(tag.id) ?? 0}</Td>
                 <Td>{fmtDate(tag.createdAt)}</Td>
               </tr>
@@ -56,7 +60,7 @@ export function mountTagRoutes(app: App, db: Db, config: Config) {
     const flash = getFlash(c);
     return c.html(
       <AdminLayout title="New Tag" user={user} flash={flash}>
-        <h1 class="text-2xl font-bold mt-0 mb-4">New Tag</h1>
+        <PageHeader title="New tag" />
         <Card>
           <form method="post" action="/admin/tags/new">
             <FormGroup>
@@ -115,7 +119,7 @@ export function mountTagRoutes(app: App, db: Db, config: Config) {
 
     return c.html(
       <AdminLayout title={tag.name} user={user} flash={flash}>
-        <h1 class="text-2xl font-bold mt-0 mb-4">{tag.name}</h1>
+        <PageHeader title={tag.name} />
         <dl class="mb-6">
           <dt class="font-semibold text-xs uppercase text-gray-500">Created</dt>
           <dd class="mt-1 ml-0">{fmtDate(tag.createdAt)}</dd>
@@ -135,7 +139,11 @@ export function mountTagRoutes(app: App, db: Db, config: Config) {
             <tbody>
               {taggedSubscribers.map((s) => (
                 <tr>
-                  <Td><a href={`/admin/subscribers/${s.id}`} class="text-blue-600 hover:text-blue-800">{s.email}</a></Td>
+                  <Td>
+                    <a href={`/admin/subscribers/${s.id}`} class="text-blue-600 hover:text-blue-800">
+                      {s.email}
+                    </a>
+                  </Td>
                   <Td>{displayName(s)}</Td>
                   <Td>{s.status}</Td>
                 </tr>
@@ -145,8 +153,14 @@ export function mountTagRoutes(app: App, db: Db, config: Config) {
         )}
 
         <hr class="my-8" />
-        <form method="post" action={`/admin/tags/${id}/delete`} onsubmit="return confirm('Delete this tag? It will be removed from all subscribers.')">
-          <Button type="submit" variant="danger">Delete Tag</Button>
+        <form
+          method="post"
+          action={`/admin/tags/${id}/delete`}
+          onsubmit="return confirm('Delete this tag? It will be removed from all subscribers.')"
+        >
+          <Button type="submit" variant="danger">
+            Delete Tag
+          </Button>
         </form>
       </AdminLayout>,
     );
@@ -160,13 +174,9 @@ export function mountTagRoutes(app: App, db: Db, config: Config) {
     logEvent(db, { type: "admin.tag_deleted", detail: tag?.name ?? `id=${id}`, userId: user.id });
 
     // delete all subscriber_tags for this tag
-    db.delete(schema.subscriberTags)
-      .where(eq(schema.subscriberTags.tagId, id))
-      .run();
+    db.delete(schema.subscriberTags).where(eq(schema.subscriberTags.tagId, id)).run();
     // delete the tag
-    db.delete(schema.tags)
-      .where(eq(schema.tags.id, id))
-      .run();
+    db.delete(schema.tags).where(eq(schema.tags.id, id)).run();
 
     setFlash(c, "Tag deleted.");
     return c.redirect("/admin/tags");

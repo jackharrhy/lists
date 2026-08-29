@@ -1,8 +1,4 @@
-import {
-  SQSClient,
-  ReceiveMessageCommand,
-  DeleteMessageCommand,
-} from "@aws-sdk/client-sqs";
+import { SQSClient, ReceiveMessageCommand, DeleteMessageCommand } from "@aws-sdk/client-sqs";
 import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
 import { eq, desc, and } from "drizzle-orm";
 import { simpleParser } from "mailparser";
@@ -39,9 +35,7 @@ type SQSPayload = {
 };
 
 async function fetchAndParseEmail(s3: S3Client, bucket: string, key: string) {
-  const resp = await s3.send(
-    new GetObjectCommand({ Bucket: bucket, Key: key }),
-  );
+  const resp = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
   const bodyBytes = await resp.Body?.transformToByteArray();
   if (!bodyBytes) return null;
   const parsed = await simpleParser(Buffer.from(bodyBytes));
@@ -70,10 +64,7 @@ export async function startPoller(db: Db, config: Config) {
       for (const msg of resp.Messages) {
         try {
           const payload: SQSPayload = JSON.parse(msg.Body!);
-          const s3Key =
-            payload.s3Key ||
-            payload.action.objectKey ||
-            payload.action.objectKeyPrefix + payload.messageId;
+          const s3Key = payload.s3Key || payload.action.objectKey || payload.action.objectKeyPrefix + payload.messageId;
 
           const kind = payload.kind ?? (payload.to.some((address) => /@dmarc\./i.test(address)) ? "dmarc" : "reply");
           if (kind === "dmarc") {
@@ -81,10 +72,12 @@ export async function startPoller(db: Db, config: Config) {
             if (!parsed) throw new Error(`DMARC email body is unavailable in S3 (${s3Key})`);
             const ingestion = ingestDmarcEmail(db, payload, parsed, s3Key);
             console.log(`DMARC message ${payload.messageId}: ${ingestion.status}`);
-            await sqs.send(new DeleteMessageCommand({
-              QueueUrl: queueUrl,
-              ReceiptHandle: msg.ReceiptHandle,
-            }));
+            await sqs.send(
+              new DeleteMessageCommand({
+                QueueUrl: queueUrl,
+                ReceiptHandle: msg.ReceiptHandle,
+              }),
+            );
             continue;
           }
 
@@ -179,11 +172,7 @@ export async function startPoller(db: Db, config: Config) {
               const match = toAddress.match(/^([^@]+)@reply\./);
               if (!match) continue;
               const slug = match[1];
-              const list = db
-                .select()
-                .from(schema.lists)
-                .where(eq(schema.lists.slug, slug!))
-                .get();
+              const list = db.select().from(schema.lists).where(eq(schema.lists.slug, slug!)).get();
               if (!list) continue;
               // find campaigns that targeted this list
               const campaign = db

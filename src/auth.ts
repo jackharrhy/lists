@@ -8,21 +8,28 @@ type SessionData = { userId: number; expiry: number };
 
 export function createSession(db: Db, userId: number): string {
   const token = crypto.randomUUID();
-  db.insert(schema.sessions).values({
-    tokenHash: hashToken(token),
-    userId,
-    expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-  }).run();
+  db.insert(schema.sessions)
+    .values({
+      tokenHash: hashToken(token),
+      userId,
+      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+    })
+    .run();
   return token;
 }
 
 export function destroySession(db: Db, token: string) {
-  db.delete(schema.sessions).where(eq(schema.sessions.tokenHash, hashToken(token))).run();
+  db.delete(schema.sessions)
+    .where(eq(schema.sessions.tokenHash, hashToken(token)))
+    .run();
 }
 
 function getValidSession(db: Db, token: string): SessionData | null {
-  const session = db.select().from(schema.sessions)
-    .where(eq(schema.sessions.tokenHash, hashToken(token))).get();
+  const session = db
+    .select()
+    .from(schema.sessions)
+    .where(eq(schema.sessions.tokenHash, hashToken(token)))
+    .get();
   if (!session) return null;
   const expiry = Date.parse(session.expiresAt);
   if (Date.now() > expiry) {
@@ -34,7 +41,7 @@ function getValidSession(db: Db, token: string): SessionData | null {
 
 export function getSessionUser(db: Db, token: string | undefined) {
   const session = token ? getValidSession(db, token) : null;
-  return session ? db.select().from(schema.users).where(eq(schema.users.id, session.userId)).get() ?? null : null;
+  return session ? (db.select().from(schema.users).where(eq(schema.users.id, session.userId)).get() ?? null) : null;
 }
 
 export function adminAuth(db: Db) {
@@ -42,9 +49,7 @@ export function adminAuth(db: Db) {
     .resolve(({ cookie }) => {
       const token = cookie.session?.value;
       const session = typeof token === "string" ? getValidSession(db, token) : null;
-      const user = session
-        ? db.select().from(schema.users).where(eq(schema.users.id, session.userId)).get()
-        : null;
+      const user = session ? db.select().from(schema.users).where(eq(schema.users.id, session.userId)).get() : null;
       return { user };
     })
     .onBeforeHandle(({ user, redirect }) => {
@@ -61,30 +66,18 @@ export function requireRole(...roles: string[]) {
   };
 }
 
-export function canAccessList(
-  db: Db,
-  user: { id: number; role: string },
-  listId: number,
-): boolean {
+export function canAccessList(db: Db, user: { id: number; role: string }, listId: number): boolean {
   if (user.role === "owner" || user.role === "admin") return true;
   const access = db
     .select()
     .from(schema.userLists)
-    .where(
-      and(
-        eq(schema.userLists.userId, user.id),
-        eq(schema.userLists.listId, listId),
-      ),
-    )
+    .where(and(eq(schema.userLists.userId, user.id), eq(schema.userLists.listId, listId)))
     .get();
 
   return Boolean(access);
 }
 
-export function getAccessibleListIds(
-  db: Db,
-  user: { id: number; role: string },
-): "all" | number[] {
+export function getAccessibleListIds(db: Db, user: { id: number; role: string }): "all" | number[] {
   if (user.role === "owner" || user.role === "admin") return "all";
 
   const rows = db

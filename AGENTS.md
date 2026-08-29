@@ -83,7 +83,7 @@ Use the smallest relevant test while working, then run the full check before han
 bun run check
 ```
 
-This runs TypeScript checking, the Bun test suite, and both asset builds. Do not hand-edit generated `public/styles.css` or `public/app.js`; use `bun run build:assets`.
+This checks Oxfmt formatting, runs Oxlint and TypeScript, runs the Bun test suite, and builds both assets. Use `bun run fmt` for formatting and `bun run lint:fix` for safe lint fixes. Do not hand-edit generated `public/styles.css` or `public/app.js`; use `bun run build:assets`.
 
 Test at the right layer:
 

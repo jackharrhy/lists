@@ -21,25 +21,30 @@ export function mintApiToken(
   if (uniqueScopes.length === 0) throw new Error("At least one valid scope is required");
 
   const secret = `${TOKEN_PREFIX}${crypto.randomUUID().replaceAll("-", "")}${crypto.randomUUID().replaceAll("-", "")}`;
-  const row = db.insert(schema.apiTokens).values({
-    userId,
-    name: name.trim(),
-    tokenHash: hashToken(secret),
-    tokenPrefix: secret.slice(0, 12),
-    scopes: JSON.stringify(uniqueScopes),
-    expiresAt,
-    audience,
-  }).returning().get();
+  const row = db
+    .insert(schema.apiTokens)
+    .values({
+      userId,
+      name: name.trim(),
+      tokenHash: hashToken(secret),
+      tokenPrefix: secret.slice(0, 12),
+      scopes: JSON.stringify(uniqueScopes),
+      expiresAt,
+      audience,
+    })
+    .returning()
+    .get();
 
   return { token: secret, credential: row };
 }
 
 export function authenticateApiToken(db: Db, token: string, expectedAudience?: string): Principal | null {
   if (!token.startsWith(TOKEN_PREFIX)) return null;
-  const credential = db.select().from(schema.apiTokens).where(and(
-    eq(schema.apiTokens.tokenHash, hashToken(token)),
-    isNull(schema.apiTokens.revokedAt),
-  )).get();
+  const credential = db
+    .select()
+    .from(schema.apiTokens)
+    .where(and(eq(schema.apiTokens.tokenHash, hashToken(token)), isNull(schema.apiTokens.revokedAt)))
+    .get();
   if (!credential) return null;
   if (credential.expiresAt && Date.parse(credential.expiresAt) <= Date.now()) return null;
   if (expectedAudience !== undefined && credential.audience !== expectedAudience) return null;
@@ -48,7 +53,9 @@ export function authenticateApiToken(db: Db, token: string, expectedAudience?: s
   if (!user) return null;
   const requested = JSON.parse(credential.scopes) as string[];
   const scopes = requested.filter((scope): scope is ApiScope => API_SCOPES.includes(scope as ApiScope));
-  db.update(schema.apiTokens).set({ lastUsedAt: new Date().toISOString() })
-    .where(eq(schema.apiTokens.id, credential.id)).run();
+  db.update(schema.apiTokens)
+    .set({ lastUsedAt: new Date().toISOString() })
+    .where(eq(schema.apiTokens.id, credential.id))
+    .run();
   return { ...principalForUser(db, user, scopes), credentialId: credential.id };
 }

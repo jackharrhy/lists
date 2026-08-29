@@ -32,9 +32,23 @@ test("mutable-template migration preserves the selected template source", async 
   `);
   const migration = await Bun.file("drizzle/0023_mutable-email-templates.sql").text();
   for (const statement of migration.split("--> statement-breakpoint")) sqlite.exec(statement);
-  const template = sqlite.query("SELECT source_format, subject_source, html_source, text_source FROM email_templates WHERE id = 1").get() as Record<string, string>;
-  expect(template).toEqual({ source_format: "html", subject_source: "Hello", html_source: "<p>Hello</p>", text_source: "Hello" });
+  const template = sqlite
+    .query("SELECT source_format, subject_source, html_source, text_source FROM email_templates WHERE id = 1")
+    .get() as Record<string, string>;
+  expect(template).toEqual({
+    source_format: "html",
+    subject_source: "Hello",
+    html_source: "<p>Hello</p>",
+    text_source: "Hello",
+  });
   expect(sqlite.query("SELECT text_source FROM email_templates WHERE id = 2").get()).toEqual({ text_source: "Latest" });
-  expect(sqlite.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'email_template_versions'").get()).toBeNull();
-  expect(sqlite.query("PRAGMA table_info(campaigns)").all().map((column: any) => column.name)).toEqual(["id"]);
+  expect(
+    sqlite.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'email_template_versions'").get(),
+  ).toBeNull();
+  expect(
+    sqlite
+      .query("PRAGMA table_info(campaigns)")
+      .all()
+      .map((column: any) => column.name),
+  ).toEqual(["id"]);
 });

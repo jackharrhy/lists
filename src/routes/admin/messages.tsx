@@ -32,10 +32,7 @@ export function mountMessageRoutes(app: App, db: Db, config: Config) {
 
     // Build filter conditions for thread root messages
     // Thread roots: parentId IS NULL AND direction = "inbound"
-    const baseConditions = [
-      eq(schema.messages.direction, "inbound"),
-      isNull(schema.messages.parentId),
-    ];
+    const baseConditions = [eq(schema.messages.direction, "inbound"), isNull(schema.messages.parentId)];
 
     if (filterSearch) {
       baseConditions.push(
@@ -135,11 +132,13 @@ export function mountMessageRoutes(app: App, db: Db, config: Config) {
       const unreadMsgs = db
         .select({ threadId: schema.messages.threadId })
         .from(schema.messages)
-        .where(and(
-          inArray(schema.messages.threadId, threadIds),
-          eq(schema.messages.direction, "inbound"),
-          isNull(schema.messages.readAt),
-        ))
+        .where(
+          and(
+            inArray(schema.messages.threadId, threadIds),
+            eq(schema.messages.direction, "inbound"),
+            isNull(schema.messages.readAt),
+          ),
+        )
         .all();
       for (const row of unreadMsgs) {
         threadHasUnread.set(row.threadId, true);
@@ -184,28 +183,52 @@ export function mountMessageRoutes(app: App, db: Db, config: Config) {
     return c.html(
       <AdminLayout title="Inbound" user={user} flash={flash}>
         <PageHeader title="Inbound Messages">
-          <span class="text-xs text-gray-400">{totalCount} thread{totalCount !== 1 ? "s" : ""}</span>
+          <span class="text-xs text-gray-400">
+            {totalCount} thread{totalCount !== 1 ? "s" : ""}
+          </span>
         </PageHeader>
 
         {/* Filters */}
-        <form method="get" action="/admin/inbound" hx-get="/admin/inbound" hx-trigger="keyup changed delay:350ms from:input[name='search'], change from:select" class="filter-bar flex items-end gap-3 mb-6 flex-wrap">
+        <form
+          method="get"
+          action="/admin/inbound"
+          hx-get="/admin/inbound"
+          hx-trigger="keyup changed delay:350ms from:input[name='search'], change from:select"
+          class="filter-bar flex items-end gap-3 mb-6 flex-wrap"
+        >
           <div>
             <label class="block text-xs font-medium text-gray-500 mb-1">Search</label>
-            <Input type="text" name="search" size="sm" value={filterSearch} autofocus={!!filterSearch} placeholder="Subject or from…" class="w-48" />
+            <Input
+              type="text"
+              name="search"
+              size="sm"
+              value={filterSearch}
+              autofocus={!!filterSearch}
+              placeholder="Subject or from…"
+              class="w-48"
+            />
           </div>
           <div>
             <label class="block text-xs font-medium text-gray-500 mb-1">Read</label>
             <Select name="read" size="sm">
-              <option value="" selected={!filterRead}>All</option>
-              <option value="unread" selected={filterRead === "unread"}>Unread</option>
-              <option value="read" selected={filterRead === "read"}>Read</option>
+              <option value="" selected={!filterRead}>
+                All
+              </option>
+              <option value="unread" selected={filterRead === "unread"}>
+                Unread
+              </option>
+              <option value="read" selected={filterRead === "read"}>
+                Read
+              </option>
             </Select>
           </div>
           {allCampaigns.length > 0 && (
             <div>
               <label class="block text-xs font-medium text-gray-500 mb-1">Campaign</label>
               <Select name="campaign" size="sm">
-                <option value="" selected={!filterCampaign}>All</option>
+                <option value="" selected={!filterCampaign}>
+                  All
+                </option>
                 {allCampaigns.map((cam) => (
                   <option value={String(cam.id)} selected={filterCampaign === String(cam.id)}>
                     {cam.subject.slice(0, 40)}
@@ -215,9 +238,13 @@ export function mountMessageRoutes(app: App, db: Db, config: Config) {
             </div>
           )}
           <input type="hidden" name="page" value="1" />
-          <Button type="submit" size="filter">Filter</Button>
+          <Button type="submit" size="filter">
+            Filter
+          </Button>
           {(filterSearch || filterRead || filterCampaign) && (
-            <a href="/admin/inbound" class="text-sm text-gray-500 hover:text-gray-700 no-underline">Clear</a>
+            <a href="/admin/inbound" class="text-sm text-gray-500 hover:text-gray-700 no-underline">
+              Clear
+            </a>
           )}
         </form>
 
@@ -237,7 +264,9 @@ export function mountMessageRoutes(app: App, db: Db, config: Config) {
               <tr class={threadHasUnread.get(msg.threadId) ? "font-semibold" : ""}>
                 <Td>{msg.fromAddr}</Td>
                 <Td>
-                  <a href={`/admin/inbound/${msg.id}`} class="text-blue-600 hover:text-blue-800">{msg.subject}</a>
+                  <a href={`/admin/inbound/${msg.id}`} class="text-blue-600 hover:text-blue-800">
+                    {msg.subject}
+                  </a>
                 </Td>
                 <Td>{fmtDateTime(msg.createdAt)}</Td>
                 <Td>{replyCounts.get(msg.threadId) ?? 0}</Td>
@@ -245,7 +274,9 @@ export function mountMessageRoutes(app: App, db: Db, config: Config) {
                   {(() => {
                     const camId = msg.campaignId;
                     return camId && campaignMap.has(camId) ? (
-                      <a href={`/admin/campaigns/${camId}`} class="text-blue-600 hover:text-blue-800 text-xs">{campaignMap.get(camId)}</a>
+                      <a href={`/admin/campaigns/${camId}`} class="text-blue-600 hover:text-blue-800 text-xs">
+                        {campaignMap.get(camId)}
+                      </a>
                     ) : (
                       <span class="text-gray-400">{"\u2014"}</span>
                     );
@@ -258,7 +289,9 @@ export function mountMessageRoutes(app: App, db: Db, config: Config) {
             ))}
             {rootMessages.length === 0 && (
               <tr>
-                <Td class="text-gray-400 text-sm py-4" colspan={6}>No messages match the current filters.</Td>
+                <Td class="text-gray-400 text-sm py-4" colspan={6}>
+                  No messages match the current filters.
+                </Td>
               </tr>
             )}
           </tbody>
@@ -268,16 +301,23 @@ export function mountMessageRoutes(app: App, db: Db, config: Config) {
         {(page > 1 || hasMore) && (
           <div class="flex items-center justify-between mt-6 pt-4 border-t border-gray-100">
             <div>
-              {page > 1
-                ? <LinkButton href={buildUrl({ page: page - 1 })} variant="secondary" size="sm">← Previous</LinkButton>
-                : <span />
-              }
+              {page > 1 ? (
+                <LinkButton href={buildUrl({ page: page - 1 })} variant="secondary" size="sm">
+                  ← Previous
+                </LinkButton>
+              ) : (
+                <span />
+              )}
             </div>
             <span class="text-xs text-gray-400">
               Showing {PAGE_SIZE * (page - 1) + 1}–{PAGE_SIZE * (page - 1) + rootMessages.length} of {totalCount}
             </span>
             <div>
-              {hasMore && <LinkButton href={buildUrl({ page: page + 1 })} variant="secondary" size="sm">Next →</LinkButton>}
+              {hasMore && (
+                <LinkButton href={buildUrl({ page: page + 1 })} variant="secondary" size="sm">
+                  Next →
+                </LinkButton>
+              )}
             </div>
           </div>
         )}
@@ -294,10 +334,7 @@ export function mountMessageRoutes(app: App, db: Db, config: Config) {
 
     // auto-mark as read
     if (!msg.readAt) {
-      db.update(schema.messages)
-        .set({ readAt: new Date().toISOString() })
-        .where(eq(schema.messages.id, id))
-        .run();
+      db.update(schema.messages).set({ readAt: new Date().toISOString() }).where(eq(schema.messages.id, id)).run();
     }
 
     // Get all messages in this thread
@@ -317,31 +354,41 @@ export function mountMessageRoutes(app: App, db: Db, config: Config) {
     // Mark all unread inbound messages in thread as read
     for (const m of threadMessages) {
       if (!m.readAt && m.direction === "inbound") {
-        db.update(schema.messages)
-          .set({ readAt: new Date().toISOString() })
-          .where(eq(schema.messages.id, m.id))
-          .run();
+        db.update(schema.messages).set({ readAt: new Date().toISOString() }).where(eq(schema.messages.id, m.id)).run();
       }
     }
 
     return c.html(
       <AdminLayout title={`Inbound: ${msg.subject}`} user={user} flash={flash}>
-        <h1 class="text-2xl font-bold mt-0 mb-1">{msg.subject}</h1>
+        <PageHeader title={msg.subject} />
         {campaign && (
           <p class="text-sm text-gray-500 mb-4">
-            Campaign: <a href={`/admin/campaigns/${campaign.id}`} class="text-blue-600 hover:text-blue-800">{campaign.subject}</a>
+            Campaign:{" "}
+            <a href={`/admin/campaigns/${campaign.id}`} class="text-blue-600 hover:text-blue-800">
+              {campaign.subject}
+            </a>
           </p>
         )}
 
         {/* Action toolbar */}
         <div class="flex gap-2 mb-4">
           <form method="post" action={`/admin/inbound/${id}/toggle-read`}>
-            <button type="submit" class="inline-block px-3 py-1.5 bg-gray-100 text-gray-700 text-xs font-medium rounded-md hover:bg-gray-200 cursor-pointer border border-gray-300">
+            <button
+              type="submit"
+              class="inline-block px-3 py-1.5 bg-gray-100 text-gray-700 text-xs font-medium rounded-md hover:bg-gray-200 cursor-pointer border border-gray-300"
+            >
               Mark as {msg.readAt ? "Unread" : "Read"}
             </button>
           </form>
-          <form method="post" action={`/admin/inbound/${id}/delete`} onsubmit="return confirm('Delete this message thread? This cannot be undone.')">
-            <button type="submit" class="inline-block px-3 py-1.5 bg-red-50 text-red-600 text-xs font-medium rounded-md hover:bg-red-100 cursor-pointer border border-red-200">
+          <form
+            method="post"
+            action={`/admin/inbound/${id}/delete`}
+            onsubmit="return confirm('Delete this message thread? This cannot be undone.')"
+          >
+            <button
+              type="submit"
+              class="inline-block px-3 py-1.5 bg-red-50 text-red-600 text-xs font-medium rounded-md hover:bg-red-100 cursor-pointer border border-red-200"
+            >
               Delete
             </button>
           </form>
@@ -355,7 +402,9 @@ export function mountMessageRoutes(app: App, db: Db, config: Config) {
                 <div class="flex items-baseline justify-between mb-3">
                   <div>
                     <span class="font-medium text-sm">{m.fromAddr}</span>
-                    <span class="text-gray-400 text-xs ml-2">{"\u2192"} {m.toAddr}</span>
+                    <span class="text-gray-400 text-xs ml-2">
+                      {"\u2192"} {m.toAddr}
+                    </span>
                   </div>
                   <div class="flex items-center gap-2">
                     <span class="text-xs text-gray-400">{fmtDateTime(m.createdAt)}</span>
@@ -375,7 +424,12 @@ export function mountMessageRoutes(app: App, db: Db, config: Config) {
                   <p class="text-gray-400 text-sm italic">Email body not available</p>
                 )}
                 {m.s3Key && (
-                  <a href={`/admin/inbound/${m.id}/raw`} class="text-xs text-gray-400 hover:text-gray-600 mt-2 inline-block">Download raw .eml</a>
+                  <a
+                    href={`/admin/inbound/${m.id}/raw`}
+                    class="text-xs text-gray-400 hover:text-gray-600 mt-2 inline-block"
+                  >
+                    Download raw .eml
+                  </a>
                 )}
               </div>
             );
@@ -386,11 +440,15 @@ export function mountMessageRoutes(app: App, db: Db, config: Config) {
                   <div>
                     <span class="font-medium text-sm text-blue-800">{m.fromAddr}</span>
                     <span class="text-blue-400 text-xs ml-1">(You)</span>
-                    <span class="text-blue-400 text-xs ml-2">{"\u2192"} {m.toAddr}</span>
+                    <span class="text-blue-400 text-xs ml-2">
+                      {"\u2192"} {m.toAddr}
+                    </span>
                   </div>
                   <span class="text-xs text-gray-400">{fmtDateTime(m.sentAt ?? m.createdAt)}</span>
                 </div>
-                <pre class="text-sm text-gray-700 whitespace-pre-wrap font-sans leading-relaxed">{m.bodyText ?? ""}</pre>
+                <pre class="text-sm text-gray-700 whitespace-pre-wrap font-sans leading-relaxed">
+                  {m.bodyText ?? ""}
+                </pre>
               </div>
             );
           }
@@ -402,23 +460,11 @@ export function mountMessageRoutes(app: App, db: Db, config: Config) {
           <form method="post" action={`/admin/inbound/${id}/reply`}>
             <FormGroup>
               <Label for="fromAddr">From</Label>
-              <Input
-                type="email"
-                id="fromAddr"
-                name="fromAddr"
-                required
-                value={extractEmail(msg.toAddr)}
-              />
+              <Input type="email" id="fromAddr" name="fromAddr" required value={extractEmail(msg.toAddr)} />
             </FormGroup>
             <FormGroup>
               <Label for="toAddr">To</Label>
-              <Input
-                type="email"
-                id="toAddr"
-                name="toAddr"
-                required
-                value={extractEmail(msg.fromAddr)}
-              />
+              <Input type="email" id="toAddr" name="toAddr" required value={extractEmail(msg.fromAddr)} />
             </FormGroup>
             <FormGroup>
               <Label for="replySubject">Subject</Label>
@@ -466,9 +512,7 @@ export function mountMessageRoutes(app: App, db: Db, config: Config) {
 
     // delete all messages in the thread
     if (msg) {
-      db.delete(schema.messages)
-        .where(eq(schema.messages.threadId, msg.threadId))
-        .run();
+      db.delete(schema.messages).where(eq(schema.messages.threadId, msg.threadId)).run();
     }
     setFlash(c, "Message deleted.");
     return c.redirect("/admin/inbound");
@@ -497,7 +541,9 @@ export function mountMessageRoutes(app: App, db: Db, config: Config) {
     const body = c.body as Record<string, any>;
     const fromAddr = String(body["fromAddr"] ?? "").trim();
     const toAddr = String(body["toAddr"] ?? "").trim();
-    const subject = String(body["subject"] ?? "").replace(/[\r\n]/g, " ").trim();
+    const subject = String(body["subject"] ?? "")
+      .replace(/[\r\n]/g, " ")
+      .trim();
     const replyBody = String(body["body"] ?? "").trim();
 
     const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -517,11 +563,12 @@ export function mountMessageRoutes(app: App, db: Db, config: Config) {
       text: replyBody,
       headers: {
         "Message-ID": rfc822MessageId,
-        ...(inReplyToId ? { "In-Reply-To": inReplyToId, "References": inReplyToId } : {}),
+        ...(inReplyToId ? { "In-Reply-To": inReplyToId, References: inReplyToId } : {}),
       },
     });
 
-    const result = await sendEmail(config,
+    const result = await sendEmail(
+      config,
       new SendEmailCommand({
         Content: {
           Raw: {

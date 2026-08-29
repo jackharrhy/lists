@@ -1,8 +1,8 @@
 {
   "name": "lists",
-  "module": "src/index.ts",
-  "type": "module",
   "private": true,
+  "type": "module",
+  "module": "src/index.ts",
   "scripts": {
     "build:css": "bunx @tailwindcss/cli -i src/styles/app.css -o public/styles.css --minify",
     "build:js": "bun build src/client.ts --target browser --outfile public/app.js --minify",
@@ -13,25 +13,12 @@
     "test:local": "LOCAL_E2E=1 bun test tests/local-stack.e2e.test.ts --timeout 45000",
     "local:up": "docker compose up --build --wait",
     "local:down": "docker compose down",
+    "fmt": "oxfmt",
+    "fmt:check": "oxfmt --check",
+    "lint": "oxlint src tests emails",
+    "lint:fix": "oxlint src tests emails --fix",
     "typecheck": "tsc --noEmit",
-    "check": "bun run typecheck && bun test && bun run build:assets"
-  },
-  "devDependencies": {
-    "@tailwindcss/cli": "^4.3.3",
-    "@types/bun": "^1.4.0",
-    "@types/html-to-text": "^9.0.4",
-    "@types/mailparser": "^3.4.6",
-    "@types/mjml": "^5.0.0",
-    "@types/nodemailer": "^8.0.1",
-    "@types/react": "^19.2.18",
-    "@types/sharp": "^0.32.0",
-    "@types/sns-validator": "^0.3.3",
-    "aws-sdk-client-mock": "^4.1.0",
-    "drizzle-kit": "^0.31.10",
-    "tailwindcss": "^4.3.3"
-  },
-  "peerDependencies": {
-    "typescript": "^7.0.2"
+    "check": "bun run fmt:check && bun run lint && bun run typecheck && bun test && bun run build:assets"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1120.0",
@@ -60,5 +47,24 @@
     "shiki": "^4.4.3",
     "sns-validator": "^0.3.5",
     "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.3.3",
+    "@types/bun": "^1.4.0",
+    "@types/html-to-text": "^9.0.4",
+    "@types/mailparser": "^3.4.6",
+    "@types/mjml": "^5.0.0",
+    "@types/nodemailer": "^8.0.1",
+    "@types/react": "^19.2.18",
+    "@types/sharp": "^0.32.0",
+    "@types/sns-validator": "^0.3.3",
+    "aws-sdk-client-mock": "^4.1.0",
+    "drizzle-kit": "^0.31.10",
+    "oxfmt": "^0.65.0",
+    "oxlint": "^1.80.0",
+    "tailwindcss": "^4.3.3"
+  },
+  "peerDependencies": {
+    "typescript": "^7.0.2"
   }
 }

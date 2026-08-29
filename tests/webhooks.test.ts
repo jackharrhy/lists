@@ -173,17 +173,27 @@ describe("POST /webhooks/ses - Delivery lifecycle", () => {
     const app = makeApp(db);
     const list = seedList(db);
     const subscriber = seedSubscriber(db, { email: "reader@example.com" });
-    const campaign = db.insert(schema.campaigns).values({
-      audienceType: "list", audienceId: list.id, subject: "Lifecycle",
-      bodyMarkdown: "Hello", fromAddress: "news@example.com", status: "sent",
-    }).returning().get();
-    db.insert(schema.campaignSends).values({
-      campaignId: campaign.id,
-      subscriberId: subscriber.id,
-      idempotencyKey: `campaign:${campaign.id}:subscriber:${subscriber.id}`,
-      sesMessageId: "ses-lifecycle-id",
-      status: "accepted",
-    }).run();
+    const campaign = db
+      .insert(schema.campaigns)
+      .values({
+        audienceType: "list",
+        audienceId: list.id,
+        subject: "Lifecycle",
+        bodyMarkdown: "Hello",
+        fromAddress: "news@example.com",
+        status: "sent",
+      })
+      .returning()
+      .get();
+    db.insert(schema.campaignSends)
+      .values({
+        campaignId: campaign.id,
+        subscriberId: subscriber.id,
+        idempotencyKey: `campaign:${campaign.id}:subscriber:${subscriber.id}`,
+        sesMessageId: "ses-lifecycle-id",
+        status: "accepted",
+      })
+      .run();
 
     const body = makeLifecycleBody("Delivery", "ses-lifecycle-id");
     expect((await postSes(app, body)).status).toBe(200);
@@ -245,18 +255,10 @@ describe("POST /webhooks/ses - Hard bounce", () => {
 
     expect(res.status).toBe(200);
 
-    const updated = db
-      .select()
-      .from(schema.subscribers)
-      .where(eq(schema.subscribers.id, subscriber.id))
-      .get();
+    const updated = db.select().from(schema.subscribers).where(eq(schema.subscribers.id, subscriber.id)).get();
     expect(updated!.status).toBe("blocklisted");
 
-    const events = db
-      .select()
-      .from(schema.events)
-      .where(eq(schema.events.subscriberId, subscriber.id))
-      .all();
+    const events = db.select().from(schema.events).where(eq(schema.events.subscriberId, subscriber.id)).all();
     expect(events).toHaveLength(1);
     expect(events[0].type).toBe("subscriber.bounced_hard");
   });
@@ -274,18 +276,10 @@ describe("POST /webhooks/ses - Soft bounce", () => {
 
     expect(res.status).toBe(200);
 
-    const updated = db
-      .select()
-      .from(schema.subscribers)
-      .where(eq(schema.subscribers.id, subscriber.id))
-      .get();
+    const updated = db.select().from(schema.subscribers).where(eq(schema.subscribers.id, subscriber.id)).get();
     expect(updated!.status).toBe("active");
 
-    const events = db
-      .select()
-      .from(schema.events)
-      .where(eq(schema.events.subscriberId, subscriber.id))
-      .all();
+    const events = db.select().from(schema.events).where(eq(schema.events.subscriberId, subscriber.id)).all();
     expect(events).toHaveLength(1);
     expect(events[0].type).toBe("subscriber.bounced_soft");
   });
@@ -303,18 +297,10 @@ describe("POST /webhooks/ses - Complaint", () => {
 
     expect(res.status).toBe(200);
 
-    const updated = db
-      .select()
-      .from(schema.subscribers)
-      .where(eq(schema.subscribers.id, subscriber.id))
-      .get();
+    const updated = db.select().from(schema.subscribers).where(eq(schema.subscribers.id, subscriber.id)).get();
     expect(updated!.status).toBe("blocklisted");
 
-    const events = db
-      .select()
-      .from(schema.events)
-      .where(eq(schema.events.subscriberId, subscriber.id))
-      .all();
+    const events = db.select().from(schema.events).where(eq(schema.events.subscriberId, subscriber.id)).all();
     expect(events).toHaveLength(1);
     expect(events[0].type).toBe("subscriber.complained");
   });

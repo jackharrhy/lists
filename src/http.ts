@@ -27,8 +27,7 @@ export function createHttpApp() {
     });
 
   return Object.assign(app, {
-    request: (path: string, init?: RequestInit) =>
-      app.handle(new Request(new URL(path, "http://localhost"), init)),
+    request: (path: string, init?: RequestInit) => app.handle(new Request(new URL(path, "http://localhost"), init)),
   });
 }
 

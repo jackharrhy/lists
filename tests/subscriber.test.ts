@@ -17,9 +17,7 @@ describe("createSubscriber", () => {
     const db = createTestDb();
     seedList(db, { slug: "news" });
 
-    const subscriber = createSubscriber(db, "  Alice@Example.COM  ", "Alice", null, [
-      "news",
-    ]);
+    const subscriber = createSubscriber(db, "  Alice@Example.COM  ", "Alice", null, ["news"]);
 
     expect(subscriber.email).toBe("alice@example.com");
     expect(subscriber.firstName).toBe("Alice");
@@ -29,9 +27,7 @@ describe("createSubscriber", () => {
     const db = createTestDb();
     seedList(db, { slug: "news" });
 
-    const subscriber = createSubscriber(db, "bob@example.com", "Bob", null, [
-      "news",
-    ]);
+    const subscriber = createSubscriber(db, "bob@example.com", "Bob", null, ["news"]);
 
     expect(subscriber.unsubscribeToken).toBeDefined();
     expect(subscriber.unsubscribeToken.length).toBeGreaterThan(0);
@@ -41,19 +37,12 @@ describe("createSubscriber", () => {
     const db = createTestDb();
     const list = seedList(db, { slug: "news", name: "News" });
 
-    const subscriber = createSubscriber(db, "bob@example.com", "Bob", null, [
-      "news",
-    ]);
+    const subscriber = createSubscriber(db, "bob@example.com", "Bob", null, ["news"]);
 
     const subList = db
       .select()
       .from(schema.subscriberLists)
-      .where(
-        and(
-          eq(schema.subscriberLists.subscriberId, subscriber.id),
-          eq(schema.subscriberLists.listId, list.id),
-        ),
-      )
+      .where(and(eq(schema.subscriberLists.subscriberId, subscriber.id), eq(schema.subscriberLists.listId, list.id)))
       .get();
 
     expect(subList).toBeDefined();
@@ -81,10 +70,7 @@ describe("createSubscriber", () => {
       name: "Updates",
     });
 
-    const subscriber = createSubscriber(db, "bob@example.com", "Bob", null, [
-      "news",
-      "updates",
-    ]);
+    const subscriber = createSubscriber(db, "bob@example.com", "Bob", null, ["news", "updates"]);
 
     const subLists = db
       .select()
@@ -108,12 +94,7 @@ describe("createSubscriber", () => {
     const subscription = db
       .select()
       .from(schema.subscriberLists)
-      .where(
-        and(
-          eq(schema.subscriberLists.subscriberId, subscriber.id),
-          eq(schema.subscriberLists.listId, list.id),
-        ),
-      )
+      .where(and(eq(schema.subscriberLists.subscriberId, subscriber.id), eq(schema.subscriberLists.listId, list.id)))
       .get();
     expect(subscription!.status).toBe("unconfirmed");
   });
@@ -121,25 +102,24 @@ describe("createSubscriber", () => {
   test("rejects unknown list slugs without creating a subscriber", () => {
     const db = createTestDb();
 
-    expect(() =>
-      createSubscriber(db, "lost@example.com", null, null, ["does-not-exist"]),
-    ).toThrow("Unknown list slug");
+    expect(() => createSubscriber(db, "lost@example.com", null, null, ["does-not-exist"])).toThrow("Unknown list slug");
     expect(db.select().from(schema.subscribers).all()).toHaveLength(0);
   });
 
   test("rolls back the subscriber and event when membership creation fails", () => {
     const db = createTestDb();
     seedList(db, { slug: "news" });
-    db.run(sql.raw(`
+    db.run(
+      sql.raw(`
       CREATE TRIGGER reject_membership
       BEFORE INSERT ON subscriber_lists
       BEGIN
         SELECT RAISE(ABORT, 'membership rejected');
       END
-    `));
+    `),
+    );
 
-    expect(() => createSubscriber(db, "rollback@example.com", null, null, ["news"]))
-      .toThrow("membership rejected");
+    expect(() => createSubscriber(db, "rollback@example.com", null, null, ["news"])).toThrow("membership rejected");
     expect(db.select().from(schema.subscribers).all()).toEqual([]);
     expect(db.select().from(schema.events).all()).toEqual([]);
   });
@@ -151,10 +131,7 @@ describe("confirmSubscriber", () => {
     seedList(db, { slug: "news", name: "News" });
     seedList(db, { slug: "updates", name: "Updates" });
 
-    const subscriber = createSubscriber(db, "bob@example.com", "Bob", null, [
-      "news",
-      "updates",
-    ]);
+    const subscriber = createSubscriber(db, "bob@example.com", "Bob", null, ["news", "updates"]);
     confirmSubscriber(db, subscriber.unsubscribeToken);
 
     const subLists = db
@@ -171,9 +148,7 @@ describe("confirmSubscriber", () => {
     const db = createTestDb();
     seedList(db, { slug: "news" });
 
-    const subscriber = createSubscriber(db, "bob@example.com", "Bob", null, [
-      "news",
-    ]);
+    const subscriber = createSubscriber(db, "bob@example.com", "Bob", null, ["news"]);
     const result = confirmSubscriber(db, subscriber.unsubscribeToken);
 
     expect(result).toBe(true);
@@ -192,16 +167,10 @@ describe("unsubscribeAll", () => {
     const db = createTestDb();
     seedList(db, { slug: "news" });
 
-    const subscriber = createSubscriber(db, "bob@example.com", "Bob", null, [
-      "news",
-    ]);
+    const subscriber = createSubscriber(db, "bob@example.com", "Bob", null, ["news"]);
     unsubscribeAll(db, subscriber.unsubscribeToken);
 
-    const updated = db
-      .select()
-      .from(schema.subscribers)
-      .where(eq(schema.subscribers.id, subscriber.id))
-      .get();
+    const updated = db.select().from(schema.subscribers).where(eq(schema.subscribers.id, subscriber.id)).get();
 
     expect(updated!.status).toBe("active");
   });
@@ -211,10 +180,7 @@ describe("unsubscribeAll", () => {
     seedList(db, { slug: "news", name: "News" });
     seedList(db, { slug: "updates", name: "Updates" });
 
-    const subscriber = createSubscriber(db, "bob@example.com", "Bob", null, [
-      "news",
-      "updates",
-    ]);
+    const subscriber = createSubscriber(db, "bob@example.com", "Bob", null, ["news", "updates"]);
     unsubscribeAll(db, subscriber.unsubscribeToken);
 
     const subLists = db
@@ -231,9 +197,7 @@ describe("unsubscribeAll", () => {
     const db = createTestDb();
     seedList(db, { slug: "news" });
 
-    const subscriber = createSubscriber(db, "bob@example.com", "Bob", null, [
-      "news",
-    ]);
+    const subscriber = createSubscriber(db, "bob@example.com", "Bob", null, ["news"]);
     const result = unsubscribeAll(db, subscriber.unsubscribeToken);
 
     expect(result).toBe(true);
@@ -252,9 +216,7 @@ describe("getSubscriberPreferences", () => {
     const db = createTestDb();
     const list = seedList(db, { slug: "news", name: "News" });
 
-    const subscriber = createSubscriber(db, "bob@example.com", "Bob", null, [
-      "news",
-    ]);
+    const subscriber = createSubscriber(db, "bob@example.com", "Bob", null, ["news"]);
     const prefs = getSubscriberPreferences(db, subscriber.unsubscribeToken);
 
     expect(prefs).not.toBeNull();
@@ -278,9 +240,7 @@ describe("updatePreferences", () => {
     const list1 = seedList(db, { slug: "news", name: "News" });
     const list2 = seedList(db, { slug: "updates", name: "Updates" });
 
-    const subscriber = createSubscriber(db, "bob@example.com", "Bob", null, [
-      "news",
-    ]);
+    const subscriber = createSubscriber(db, "bob@example.com", "Bob", null, ["news"]);
 
     updatePreferences(db, subscriber.unsubscribeToken, [list1.id, list2.id]);
 
@@ -302,10 +262,7 @@ describe("updatePreferences", () => {
     const list1 = seedList(db, { slug: "news", name: "News" });
     const list2 = seedList(db, { slug: "updates", name: "Updates" });
 
-    const subscriber = createSubscriber(db, "bob@example.com", "Bob", null, [
-      "news",
-      "updates",
-    ]);
+    const subscriber = createSubscriber(db, "bob@example.com", "Bob", null, ["news", "updates"]);
     confirmSubscriber(db, subscriber.unsubscribeToken);
 
     // Only keep list1, drop list2
@@ -314,12 +271,7 @@ describe("updatePreferences", () => {
     const updatesEntry = db
       .select()
       .from(schema.subscriberLists)
-      .where(
-        and(
-          eq(schema.subscriberLists.subscriberId, subscriber.id),
-          eq(schema.subscriberLists.listId, list2.id),
-        ),
-      )
+      .where(and(eq(schema.subscriberLists.subscriberId, subscriber.id), eq(schema.subscriberLists.listId, list2.id)))
       .get();
 
     expect(updatesEntry!.status).toBe("unsubscribed");
@@ -329,9 +281,7 @@ describe("updatePreferences", () => {
     const db = createTestDb();
     const list = seedList(db, { slug: "news", name: "News" });
 
-    const subscriber = createSubscriber(db, "bob@example.com", "Bob", null, [
-      "news",
-    ]);
+    const subscriber = createSubscriber(db, "bob@example.com", "Bob", null, ["news"]);
     confirmSubscriber(db, subscriber.unsubscribeToken);
 
     // Unsubscribe from list
@@ -340,12 +290,7 @@ describe("updatePreferences", () => {
     const unsubbed = db
       .select()
       .from(schema.subscriberLists)
-      .where(
-        and(
-          eq(schema.subscriberLists.subscriberId, subscriber.id),
-          eq(schema.subscriberLists.listId, list.id),
-        ),
-      )
+      .where(and(eq(schema.subscriberLists.subscriberId, subscriber.id), eq(schema.subscriberLists.listId, list.id)))
       .get();
     expect(unsubbed!.status).toBe("unsubscribed");
 
@@ -355,12 +300,7 @@ describe("updatePreferences", () => {
     const resubbed = db
       .select()
       .from(schema.subscriberLists)
-      .where(
-        and(
-          eq(schema.subscriberLists.subscriberId, subscriber.id),
-          eq(schema.subscriberLists.listId, list.id),
-        ),
-      )
+      .where(and(eq(schema.subscriberLists.subscriberId, subscriber.id), eq(schema.subscriberLists.listId, list.id)))
       .get();
     expect(resubbed!.status).toBe("confirmed");
   });
@@ -372,10 +312,7 @@ describe("unsubscribeFromList", () => {
     const listA = seedList(db, { slug: "list-a", name: "List A" });
     const listB = seedList(db, { slug: "list-b", name: "List B" });
 
-    const subscriber = createSubscriber(db, "bob@example.com", "Bob", null, [
-      "list-a",
-      "list-b",
-    ]);
+    const subscriber = createSubscriber(db, "bob@example.com", "Bob", null, ["list-a", "list-b"]);
     confirmSubscriber(db, subscriber.unsubscribeToken);
 
     const result = unsubscribeFromList(db, subscriber.unsubscribeToken, listA.id);
@@ -384,67 +321,39 @@ describe("unsubscribeFromList", () => {
     const subListA = db
       .select()
       .from(schema.subscriberLists)
-      .where(
-        and(
-          eq(schema.subscriberLists.subscriberId, subscriber.id),
-          eq(schema.subscriberLists.listId, listA.id),
-        ),
-      )
+      .where(and(eq(schema.subscriberLists.subscriberId, subscriber.id), eq(schema.subscriberLists.listId, listA.id)))
       .get();
     expect(subListA!.status).toBe("unsubscribed");
 
     const subListB = db
       .select()
       .from(schema.subscriberLists)
-      .where(
-        and(
-          eq(schema.subscriberLists.subscriberId, subscriber.id),
-          eq(schema.subscriberLists.listId, listB.id),
-        ),
-      )
+      .where(and(eq(schema.subscriberLists.subscriberId, subscriber.id), eq(schema.subscriberLists.listId, listB.id)))
       .get();
     expect(subListB!.status).toBe("confirmed");
 
-    const updated = db
-      .select()
-      .from(schema.subscribers)
-      .where(eq(schema.subscribers.id, subscriber.id))
-      .get();
+    const updated = db.select().from(schema.subscribers).where(eq(schema.subscribers.id, subscriber.id)).get();
     expect(updated!.status).toBe("active");
   });
 
   test("keeps subscriber active when no active subs remain (per-list only)", () => {
     const db = createTestDb();
     seedList(db, { slug: "list-a", name: "List A" });
-    const listA = db
-      .select()
-      .from(schema.lists)
-      .where(eq(schema.lists.slug, "list-a"))
-      .get()!;
+    const listA = db.select().from(schema.lists).where(eq(schema.lists.slug, "list-a")).get()!;
 
-    const subscriber = createSubscriber(db, "bob@example.com", "Bob", null, [
-      "list-a",
-    ]);
+    const subscriber = createSubscriber(db, "bob@example.com", "Bob", null, ["list-a"]);
     confirmSubscriber(db, subscriber.unsubscribeToken);
 
     unsubscribeFromList(db, subscriber.unsubscribeToken, listA.id);
 
-    const updated = db
-      .select()
-      .from(schema.subscribers)
-      .where(eq(schema.subscribers.id, subscriber.id))
-      .get();
+    const updated = db.select().from(schema.subscribers).where(eq(schema.subscribers.id, subscriber.id)).get();
     expect(updated!.status).toBe("active");
   });
 
   test("returns false for invalid token", () => {
     const db = createTestDb();
     seedList(db, { slug: "list-a", name: "List A" });
-    const listA = db
-      .select()
-      .from(schema.lists)
-      .where(eq(schema.lists.slug, "list-a"))
-      .get()!;
+    const listA = db.select().from(schema.lists).where(eq(schema.lists.slug, "list-a")).get()!;
 
     const result = unsubscribeFromList(db, "fake-token-xyz", listA.id);
     expect(result).toBe(false);
@@ -454,9 +363,7 @@ describe("unsubscribeFromList", () => {
     const db = createTestDb();
     seedList(db, { slug: "list-a", name: "List A" });
 
-    const subscriber = createSubscriber(db, "bob@example.com", "Bob", null, [
-      "list-a",
-    ]);
+    const subscriber = createSubscriber(db, "bob@example.com", "Bob", null, ["list-a"]);
 
     const result = unsubscribeFromList(db, subscriber.unsubscribeToken, 99999);
     expect(result).toBe(false);
@@ -468,9 +375,7 @@ describe("confirmSubscriber dedup", () => {
     const db = createTestDb();
     seedList(db, { slug: "news", name: "News" });
 
-    const subscriber = createSubscriber(db, "bob@example.com", "Bob", null, [
-      "news",
-    ]);
+    const subscriber = createSubscriber(db, "bob@example.com", "Bob", null, ["news"]);
 
     confirmSubscriber(db, subscriber.unsubscribeToken);
     confirmSubscriber(db, subscriber.unsubscribeToken);
@@ -478,12 +383,7 @@ describe("confirmSubscriber dedup", () => {
     const events = db
       .select()
       .from(schema.events)
-      .where(
-        and(
-          eq(schema.events.type, "subscriber.confirmed"),
-          eq(schema.events.subscriberId, subscriber.id),
-        ),
-      )
+      .where(and(eq(schema.events.type, "subscriber.confirmed"), eq(schema.events.subscriberId, subscriber.id)))
       .all();
 
     expect(events).toHaveLength(1);
@@ -495,11 +395,7 @@ describe("Tag CRUD", () => {
     const db = createTestDb();
 
     // Insert a tag
-    const tag = db
-      .insert(schema.tags)
-      .values({ name: "beta-testers" })
-      .returning()
-      .get();
+    const tag = db.insert(schema.tags).values({ name: "beta-testers" }).returning().get();
     expect(tag.id).toBeDefined();
     expect(tag.name).toBe("beta-testers");
 
@@ -508,20 +404,13 @@ describe("Tag CRUD", () => {
     const sub = createSubscriber(db, "tester@example.com", "Tester", null, ["news"]);
 
     // Link subscriber to tag
-    db.insert(schema.subscriberTags)
-      .values({ subscriberId: sub.id, tagId: tag.id })
-      .run();
+    db.insert(schema.subscriberTags).values({ subscriberId: sub.id, tagId: tag.id }).run();
 
     // Verify link exists
     const links = db
       .select()
       .from(schema.subscriberTags)
-      .where(
-        and(
-          eq(schema.subscriberTags.subscriberId, sub.id),
-          eq(schema.subscriberTags.tagId, tag.id),
-        ),
-      )
+      .where(and(eq(schema.subscriberTags.subscriberId, sub.id), eq(schema.subscriberTags.tagId, tag.id)))
       .all();
     expect(links).toHaveLength(1);
     expect(links[0].subscriberId).toBe(sub.id);
@@ -529,33 +418,19 @@ describe("Tag CRUD", () => {
 
     // Delete the link
     db.delete(schema.subscriberTags)
-      .where(
-        and(
-          eq(schema.subscriberTags.subscriberId, sub.id),
-          eq(schema.subscriberTags.tagId, tag.id),
-        ),
-      )
+      .where(and(eq(schema.subscriberTags.subscriberId, sub.id), eq(schema.subscriberTags.tagId, tag.id)))
       .run();
 
     // Verify link is gone
     const linksAfter = db
       .select()
       .from(schema.subscriberTags)
-      .where(
-        and(
-          eq(schema.subscriberTags.subscriberId, sub.id),
-          eq(schema.subscriberTags.tagId, tag.id),
-        ),
-      )
+      .where(and(eq(schema.subscriberTags.subscriberId, sub.id), eq(schema.subscriberTags.tagId, tag.id)))
       .all();
     expect(linksAfter).toHaveLength(0);
 
     // Verify tag still exists
-    const tagStillExists = db
-      .select()
-      .from(schema.tags)
-      .where(eq(schema.tags.id, tag.id))
-      .get();
+    const tagStillExists = db.select().from(schema.tags).where(eq(schema.tags.id, tag.id)).get();
     expect(tagStillExists).toBeDefined();
     expect(tagStillExists!.name).toBe("beta-testers");
   });
@@ -566,9 +441,7 @@ describe("getConfirmedSubscribers", () => {
     const db = createTestDb();
     const list = seedList(db, { slug: "news", name: "News" });
 
-    const sub1 = createSubscriber(db, "confirmed@example.com", "Confirmed", null, [
-      "news",
-    ]);
+    const sub1 = createSubscriber(db, "confirmed@example.com", "Confirmed", null, ["news"]);
     confirmSubscriber(db, sub1.unsubscribeToken);
 
     // sub2 is unconfirmed — should not appear
@@ -584,9 +457,7 @@ describe("getConfirmedSubscribers", () => {
     const db = createTestDb();
     const list = seedList(db, { slug: "news", name: "News" });
 
-    const sub1 = createSubscriber(db, "active@example.com", "Active", null, [
-      "news",
-    ]);
+    const sub1 = createSubscriber(db, "active@example.com", "Active", null, ["news"]);
     confirmSubscriber(db, sub1.unsubscribeToken);
 
     const sub2 = createSubscriber(db, "unsub@example.com", "Unsub", null, ["news"]);

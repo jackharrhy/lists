@@ -60,11 +60,15 @@ localTest("compose stack captures outbound mail and processes inbound S3/SQS mai
   await eventually(async () => {
     const response = await fetch(`${mailpitUrl}/api/v1/messages`);
     if (!response.ok) return;
-    const body = await response.json() as { messages?: Array<{ To?: Array<{ Address?: string }>; Subject?: string }> };
-    return body.messages?.some((message) =>
-      message.Subject === "Confirm your subscription" &&
-      message.To?.some((address) => address.Address === recipient),
-    ) ? true : undefined;
+    const body = (await response.json()) as {
+      messages?: Array<{ To?: Array<{ Address?: string }>; Subject?: string }>;
+    };
+    return body.messages?.some(
+      (message) =>
+        message.Subject === "Confirm your subscription" && message.To?.some((address) => address.Address === recipient),
+    )
+      ? true
+      : undefined;
   });
 
   const messageId = `local-${run}`;
@@ -84,24 +88,26 @@ localTest("compose stack captures outbound mail and processes inbound S3/SQS mai
   await s3.send(new PutObjectCommand({ Bucket: "lists-inbound", Key: key, Body: rawEmail }));
 
   const sqs = new SQSClient({ region: "us-east-1", endpoint: motoUrl, credentials });
-  await sqs.send(new SendMessageCommand({
-    QueueUrl: `${motoUrl}/123456789012/lists-inbound`,
-    MessageBody: JSON.stringify({
-      messageId,
-      timestamp: new Date().toISOString(),
-      source: "sender@example.test",
-      from: ["sender@example.test"],
-      to: [`${slug}@reply.lists.local`],
-      subject,
-      spamVerdict: "PASS",
-      virusVerdict: "PASS",
-      spfVerdict: "PASS",
-      dkimVerdict: "PASS",
-      dmarcVerdict: "PASS",
-      s3Key: key,
-      action: { type: "S3", bucketName: "lists-inbound", objectKeyPrefix: "inbound/", objectKey: key },
+  await sqs.send(
+    new SendMessageCommand({
+      QueueUrl: `${motoUrl}/123456789012/lists-inbound`,
+      MessageBody: JSON.stringify({
+        messageId,
+        timestamp: new Date().toISOString(),
+        source: "sender@example.test",
+        from: ["sender@example.test"],
+        to: [`${slug}@reply.lists.local`],
+        subject,
+        spamVerdict: "PASS",
+        virusVerdict: "PASS",
+        spfVerdict: "PASS",
+        dkimVerdict: "PASS",
+        dmarcVerdict: "PASS",
+        s3Key: key,
+        action: { type: "S3", bucketName: "lists-inbound", objectKeyPrefix: "inbound/", objectKey: key },
+      }),
     }),
-  }));
+  );
 
   await eventually(async () => {
     const response = await fetch(`${appUrl}/admin/inbound`, { headers: { cookie } });
@@ -138,25 +144,27 @@ localTest("compose stack processes a compressed DMARC report from S3/SQS", async
   const s3 = new S3Client({ region: "us-east-1", endpoint: motoUrl, credentials, forcePathStyle: true });
   await s3.send(new PutObjectCommand({ Bucket: "lists-inbound", Key: key, Body: rawEmail }));
   const sqs = new SQSClient({ region: "us-east-1", endpoint: motoUrl, credentials });
-  await sqs.send(new SendMessageCommand({
-    QueueUrl: `${motoUrl}/123456789012/lists-inbound`,
-    MessageBody: JSON.stringify({
-      kind: "dmarc",
-      messageId,
-      timestamp: new Date().toISOString(),
-      source: "dmarc@example.test",
-      from: ["dmarc@example.test"],
-      to: ["reports@dmarc.lists.local"],
-      subject: `DMARC aggregate ${reportId}`,
-      spamVerdict: "PASS",
-      virusVerdict: "PASS",
-      spfVerdict: "PASS",
-      dkimVerdict: "PASS",
-      dmarcVerdict: "PASS",
-      s3Key: key,
-      action: { type: "S3", bucketName: "lists-inbound", objectKeyPrefix: "dmarc/", objectKey: key },
+  await sqs.send(
+    new SendMessageCommand({
+      QueueUrl: `${motoUrl}/123456789012/lists-inbound`,
+      MessageBody: JSON.stringify({
+        kind: "dmarc",
+        messageId,
+        timestamp: new Date().toISOString(),
+        source: "dmarc@example.test",
+        from: ["dmarc@example.test"],
+        to: ["reports@dmarc.lists.local"],
+        subject: `DMARC aggregate ${reportId}`,
+        spamVerdict: "PASS",
+        virusVerdict: "PASS",
+        spfVerdict: "PASS",
+        dkimVerdict: "PASS",
+        dmarcVerdict: "PASS",
+        s3Key: key,
+        action: { type: "S3", bucketName: "lists-inbound", objectKeyPrefix: "dmarc/", objectKey: key },
+      }),
     }),
-  }));
+  );
 
   await eventually(async () => {
     const response = await fetch(`${appUrl}/admin/dmarc`, { headers: { cookie } });

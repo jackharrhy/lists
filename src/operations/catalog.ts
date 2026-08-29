@@ -13,7 +13,16 @@ import {
   listSubscribers,
   sendCampaignOperation,
 } from ".";
-import { archiveTemplate, createTemplate, duplicateTemplate, getTemplate, listTemplates, previewTemplate, updateTemplate, validateTemplateSource } from "./templates";
+import {
+  archiveTemplate,
+  createTemplate,
+  duplicateTemplate,
+  getTemplate,
+  listTemplates,
+  previewTemplate,
+  updateTemplate,
+  validateTemplateSource,
+} from "./templates";
 import {
   campaignCreateInput,
   campaignDetailOutput,

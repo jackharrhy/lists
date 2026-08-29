@@ -39,19 +39,11 @@ async function seedUser(
   const name = overrides.name ?? null;
   const passwordHash = await Bun.password.hash(password);
 
-  return db
-    .insert(schema.users)
-    .values({ email, name, passwordHash, role })
-    .returning()
-    .get();
+  return db.insert(schema.users).values({ email, name, passwordHash, role }).returning().get();
 }
 
 /** POST /login and return the session cookie string */
-async function login(
-  app: App,
-  email: string,
-  password: string,
-): Promise<{ res: Response; cookie: string | null }> {
+async function login(app: App, email: string, password: string): Promise<{ res: Response; cookie: string | null }> {
   const form = new URLSearchParams();
   form.set("email", email);
   form.set("password", password);
@@ -83,12 +75,7 @@ async function authGet(app: App, path: string, cookie: string) {
 }
 
 /** Make an authenticated POST request with form data */
-async function authPost(
-  app: App,
-  path: string,
-  cookie: string,
-  body: Record<string, string | string[]>,
-) {
+async function authPost(app: App, path: string, cookie: string, body: Record<string, string | string[]>) {
   const form = new URLSearchParams();
   for (const [key, value] of Object.entries(body)) {
     if (Array.isArray(value)) {
@@ -253,9 +240,7 @@ describe("Member filtered view", () => {
       password: "member-pass",
       role: "member",
     });
-    db.insert(schema.userLists)
-      .values({ userId: member.id, listId: listA.id })
-      .run();
+    db.insert(schema.userLists).values({ userId: member.id, listId: listA.id }).run();
 
     // Login as member
     const { cookie } = await login(app, "member@example.com", "member-pass");
@@ -310,30 +295,18 @@ describe("Invite user flow", () => {
     expect(inviteRes.status).toBe(302);
 
     // Verify user created in DB with correct role
-    const newUser = db
-      .select()
-      .from(schema.users)
-      .where(eq(schema.users.email, "newmember@example.com"))
-      .get();
+    const newUser = db.select().from(schema.users).where(eq(schema.users.email, "newmember@example.com")).get();
     expect(newUser).toBeDefined();
     expect(newUser!.role).toBe("member");
     expect(newUser!.name).toBe("New Member");
 
     // Verify user_lists entry exists
-    const userLists = db
-      .select()
-      .from(schema.userLists)
-      .where(eq(schema.userLists.userId, newUser!.id))
-      .all();
+    const userLists = db.select().from(schema.userLists).where(eq(schema.userLists.userId, newUser!.id)).all();
     expect(userLists).toHaveLength(1);
     expect(userLists[0].listId).toBe(listA.id);
 
     // Login as the new user -> should succeed
-    const { res: loginRes, cookie: newCookie } = await login(
-      app,
-      "newmember@example.com",
-      "new-member-pass",
-    );
+    const { res: loginRes, cookie: newCookie } = await login(app, "newmember@example.com", "new-member-pass");
     expect(loginRes.status).toBe(302);
     expect(newCookie).not.toBeNull();
   });
@@ -362,11 +335,7 @@ describe("Can't delete yourself", () => {
     expect(deleteRes.status).toBe(400);
 
     // Verify user still exists in DB
-    const stillExists = db
-      .select()
-      .from(schema.users)
-      .where(eq(schema.users.id, owner.id))
-      .get();
+    const stillExists = db.select().from(schema.users).where(eq(schema.users.id, owner.id)).get();
     expect(stillExists).toBeDefined();
     expect(stillExists!.email).toBe("owner@example.com");
   });

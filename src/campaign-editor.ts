@@ -25,8 +25,11 @@ function formatBytes(bytes: number) {
 
 function parseData<T>(value: string | undefined, fallback: T): T {
   if (!value) return fallback;
-  try { return JSON.parse(value) as T; }
-  catch { return fallback; }
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    return fallback;
+  }
 }
 
 function initializeAudience(form: HTMLFormElement) {
@@ -95,13 +98,17 @@ function initializeSubscriberPicker(form: HTMLFormElement) {
       const subscriber = subscribers.find((candidate) => candidate.id === id);
       if (!subscriber) return;
       const chip = document.createElement("span");
-      chip.className = "inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800";
+      chip.className =
+        "inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800";
       chip.textContent = subscriber.email;
       const remove = document.createElement("button");
       remove.type = "button";
       remove.textContent = "×";
       remove.className = "ml-1 text-blue-600 hover:text-blue-800 cursor-pointer";
-      remove.addEventListener("click", () => { selected.delete(id); render(); });
+      remove.addEventListener("click", () => {
+        selected.delete(id);
+        render();
+      });
       chip.appendChild(remove);
       chips.appendChild(chip);
     });
@@ -110,25 +117,34 @@ function initializeSubscriberPicker(form: HTMLFormElement) {
 
   search.addEventListener("input", () => {
     const query = search.value.toLowerCase();
-    if (!query) { results.classList.add("hidden"); return; }
-    const matches = subscribers.filter((subscriber) => {
-      const name = [subscriber.firstName ?? "", subscriber.lastName ?? ""].join(" ").trim();
-      return !selected.has(subscriber.id)
-        && (subscriber.email.toLowerCase().includes(query) || name.toLowerCase().includes(query));
-    }).slice(0, 10);
-    results.replaceChildren(...matches.map((subscriber) => {
-      const option = document.createElement("div");
-      const name = [subscriber.firstName ?? "", subscriber.lastName ?? ""].join(" ").trim();
-      option.className = "px-3 py-2 cursor-pointer hover:bg-gray-50 text-sm";
-      option.textContent = `${subscriber.email}${name ? ` (${name})` : ""}`;
-      option.addEventListener("click", () => {
-        selected.add(subscriber.id);
-        search.value = "";
-        results.classList.add("hidden");
-        render();
-      });
-      return option;
-    }));
+    if (!query) {
+      results.classList.add("hidden");
+      return;
+    }
+    const matches = subscribers
+      .filter((subscriber) => {
+        const name = [subscriber.firstName ?? "", subscriber.lastName ?? ""].join(" ").trim();
+        return (
+          !selected.has(subscriber.id) &&
+          (subscriber.email.toLowerCase().includes(query) || name.toLowerCase().includes(query))
+        );
+      })
+      .slice(0, 10);
+    results.replaceChildren(
+      ...matches.map((subscriber) => {
+        const option = document.createElement("div");
+        const name = [subscriber.firstName ?? "", subscriber.lastName ?? ""].join(" ").trim();
+        option.className = "px-3 py-2 cursor-pointer hover:bg-gray-50 text-sm";
+        option.textContent = `${subscriber.email}${name ? ` (${name})` : ""}`;
+        option.addEventListener("click", () => {
+          selected.add(subscriber.id);
+          search.value = "";
+          results.classList.add("hidden");
+          render();
+        });
+        return option;
+      }),
+    );
     results.classList.toggle("hidden", matches.length === 0);
   });
   render();
@@ -185,9 +201,11 @@ function initializePreview() {
 
 function collectTemplateSections() {
   const sections: Record<string, string> = {};
-  document.querySelectorAll<HTMLTextAreaElement>("[data-template]:not(.hidden) [data-template-section]").forEach((field) => {
-    if (field.dataset.templateSection) sections[field.dataset.templateSection] = field.value;
-  });
+  document
+    .querySelectorAll<HTMLTextAreaElement>("[data-template]:not(.hidden) [data-template-section]")
+    .forEach((field) => {
+      if (field.dataset.templateSection) sections[field.dataset.templateSection] = field.value;
+    });
   return sections;
 }
 
@@ -201,7 +219,9 @@ function initializeTemplateSections(form: HTMLFormElement) {
     });
   };
   select.addEventListener("change", showSelected);
-  form.addEventListener("submit", () => { hidden.value = JSON.stringify(collectTemplateSections()); });
+  form.addEventListener("submit", () => {
+    hidden.value = JSON.stringify(collectTemplateSections());
+  });
   showSelected();
 }
 
@@ -229,16 +249,22 @@ function initializeImages() {
     data.append("image", file);
     const response = await fetch("/admin/campaigns/upload-image", { method: "POST", body: data });
     if (!response.ok) throw new Error("Failed to process image");
-    processed = await response.json() as ProcessedImage;
+    processed = (await response.json()) as ProcessedImage;
     element<HTMLElement>("#imageModalName")!.textContent = file.name;
-    element<HTMLElement>("#imageModalSize")!.textContent = `Original: ${formatBytes(processed.originalSizeBytes)} → ${formatBytes(processed.sizeBytes)} WebP (${processed.width}×${processed.height})`;
+    element<HTMLElement>("#imageModalSize")!.textContent =
+      `Original: ${formatBytes(processed.originalSizeBytes)} → ${formatBytes(processed.sizeBytes)} WebP (${processed.width}×${processed.height})`;
     embed.textContent = `Embed in email (${formatBytes(processed.sizeBytes)} inline, always displays)`;
     modal.classList.remove("hidden");
   };
-  const handle = (file?: File) => { if (file) void upload(file).catch(() => alert("Failed to process image")); };
+  const handle = (file?: File) => {
+    if (file) void upload(file).catch(() => alert("Failed to process image"));
+  };
   dropZone.addEventListener("click", () => fileInput.click());
   fileInput.addEventListener("change", () => handle(fileInput.files?.[0]));
-  dropZone.addEventListener("dragover", (event) => { event.preventDefault(); dropZone.classList.add("border-blue-400", "bg-blue-50"); });
+  dropZone.addEventListener("dragover", (event) => {
+    event.preventDefault();
+    dropZone.classList.add("border-blue-400", "bg-blue-50");
+  });
   dropZone.addEventListener("dragleave", () => dropZone.classList.remove("border-blue-400", "bg-blue-50"));
   dropZone.addEventListener("drop", (event) => {
     event.preventDefault();
@@ -258,7 +284,9 @@ function initializeImages() {
     modal.classList.add("hidden");
   });
   element<HTMLButtonElement>("#imageModalClose")?.addEventListener("click", () => modal.classList.add("hidden"));
-  modal.addEventListener("click", (event) => { if (event.target === modal) modal.classList.add("hidden"); });
+  modal.addEventListener("click", (event) => {
+    if (event.target === modal) modal.classList.add("hidden");
+  });
 }
 
 export function initializeCampaignEditor() {
