@@ -148,6 +148,13 @@
       "when": 1787870000000,
       "tag": "0020_persistent-sessions",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1787950000000,
+      "tag": "0021_email-templates",
+      "breakpoints": true
     }
   ]
 }

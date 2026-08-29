@@ -12,6 +12,7 @@ import {
   type Principal,
 } from "../services/access";
 import type { CreateCampaignDraftInput, CreateSubscriberInput } from "./contracts";
+import { ensureBuiltInTemplate, getTemplateVersion, renderTemplateVersion } from "../services/email-templates";
 
 export class NotFoundError extends Error { status = 404; }
 export class InvalidOperationError extends Error { status = 400; }
@@ -144,7 +145,7 @@ export function getCampaign(ctx: OperationContext, id: number) {
   return { ...campaign, deliveryCounts: Object.fromEntries(counts.map((row) => [row.status, row.count])) };
 }
 
-export function createCampaignDraft(ctx: OperationContext, input: CreateCampaignDraftInput) {
+export async function createCampaignDraft(ctx: OperationContext, input: CreateCampaignDraftInput) {
   assertScope(ctx.principal, "campaigns:write");
   if (!input.subject.trim() || !input.bodyMarkdown.trim() || !input.fromAddress.trim()) {
     throw new InvalidOperationError("subject, bodyMarkdown, and fromAddress are required");
@@ -155,12 +156,25 @@ export function createCampaignDraft(ctx: OperationContext, input: CreateCampaign
   } else if (ctx.principal.listIds !== "all") {
     throw new AccessDeniedError("Only admins can use non-list audiences");
   }
+  ensureBuiltInTemplate(ctx.db);
+  const template = ctx.db.select().from(schema.emailTemplates)
+    .where(and(eq(schema.emailTemplates.slug, input.templateSlug ?? "newsletter"), eq(schema.emailTemplates.status, "active"))).get();
+  if (!template?.currentVersionId) throw new InvalidOperationError("Active email template not found");
+  const version = getTemplateVersion(ctx.db, template.currentVersionId)!;
+  await renderTemplateVersion(version, {
+    subscriber: { email: "reader@example.com", firstName: "Jane", lastName: "Doe" },
+    campaign: { subject: input.subject }, list: { name: "Preview" },
+    links: { unsubscribe: "#unsubscribe", preferences: "#preferences" },
+    sectionSources: { ...(input.templateSections ?? {}), content: input.bodyMarkdown },
+  });
   return ctx.db.insert(schema.campaigns).values({
     subject: input.subject.trim(), bodyMarkdown: input.bodyMarkdown,
     fromAddress: input.fromAddress.trim(), fromName: input.fromName?.trim() || null,
     audienceType: input.audienceType, audienceId: input.audienceId ?? null,
     audienceData: input.audienceType === "subscribers" ? JSON.stringify(input.audienceData) : null,
     status: "draft",
+    templateSlug: template.slug, templateVersionId: template.currentVersionId,
+    templateSections: JSON.stringify({ ...(input.templateSections ?? {}), content: input.bodyMarkdown }),
   }).returning().get();
 }
 

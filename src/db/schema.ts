@@ -146,11 +146,42 @@ export const subscriberTags = sqliteTable("subscriber_tags", {
     .references(() => tags.id),
 });
 
+export const emailTemplates = sqliteTable("email_templates", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  slug: text("slug").notNull().unique(),
+  name: text("name").notNull(),
+  description: text("description"),
+  status: text("status", { enum: ["draft", "active", "archived"] }).notNull().default("draft"),
+  builtIn: integer("built_in", { mode: "boolean" }).notNull().default(false),
+  currentVersionId: integer("current_version_id"),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
+});
+
+export const emailTemplateVersions = sqliteTable("email_template_versions", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  templateId: integer("template_id").notNull().references(() => emailTemplates.id, { onDelete: "cascade" }),
+  version: integer("version").notNull(),
+  sourceFormat: text("source_format", { enum: ["html", "mjml", "text"] }).notNull(),
+  subjectSource: text("subject_source"),
+  htmlSource: text("html_source"),
+  textSource: text("text_source").notNull(),
+  compiledHtml: text("compiled_html"),
+  sections: text("sections").notNull().default("[]"),
+  partials: text("partials").notNull().default("{}"),
+  createdBy: integer("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+}, (table) => [
+  index("email_template_versions_template_idx").on(table.templateId, table.version),
+]);
+
 export const campaigns = sqliteTable("campaigns", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   subject: text("subject").notNull(),
   bodyMarkdown: text("body_markdown").notNull(),
   templateSlug: text("template_slug").notNull().default("newsletter"),
+  templateVersionId: integer("template_version_id").references(() => emailTemplateVersions.id),
+  templateSections: text("template_sections").notNull().default("{}"),
   fromAddress: text("from_address").notNull(),
   fromName: text("from_name"),
   audienceType: text("audience_type", {

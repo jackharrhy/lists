@@ -928,3 +928,27 @@ describe("HTMX application shell", () => {
     expect(html).not.toContain("backdrop-blur");
   });
 });
+
+describe("Email template gallery", () => {
+  test("shows immutable template source and gates remote assets in isolated previews", async () => {
+    const db = createTestDb();
+    await seedOwner(db);
+    const app = createApp(db);
+    const cookie = await login(app);
+
+    const gallery = await authGet(app, "/admin/templates", cookie);
+    expect(gallery.status).toBe(200);
+    expect(await gallery.text()).toContain("Newsletter");
+
+    const detail = await authGet(app, "/admin/templates/newsletter", cookie);
+    expect(detail.status).toBe(200);
+    const detailHtml = await detail.text();
+    expect(detailHtml).toContain("Open isolated preview");
+    expect(detailHtml).toContain("Preview with remote assets");
+
+    const blocked = await authGet(app, "/admin/templates/newsletter/preview?version=1", cookie);
+    expect(blocked.headers.get("content-security-policy")).toContain("img-src data: cid:");
+    const allowed = await authGet(app, "/admin/templates/newsletter/preview?version=1&remote=1", cookie);
+    expect(allowed.headers.get("content-security-policy")).toContain("img-src https: data: cid:");
+  });
+});

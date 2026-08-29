@@ -9,6 +9,8 @@ export const API_SCOPES = [
   "campaigns:read",
   "campaigns:write",
   "campaigns:send",
+  "templates:read",
+  "templates:write",
   "deliverability:read",
   "dmarc:read",
 ] as const;

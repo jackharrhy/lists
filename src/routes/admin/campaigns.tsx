@@ -23,6 +23,8 @@ import {
 import { AdminLayout, fmtDate, fmtDateTime, CampaignBadge, describeAudience, setFlash, getFlash, type User } from "./layout";
 import { Button, LinkButton, Input, Select, Textarea, Label, FormGroup, Table, Th, Td, Card, PageHeader, Pagination } from "./ui";
 import { CampaignEditorPage } from "./campaign-form";
+import type { CampaignTemplateChoice } from "./campaign-form";
+import { ensureBuiltInTemplate, getTemplateVersion, renderTemplateVersion, TemplateValidationError, type TemplateSection } from "../../services/email-templates";
 
 const CAMPAIGNS_PAGE_SIZE = 25;
 const CampaignListQuerySchema = z.object({
@@ -30,11 +32,36 @@ const CampaignListQuerySchema = z.object({
   status: z.enum(["", "draft", "scheduled", "sending", "sent", "failed"]).default(""),
   search: z.string().default(""),
 });
+const PREVIEW_CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src data: cid:; font-src data:";
+
+function previewSrcdoc(html: string) {
+  const meta = `<meta http-equiv="Content-Security-Policy" content="${PREVIEW_CSP}">`;
+  return /<head(?:\s[^>]*)?>/i.test(html) ? html.replace(/<head(?:\s[^>]*)?>/i, (head) => `${head}${meta}`) : `${meta}${html}`;
+}
+
+function activeTemplateChoices(db: Db, pinnedVersionId?: number | null): CampaignTemplateChoice[] {
+  ensureBuiltInTemplate(db);
+  const choices = db.select().from(schema.emailTemplates).where(eq(schema.emailTemplates.status, "active")).all().flatMap((template) => {
+    if (!template.currentVersionId) return [];
+    const version = getTemplateVersion(db, template.currentVersionId);
+    return version ? [{ slug: template.slug, name: template.name, versionId: version.id, sections: JSON.parse(version.sections) as TemplateSection[] }] : [];
+  });
+  if (pinnedVersionId && !choices.some((choice) => choice.versionId === pinnedVersionId)) {
+    const version = getTemplateVersion(db, pinnedVersionId);
+    const template = version ? db.select().from(schema.emailTemplates).where(eq(schema.emailTemplates.id, version.templateId)).get() : null;
+    if (version && template) choices.push({
+      slug: template.slug, name: `${template.name} (pinned v${version.version})`, versionId: version.id,
+      sections: JSON.parse(version.sections) as TemplateSection[],
+    });
+  }
+  return choices;
+}
 
 export function mountCampaignRoutes(app: App, db: Db, config: Config) {
   // ---- Preview endpoints (raw HTML, no AdminLayout) -----------------------
 
   app.get("/campaigns/:id/preview", async (c) => {
+    c.set.headers["Content-Security-Policy"] = PREVIEW_CSP;
     const id = Number(c.params.id);
     const campaign = db.select().from(schema.campaigns).where(eq(schema.campaigns.id, id)).get();
     if (!campaign) return c.notFound();
@@ -70,41 +97,50 @@ export function mountCampaignRoutes(app: App, db: Db, config: Config) {
       subData,
       { unsubscribeUrl, preferencesUrl },
     );
-    const contentHtml = await marked(substitutedMarkdown);
-    const { html } = await renderNewsletter({
-      subject: campaign.subject,
-      contentHtml,
-      listName,
-      unsubscribeUrl,
-      preferencesUrl,
-    });
+    const version = campaign.templateVersionId ? getTemplateVersion(db, campaign.templateVersionId) : null;
+    const html = version
+      ? (await renderTemplateVersion(version, {
+          subscriber: subData, campaign: { subject: campaign.subject }, list: { name: listName },
+          links: { unsubscribe: unsubscribeUrl, preferences: preferencesUrl },
+          sectionSources: { ...(JSON.parse(campaign.templateSections) as Record<string, string>), content: campaign.bodyMarkdown },
+        })).html
+      : (await renderNewsletter({
+          subject: campaign.subject, contentHtml: await marked(substitutedMarkdown), listName, unsubscribeUrl, preferencesUrl,
+        })).html;
 
-    return c.html(html);
+    return c.html(html ?? `<pre>${substitutedMarkdown}</pre>`);
   });
 
   const CampaignPreviewSchema = z.object({
     bodyMarkdown: z.string().default(""),
     subject: z.string().default("Preview"),
     listName: z.string().default("Newsletter"),
+    templateVersionId: z.number().int().positive().nullable().default(null),
+    templateSections: z.record(z.string(), z.string()).default({}),
   });
 
   app.post("/campaigns/preview", async (c) => {
-    const { bodyMarkdown, subject, listName } = c.body;
+    c.set.headers["Content-Security-Policy"] = PREVIEW_CSP;
+    const { bodyMarkdown, subject, listName, templateVersionId, templateSections } = c.body;
     const substitutedMarkdown = substituteVariables(
       bodyMarkdown || "",
       { firstName: "Jane", lastName: "Doe", email: "subscriber@example.com" },
       { unsubscribeUrl: "#unsubscribe", preferencesUrl: "#preferences" },
     );
-    const contentHtml = await marked(substitutedMarkdown);
-    const { html } = await renderNewsletter({
-      subject: subject || "Preview",
-      contentHtml,
-      listName: listName || "Newsletter",
-      unsubscribeUrl: "#unsubscribe",
-      preferencesUrl: "#preferences",
-    });
+    const version = templateVersionId ? getTemplateVersion(db, templateVersionId) : null;
+    const html = version
+      ? (await renderTemplateVersion(version, {
+          subscriber: { firstName: "Jane", lastName: "Doe", email: "subscriber@example.com" },
+          campaign: { subject: subject || "Preview" }, list: { name: listName || "Newsletter" },
+          links: { unsubscribe: "#unsubscribe", preferences: "#preferences" },
+          sectionSources: { ...templateSections, content: bodyMarkdown },
+        })).html
+      : (await renderNewsletter({
+          subject: subject || "Preview", contentHtml: await marked(substitutedMarkdown), listName: listName || "Newsletter",
+          unsubscribeUrl: "#unsubscribe", preferencesUrl: "#preferences",
+        })).html;
 
-    return c.html(html);
+    return c.html(previewSrcdoc(html ?? `<pre>${substitutedMarkdown}</pre>`));
   }, { body: CampaignPreviewSchema });
 
   app.post("/campaigns/upload-image", async (c) => {
@@ -298,7 +334,7 @@ export function mountCampaignRoutes(app: App, db: Db, config: Config) {
     const allTags = db.select().from(schema.tags).all();
     const allSubscribers = db.select().from(schema.subscribers).where(eq(schema.subscribers.status, "active")).all();
 
-    return c.html(<CampaignEditorPage user={user} flash={flash} config={config} lists={allLists} tags={allTags} subscribers={allSubscribers} />);
+    return c.html(<CampaignEditorPage user={user} flash={flash} config={config} lists={allLists} tags={allTags} subscribers={allSubscribers} templates={activeTemplateChoices(db)} />);
   });
 
   app.post("/campaigns/new", async (c) => {
@@ -309,6 +345,7 @@ export function mountCampaignRoutes(app: App, db: Db, config: Config) {
     } catch (error) {
       if (error instanceof CampaignEditorAccessError) return c.text("Forbidden", 403);
       if (error instanceof CampaignEditorReferenceError) return c.text(error.message, 400);
+      if (error instanceof TemplateValidationError) return c.text(error.message, 400);
       throw error;
     }
 
@@ -530,6 +567,7 @@ export function mountCampaignRoutes(app: App, db: Db, config: Config) {
         </div>
         <iframe
           id="previewFrame"
+          sandbox=""
           src={`/admin/campaigns/${id}/preview`}
           class="w-full border border-gray-200 rounded-lg"
           style="min-height: 600px;"
@@ -592,7 +630,7 @@ export function mountCampaignRoutes(app: App, db: Db, config: Config) {
     const allTags = db.select().from(schema.tags).all();
     const allSubscribers = db.select().from(schema.subscribers).where(eq(schema.subscribers.status, "active")).all();
 
-    return c.html(<CampaignEditorPage user={user} flash={flash} config={config} lists={allLists} tags={allTags} subscribers={allSubscribers} campaign={campaign} />);
+    return c.html(<CampaignEditorPage user={user} flash={flash} config={config} lists={allLists} tags={allTags} subscribers={allSubscribers} campaign={campaign} templates={activeTemplateChoices(db, campaign.templateVersionId)} />);
   });
 
   app.post("/campaigns/:id/edit", async (c) => {
@@ -609,6 +647,7 @@ export function mountCampaignRoutes(app: App, db: Db, config: Config) {
     } catch (error) {
       if (error instanceof CampaignEditorAccessError) return c.text("Forbidden", 403);
       if (error instanceof CampaignEditorReferenceError) return c.text(error.message, 400);
+      if (error instanceof TemplateValidationError) return c.text(error.message, 400);
       throw error;
     }
 

@@ -12,6 +12,7 @@ import {
   buildListUnsubscribeHeader,
 } from "../compliance";
 import { renderNewsletter } from "../../emails/render";
+import { getTemplateVersion, renderTemplateVersion } from "./email-templates";
 import { logEvent } from "./events";
 import { sendEmail } from "./mailer";
 
@@ -107,7 +108,7 @@ export async function buildRawEmail({
   from: string;
   to: string;
   subject: string;
-  html: string;
+  html?: string;
   text: string;
   fromDomain: string;
   headers: Record<string, string>;
@@ -116,7 +117,7 @@ export async function buildRawEmail({
 
   // Extract data: URI images and convert to inline CID attachments
   const inlineAttachments: Mail.Attachment[] = [];
-  const processedHtml = html.replace(/src="data:(image\/[^;]+);base64,([^"]+)"/g, (_match, mimeType, base64Data) => {
+  const processedHtml = html?.replace(/src="data:(image\/[^;]+);base64,([^"]+)"/g, (_match, mimeType, base64Data) => {
     const cid = `img-${crypto.randomUUID().replace(/-/g, "")}@lists`;
     inlineAttachments.push({
       cid,
@@ -267,20 +268,23 @@ export async function sendCampaign(
       );
       const contentHtml = await marked(substitutedMarkdown);
 
-      const { html, text } = await renderNewsletter({
-        subject: campaign.subject,
-        contentHtml,
-        listName,
-        unsubscribeUrl,
-        preferencesUrl,
-      });
+      const templateVersion = campaign.templateVersionId ? getTemplateVersion(db, campaign.templateVersionId) : null;
+      const rendered = templateVersion
+        ? await renderTemplateVersion(templateVersion, {
+            subscriber,
+            campaign: { subject: campaign.subject },
+            list: { name: listName, slug: list?.slug },
+            links: { unsubscribe: unsubscribeUrl, preferences: preferencesUrl },
+            sectionSources: { ...(JSON.parse(campaign.templateSections) as Record<string, string>), content: campaign.bodyMarkdown },
+          })
+        : { ...(await renderNewsletter({ subject: campaign.subject, contentHtml, listName, unsubscribeUrl, preferencesUrl })), subject: campaign.subject };
 
       const { raw: rawEmail, messageId: rfc822MessageId } = await buildRawEmail({
         from: fromWithName,
         to: subscriber.email,
-        subject: campaign.subject,
-        html,
-        text,
+        subject: rendered.subject,
+        html: rendered.html ?? undefined,
+        text: rendered.text,
         fromDomain: emailFromDomain,
         headers: {
           ...listUnsubHeaders,

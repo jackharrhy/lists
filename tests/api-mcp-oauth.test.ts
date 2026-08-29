@@ -227,6 +227,74 @@ describe("scoped API and MCP", () => {
     expect(response.status).toBe(200);
     expect((await response.json() as any).result.serverInfo.name).toBe("lists");
   });
+
+  test("authors, previews, versions, and activates full HTML templates through shared MCP operations", async () => {
+    const { app, db, user } = setup();
+    const { token } = mintApiToken(db, user.id, "template author", ["templates:read", "templates:write"]);
+    const source = {
+      slug: "personal-letter", name: "Personal Letter", description: "Agent-authored HTML",
+      sourceFormat: "html", subjectSource: "A note for {{subscriber.firstName}}",
+      htmlSource: "<!doctype html><html><body>{{> header}}<main>{{{sections.letter.html}}}</main><a href=\"{{links.unsubscribe}}\">Leave</a></body></html>",
+      textSource: "{{> text_header}}\n{{sections.letter.text}}\nLeave: {{links.unsubscribe}}",
+      sections: [{ key: "letter", name: "Letter", format: "markdown", required: true }],
+      partials: { header: "<header>Hello {{subscriber.firstName}}</header>", text_header: "Hello {{subscriber.firstName}}" },
+    };
+    const created = await mcpCall(app, token, "email_template_create", source);
+    expect(created.result.isError).toBeUndefined();
+    expect(created.result.structuredContent.versions[0].version).toBe(1);
+    const validated = await mcpCall(app, token, "email_template_validate", (({ slug, name, description, ...templateSource }) => templateSource)(source));
+    expect(validated.result.structuredContent.valid).toBe(true);
+
+    const preview = await mcpCall(app, token, "email_template_preview", {
+      slug: source.slug, sectionSources: { letter: "# Complete control\n\nHello **world**." },
+    });
+    expect(preview.result.structuredContent.html).toContain("<h1>Complete control</h1>");
+    expect(preview.result.structuredContent.html).toContain("Hello Jane");
+    expect(preview.result.structuredContent.text).toContain("Hello world");
+
+    const updated = await mcpCall(app, token, "email_template_update", { ...source, name: "Personal Letter v2" });
+    expect(updated.result.structuredContent.versions[0].version).toBe(2);
+    const activated = await mcpCall(app, token, "email_template_activate", { slug: source.slug, version: 2 });
+    expect(activated.result.structuredContent.status).toBe("active");
+    expect(activated.result.structuredContent.currentVersionId).toBe(updated.result.structuredContent.versions[0].id);
+
+    const rest = await app.request(`/api/v1/email-templates/${source.slug}`, { headers: bearer(token) });
+    expect(rest.status).toBe(200);
+    expect((await rest.json() as any).data.versions.map((version: any) => version.version)).toEqual([2, 1]);
+    const duplicate = await mcpCall(app, token, "email_template_duplicate", { slug: source.slug, newSlug: "personal-letter-copy" });
+    expect(duplicate.result.structuredContent.slug).toBe("personal-letter-copy");
+    expect(duplicate.result.structuredContent.status).toBe("draft");
+  });
+
+  test("requires templates:write and rejects executable HTML before persistence", async () => {
+    const { app, db, user } = setup();
+    const reader = mintApiToken(db, user.id, "template reader", ["templates:read"]);
+    const input = {
+      slug: "unsafe", name: "Unsafe", sourceFormat: "html",
+      htmlSource: "<html><body><script>alert(1)</script>{{{sections.content.html}}}<a href=\"{{links.unsubscribe}}\">Leave</a></body></html>",
+      textSource: "{{sections.content.text}} {{links.unsubscribe}}",
+      sections: [{ key: "content", name: "Content", format: "markdown", required: true }], partials: {},
+    };
+    expect((await mcpCall(app, reader.token, "email_template_create", input)).result.isError).toBe(true);
+    const writer = mintApiToken(db, user.id, "template writer", ["templates:write"]);
+    const rejected = await mcpCall(app, writer.token, "email_template_create", input);
+    expect(rejected.result.isError).toBe(true);
+    expect(rejected.result.content[0].text).toContain("forbidden <script>");
+    expect(db.select().from(schema.emailTemplates).where(eq(schema.emailTemplates.slug, "unsafe")).all()).toEqual([]);
+  });
+
+  test("compiles MJML templates while preserving Handlebars sections", async () => {
+    const { app, db, user } = setup();
+    const { token } = mintApiToken(db, user.id, "mjml author", ["templates:read", "templates:write"]);
+    const created = await mcpCall(app, token, "email_template_create", {
+      slug: "responsive", name: "Responsive", sourceFormat: "mjml",
+      htmlSource: "<mjml><mj-body><mj-section><mj-column><mj-text>{{{sections.content.html}}}</mj-text><mj-text><a href=\"{{links.unsubscribe}}\">Unsubscribe</a></mj-text></mj-column></mj-section></mj-body></mjml>",
+      textSource: "{{sections.content.text}}\n{{links.unsubscribe}}",
+      sections: [{ key: "content", name: "Content", format: "markdown", required: true }], partials: {},
+    });
+    expect(created.result.isError).toBeUndefined();
+    expect(created.result.structuredContent.versions[0].compiledHtml).toContain("role=\"article\"");
+  });
 });
 
 describe("OAuth PKCE", () => {

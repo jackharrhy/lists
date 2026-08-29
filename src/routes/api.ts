@@ -23,8 +23,21 @@ import {
   subscriberListInput,
   subscriberOutput,
   subscriberSummaryOutput,
+  templateActivateInput,
+  templateArchiveInput,
+  templateCreateInput,
+  templateDetailOutput,
+  templateDuplicateInput,
+  templatePreviewInput,
+  templatePreviewOutput,
+  templateSlugInput,
+  templateSummaryOutput,
+  templateSourceInput,
+  templateUpdateInput,
+  templateValidationOutput,
 } from "../operations/contracts";
 import { bearerAuth } from "./api-auth";
+import { TemplateValidationError } from "../services/email-templates";
 
 const confirmationQuery = z.object({ confirm: z.literal("true") }).strict();
 const errorResponses = {
@@ -46,6 +59,7 @@ export function apiRoutes(db: Db, config: Config) {
       if (error instanceof AccessDeniedError) return status(403, { error: error.message });
       if (error instanceof NotFoundError) return status(404, { error: error.message });
       if (error instanceof InvalidOperationError) return status(400, { error: error.message });
+      if (error instanceof TemplateValidationError) return status(400, { error: error.message });
       console.error(error);
       return status(500, { error: "Internal server error" });
     })
@@ -131,5 +145,72 @@ export function apiRoutes(db: Db, config: Config) {
       }), {
         response: { 200: dataOutput(dmarcOutput), ...errorResponses },
         detail: { summary: "Get a DMARC summary", tags: ["Deliverability"], ...authenticatedRoute },
+      })
+      .get("/v1/email-templates", async ({ principal }) => ({
+        data: await operationCatalog.templatesList.run(context(principal), {}),
+      }), {
+        response: { 200: dataOutput(z.array(templateSummaryOutput)), ...errorResponses },
+        detail: { summary: "List email templates", tags: ["Email Templates"], ...authenticatedRoute },
+      })
+      .get("/v1/email-templates/:slug", async ({ principal, params }) => ({
+        data: await operationCatalog.templateGet.run(context(principal), params),
+      }), {
+        params: templateSlugInput,
+        response: { 200: dataOutput(templateDetailOutput), ...errorResponses },
+        detail: { summary: "Get an email template", tags: ["Email Templates"], ...authenticatedRoute },
+      })
+      .post("/v1/email-templates", async ({ principal, body, status }) => status(201, {
+        data: await operationCatalog.templateCreate.run(context(principal), body),
+      }), {
+        body: templateCreateInput,
+        response: { 201: dataOutput(templateDetailOutput), ...errorResponses },
+        detail: { summary: "Create an email template", tags: ["Email Templates"], ...authenticatedRoute },
+      })
+      .post("/v1/email-templates/validate", async ({ principal, body }) => ({
+        data: await operationCatalog.templateValidate.run(context(principal), body),
+      }), {
+        body: templateSourceInput,
+        response: { 200: dataOutput(templateValidationOutput), ...errorResponses },
+        detail: { summary: "Validate email template source", tags: ["Email Templates"], ...authenticatedRoute },
+      })
+      .put("/v1/email-templates/:slug", async ({ principal, params, body }) => ({
+        data: await operationCatalog.templateUpdate.run(context(principal), { ...body, slug: params.slug }),
+      }), {
+        params: templateSlugInput,
+        body: templateUpdateInput.omit({ slug: true }),
+        response: { 200: dataOutput(templateDetailOutput), ...errorResponses },
+        detail: { summary: "Create a new email template version", tags: ["Email Templates"], ...authenticatedRoute },
+      })
+      .post("/v1/email-templates/:slug/activate", async ({ principal, params, body }) => ({
+        data: await operationCatalog.templateActivate.run(context(principal), { ...body, slug: params.slug }),
+      }), {
+        params: templateSlugInput,
+        body: templateActivateInput.omit({ slug: true }),
+        response: { 200: dataOutput(templateDetailOutput), ...errorResponses },
+        detail: { summary: "Activate an email template version", tags: ["Email Templates"], ...authenticatedRoute },
+      })
+      .post("/v1/email-templates/:slug/preview", async ({ principal, params, body }) => ({
+        data: await operationCatalog.templatePreview.run(context(principal), { ...body, slug: params.slug }),
+      }), {
+        params: templateSlugInput,
+        body: templatePreviewInput.omit({ slug: true }),
+        response: { 200: dataOutput(templatePreviewOutput), ...errorResponses },
+        detail: { summary: "Preview an email template", tags: ["Email Templates"], ...authenticatedRoute },
+      })
+      .post("/v1/email-templates/:slug/duplicate", async ({ principal, params, body, status }) => status(201, {
+        data: await operationCatalog.templateDuplicate.run(context(principal), { ...body, slug: params.slug }),
+      }), {
+        params: templateSlugInput,
+        body: templateDuplicateInput.omit({ slug: true }),
+        response: { 201: dataOutput(templateDetailOutput), ...errorResponses },
+        detail: { summary: "Duplicate an email template", tags: ["Email Templates"], ...authenticatedRoute },
+      })
+      .delete("/v1/email-templates/:slug", async ({ principal, params }) => ({
+        data: await operationCatalog.templateArchive.run(context(principal), { slug: params.slug, confirm: true }),
+      }), {
+        params: templateSlugInput,
+        query: confirmationQuery,
+        response: { 200: dataOutput(templateSummaryOutput), ...errorResponses },
+        detail: { summary: "Archive an email template", tags: ["Email Templates"], ...authenticatedRoute },
       }));
 }

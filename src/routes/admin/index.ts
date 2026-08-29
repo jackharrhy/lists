@@ -14,6 +14,7 @@ import { mountImportRoutes } from "./import";
 import { mountUserRoutes } from "./users";
 import { mountDmarcRoutes } from "./dmarc";
 import { mountTokenRoutes } from "./tokens";
+import { mountTemplateRoutes } from "./templates";
 
 export function adminRoutes(db: Db, config: Config) {
   const app = createHttpApp();
@@ -34,6 +35,7 @@ export function adminRoutes(db: Db, config: Config) {
   mountUserRoutes(app, db, config);
   mountDmarcRoutes(app, db, config);
   mountTokenRoutes(app, db);
+  mountTemplateRoutes(app, db, config);
 
   return app;
 }

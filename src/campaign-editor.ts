@@ -147,7 +147,13 @@ function initializePreview() {
     const response = await fetch("/admin/campaigns/preview", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ bodyMarkdown: textarea.value, subject: subject.value || "Preview", listName: "Preview" }),
+      body: JSON.stringify({
+        bodyMarkdown: textarea.value,
+        subject: subject.value || "Preview",
+        listName: "Preview",
+        templateVersionId: Number(element<HTMLSelectElement>("#templateVersionId")?.value) || null,
+        templateSections: collectTemplateSections(),
+      }),
     });
     frame.srcdoc = await response.text();
   };
@@ -175,6 +181,28 @@ function initializePreview() {
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && !panel.classList.contains("hidden")) window.togglePreviewPanel?.();
   });
+}
+
+function collectTemplateSections() {
+  const sections: Record<string, string> = {};
+  document.querySelectorAll<HTMLTextAreaElement>("[data-template-version]:not(.hidden) [data-template-section]").forEach((field) => {
+    if (field.dataset.templateSection) sections[field.dataset.templateSection] = field.value;
+  });
+  return sections;
+}
+
+function initializeTemplateSections(form: HTMLFormElement) {
+  const select = element<HTMLSelectElement>("#templateVersionId");
+  const hidden = element<HTMLInputElement>("#templateSectionsJson");
+  if (!select || !hidden) return;
+  const showSelected = () => {
+    document.querySelectorAll<HTMLElement>("[data-template-version]").forEach((group) => {
+      group.classList.toggle("hidden", group.dataset.templateVersion !== select.value);
+    });
+  };
+  select.addEventListener("change", showSelected);
+  form.addEventListener("submit", () => { hidden.value = JSON.stringify(collectTemplateSections()); });
+  showSelected();
 }
 
 function initializeImages() {
@@ -238,6 +266,7 @@ export function initializeCampaignEditor() {
   if (!form || form.dataset.initialized) return;
   form.dataset.initialized = "true";
   initializeAudience(form);
+  initializeTemplateSections(form);
   initializePreview();
   initializeImages();
 }

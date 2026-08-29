@@ -13,6 +13,7 @@ import {
   listSubscribers,
   sendCampaignOperation,
 } from ".";
+import { activateTemplate, archiveTemplate, createTemplate, duplicateTemplate, getTemplate, listTemplates, previewTemplate, updateTemplate, validateTemplateSource } from "./templates";
 import {
   campaignCreateInput,
   campaignDetailOutput,
@@ -31,6 +32,18 @@ import {
   subscriberListInput,
   subscriberOutput,
   subscriberSummaryOutput,
+  templateActivateInput,
+  templateArchiveInput,
+  templateCreateInput,
+  templateDetailOutput,
+  templatePreviewInput,
+  templatePreviewOutput,
+  templateDuplicateInput,
+  templateSlugInput,
+  templateSummaryOutput,
+  templateSourceInput,
+  templateUpdateInput,
+  templateValidationOutput,
 } from "./contracts";
 
 type OperationDefinition<S extends z.ZodType, O extends z.ZodType> = {
@@ -136,6 +149,69 @@ export const operationCatalog = {
     input: emptyInput,
     output: dmarcOutput,
     run: (ctx) => getDmarcSummary(ctx),
+  }),
+  templatesList: defineOperation({
+    mcpName: "email_templates_list",
+    description: "List email templates and their active state.",
+    input: emptyInput,
+    output: z.array(templateSummaryOutput),
+    run: (ctx) => listTemplates(ctx),
+  }),
+  templateGet: defineOperation({
+    mcpName: "email_template_get",
+    description: "Get an email template, immutable versions, sections, partials, and source.",
+    input: templateSlugInput,
+    output: templateDetailOutput,
+    run: (ctx, input) => getTemplate(ctx, input.slug),
+  }),
+  templateCreate: defineOperation({
+    mcpName: "email_template_create",
+    description: "Create a draft email template and its first validated immutable version. This does not activate it.",
+    input: templateCreateInput,
+    output: templateDetailOutput,
+    run: createTemplate,
+  }),
+  templateValidate: defineOperation({
+    mcpName: "email_template_validate",
+    description: "Validate and compile HTML, MJML, or text template source without persisting it.",
+    input: templateSourceInput,
+    output: templateValidationOutput,
+    run: validateTemplateSource,
+  }),
+  templateUpdate: defineOperation({
+    mcpName: "email_template_update",
+    description: "Create a new immutable version of an email template. Existing campaigns remain pinned.",
+    input: templateUpdateInput,
+    output: templateDetailOutput,
+    run: updateTemplate,
+  }),
+  templateActivate: defineOperation({
+    mcpName: "email_template_activate",
+    description: "Activate a validated template version for future campaigns.",
+    input: templateActivateInput,
+    output: templateDetailOutput,
+    run: (ctx, input) => activateTemplate(ctx, input.slug, input.version),
+  }),
+  templatePreview: defineOperation({
+    mcpName: "email_template_preview",
+    description: "Render HTML and text for a stored template version with sample or supplied section content.",
+    input: templatePreviewInput,
+    output: templatePreviewOutput,
+    run: (ctx, input) => previewTemplate(ctx, input.slug, input.version, input.sectionSources),
+  }),
+  templateArchive: defineOperation({
+    mcpName: "email_template_archive",
+    description: "Archive a custom template. Historical versions and pinned campaigns are preserved. Requires confirm=true.",
+    input: templateArchiveInput,
+    output: templateSummaryOutput,
+    run: (ctx, input) => archiveTemplate(ctx, input.slug, input.confirm),
+  }),
+  templateDuplicate: defineOperation({
+    mcpName: "email_template_duplicate",
+    description: "Duplicate the current template version into a new draft template.",
+    input: templateDuplicateInput,
+    output: templateDetailOutput,
+    run: (ctx, input) => duplicateTemplate(ctx, input.slug, input.newSlug, input.newName),
   }),
 } as const;
 

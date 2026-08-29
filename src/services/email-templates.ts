@@ -1,0 +1,212 @@
+import Handlebars from "handlebars";
+import mjml2html from "mjml";
+import { Parser } from "htmlparser2";
+import { htmlToText } from "html-to-text";
+import { marked } from "marked";
+import { and, desc, eq } from "drizzle-orm";
+import type { Db } from "../db";
+import { schema } from "../db";
+
+export type TemplateSection = {
+  key: string;
+  name: string;
+  format: "markdown" | "html" | "text";
+  required: boolean;
+};
+
+export type TemplateSource = {
+  sourceFormat: "html" | "mjml" | "text";
+  subjectSource?: string | null;
+  htmlSource?: string | null;
+  textSource: string;
+  sections: TemplateSection[];
+  partials: Record<string, string>;
+};
+
+export type TemplateRenderContext = {
+  subscriber: { email: string; firstName?: string | null; lastName?: string | null };
+  campaign: { subject: string };
+  list: { name: string; slug?: string };
+  links: { unsubscribe: string; preferences: string };
+  sectionSources: Record<string, string>;
+};
+
+export class TemplateValidationError extends Error {
+  status = 400;
+  constructor(public issues: string[]) {
+    super(issues.join("; "));
+  }
+}
+
+const BUILT_IN_HTML = `<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>{{campaign.subject}}</title></head>
+<body style="background:#fff;font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;margin:0">
+  <div style="margin:0 auto;padding:32px 24px;max-width:600px">
+    <div style="font-size:13px;font-weight:600;color:#666;text-transform:uppercase;letter-spacing:.5px;margin:0 0 24px">{{list.name}}</div>
+    <div style="font-size:16px;line-height:26px;color:#1a1a1a">{{{sections.content.html}}}</div>
+    <hr style="border:0;border-top:1px solid #e5e5e5;margin:32px 0 24px">
+    <p style="color:#999;font-size:12px;line-height:20px;text-align:center"><a href="{{links.unsubscribe}}" style="color:#999">Unsubscribe</a> · <a href="{{links.preferences}}" style="color:#999">Manage preferences</a></p>
+  </div>
+</body></html>`;
+const BUILT_IN_TEXT = `{{sections.content.text}}\n\nUnsubscribe: {{links.unsubscribe}}\nManage preferences: {{links.preferences}}`;
+
+export function ensureBuiltInTemplate(db: Db) {
+  const existing = db.select().from(schema.emailTemplates).where(eq(schema.emailTemplates.slug, "newsletter")).get();
+  if (existing) return existing;
+  const now = new Date().toISOString();
+  return db.transaction((tx) => {
+    const template = tx.insert(schema.emailTemplates).values({
+      slug: "newsletter", name: "Newsletter", description: "The original minimal Lists newsletter.",
+      status: "active", builtIn: true, createdAt: now, updatedAt: now,
+    }).returning().get();
+    const version = tx.insert(schema.emailTemplateVersions).values({
+      templateId: template.id, version: 1, sourceFormat: "html", htmlSource: BUILT_IN_HTML,
+      textSource: BUILT_IN_TEXT, compiledHtml: BUILT_IN_HTML,
+      sections: JSON.stringify([{ key: "content", name: "Content", format: "markdown", required: true }]),
+      partials: "{}", createdAt: now,
+    }).returning().get();
+    tx.update(schema.emailTemplates).set({ currentVersionId: version.id }).where(eq(schema.emailTemplates.id, template.id)).run();
+    return { ...template, currentVersionId: version.id };
+  });
+}
+
+function validateHtml(source: string, label: string): string[] {
+  const issues: string[] = [];
+  const forbiddenTags = new Set(["script", "iframe", "object", "embed", "form", "base"]);
+  const parser = new Parser({
+    onopentag(name, attributes) {
+      if (forbiddenTags.has(name.toLowerCase())) issues.push(`${label} contains forbidden <${name}>`);
+      if (name.toLowerCase() === "meta" && attributes["http-equiv"]?.toLowerCase() === "refresh") issues.push(`${label} contains a meta refresh`);
+      for (const [attribute, value] of Object.entries(attributes)) {
+        if (attribute.toLowerCase().startsWith("on")) issues.push(`${label} contains event handler ${attribute}`);
+        if (["src", "background"].includes(attribute.toLowerCase()) && value && !/^(https:|data:image\/|cid:|\{\{)/i.test(value)) {
+          issues.push(`${label} asset URLs must use HTTPS, data:image, or cid`);
+        }
+        if (attribute.toLowerCase() === "href" && value && !/^(https?:|mailto:|#|\{\{)/i.test(value)) {
+          issues.push(`${label} contains an unsafe link protocol`);
+        }
+        if (name.toLowerCase() === "link" && attribute.toLowerCase() === "href" && value && !/^(https:|\{\{)/i.test(value)) {
+          issues.push(`${label} linked assets must use HTTPS`);
+        }
+        if (attribute.toLowerCase() === "srcset" && value.split(",").some((candidate) => !/^(https:|data:image\/|cid:|\{\{)/i.test(candidate.trim()))) {
+          issues.push(`${label} srcset assets must use HTTPS, data:image, or cid`);
+        }
+      }
+    },
+  });
+  parser.write(source);
+  parser.end();
+  if (/javascript\s*:|vbscript\s*:|expression\s*\(/i.test(source)) issues.push(`${label} contains executable CSS or a dangerous URL`);
+  for (const match of source.matchAll(/url\(\s*['"]?([^)'"\s]+)/gi)) {
+    const url = match[1] ?? "";
+    if (!/^(https:|data:image\/|cid:|\{\{)/i.test(url)) issues.push(`${label} CSS asset URLs must use HTTPS, data:image, or cid`);
+  }
+  for (const match of source.matchAll(/@import\s+(?:url\()?['"]?([^)'";\s]+)/gi)) {
+    if (!/^(https:|\{\{)/i.test(match[1] ?? "")) issues.push(`${label} imported stylesheets must use HTTPS`);
+  }
+  return [...new Set(issues)];
+}
+
+export async function compileTemplate(source: TemplateSource) {
+  const issues: string[] = [];
+  const keys = new Set<string>();
+  for (const section of source.sections) {
+    if (!/^[a-z][a-z0-9_-]*$/.test(section.key)) issues.push(`Invalid section key: ${section.key}`);
+    if (keys.has(section.key)) issues.push(`Duplicate section key: ${section.key}`);
+    keys.add(section.key);
+  }
+  let compiledHtml: string | null = null;
+  if (source.sourceFormat === "text") {
+    if (source.htmlSource) issues.push("Text-only templates cannot contain HTML source");
+  } else if (!source.htmlSource?.trim()) {
+    issues.push(`${source.sourceFormat.toUpperCase()} source is required`);
+  } else if (source.sourceFormat === "mjml") {
+    try {
+      const result = await mjml2html(source.htmlSource, { validationLevel: "strict", ignoreIncludes: true });
+      compiledHtml = result.html;
+    } catch (error) {
+      issues.push(`MJML compilation failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  } else {
+    compiledHtml = source.htmlSource;
+  }
+  if (!source.textSource.trim()) issues.push("Text source is required");
+  if (compiledHtml) issues.push(...validateHtml(compiledHtml, "HTML"));
+  for (const [name, partial] of Object.entries(source.partials)) {
+    if (!/^[a-z][a-z0-9_-]*$/.test(name)) issues.push(`Invalid partial name: ${name}`);
+    issues.push(...validateHtml(partial, `Partial ${name}`));
+  }
+  if (!source.textSource.includes("links.unsubscribe")) issues.push("Text source must reference links.unsubscribe");
+  if (compiledHtml && !compiledHtml.includes("links.unsubscribe")) issues.push("HTML source must reference links.unsubscribe");
+  for (const section of source.sections.filter((item) => item.required)) {
+    if (!source.textSource.includes(`sections.${section.key}.`)) issues.push(`Required section ${section.key} is not rendered in text source`);
+    if (compiledHtml && !compiledHtml.includes(`sections.${section.key}.`)) issues.push(`Required section ${section.key} is not rendered in HTML source`);
+  }
+  try {
+    if (compiledHtml) Handlebars.compile(compiledHtml, { strict: true });
+    Handlebars.compile(source.textSource, { strict: true });
+    for (const partial of Object.values(source.partials)) Handlebars.compile(partial, { strict: true });
+  } catch (error) {
+    issues.push(`Handlebars compilation failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  if (issues.length) throw new TemplateValidationError([...new Set(issues)]);
+  return { compiledHtml };
+}
+
+function templateRuntime(partials: Record<string, string>) {
+  const runtime = Handlebars.create();
+  runtime.registerHelper("eq", (left, right) => left === right);
+  runtime.registerHelper("uppercase", (value) => String(value ?? "").toUpperCase());
+  runtime.registerHelper("lowercase", (value) => String(value ?? "").toLowerCase());
+  runtime.registerHelper("urlencode", (value) => encodeURIComponent(String(value ?? "")));
+  for (const [name, source] of Object.entries(partials)) runtime.registerPartial(name, source);
+  return runtime;
+}
+
+export async function renderTemplateVersion(version: typeof schema.emailTemplateVersions.$inferSelect, context: TemplateRenderContext) {
+  const definitions = JSON.parse(version.sections) as TemplateSection[];
+  const partials = JSON.parse(version.partials) as Record<string, string>;
+  const base = {
+    subscriber: context.subscriber,
+    campaign: context.campaign,
+    list: context.list,
+    links: context.links,
+    firstName: context.subscriber.firstName,
+    lastName: context.subscriber.lastName,
+    email: context.subscriber.email,
+    unsubscribeUrl: context.links.unsubscribe,
+    preferencesUrl: context.links.preferences,
+  };
+  const sections: Record<string, { source: string; html: string; text: string }> = {};
+  for (const definition of definitions) {
+    const raw = context.sectionSources[definition.key] ?? "";
+    if (definition.required && !raw.trim()) throw new TemplateValidationError([`Section ${definition.key} is required`]);
+    const rendered = templateRuntime({}).compile(raw)(base);
+    const html = definition.format === "markdown" ? await marked(rendered) : definition.format === "html" ? rendered : "";
+    if (html) {
+      const issues = validateHtml(html, `Section ${definition.key}`);
+      if (issues.length) throw new TemplateValidationError(issues);
+    }
+    const text = definition.format === "markdown" ? htmlToText(html) : definition.format === "html" ? htmlToText(rendered) : rendered;
+    sections[definition.key] = { source: raw, html, text };
+  }
+  const data = { ...base, sections };
+  const runtime = templateRuntime(partials);
+  return {
+    subject: version.subjectSource ? runtime.compile(version.subjectSource)(data) : context.campaign.subject,
+    html: version.compiledHtml ? runtime.compile(version.compiledHtml)(data) : null,
+    text: runtime.compile(version.textSource)(data),
+  };
+}
+
+export function getTemplateVersion(db: Db, id: number) {
+  return db.select().from(schema.emailTemplateVersions).where(eq(schema.emailTemplateVersions.id, id)).get();
+}
+
+export function getCurrentTemplateVersion(db: Db, slug: string) {
+  ensureBuiltInTemplate(db);
+  return db.select().from(schema.emailTemplateVersions)
+    .innerJoin(schema.emailTemplates, eq(schema.emailTemplates.currentVersionId, schema.emailTemplateVersions.id))
+    .where(and(eq(schema.emailTemplates.slug, slug), eq(schema.emailTemplates.status, "active")))
+    .orderBy(desc(schema.emailTemplateVersions.version)).get();
+}

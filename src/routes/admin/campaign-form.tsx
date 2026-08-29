@@ -3,11 +3,18 @@ import type { schema } from "../../db";
 import type { Config } from "../../config";
 import { AdminLayout, type User } from "./layout";
 import { Button, Card, FormGroup, Input, Label, Select, Textarea } from "./ui";
+import type { TemplateSection } from "../../services/email-templates";
 
 type List = typeof schema.lists.$inferSelect;
 type Tag = typeof schema.tags.$inferSelect;
 type Subscriber = typeof schema.subscribers.$inferSelect;
 type Campaign = typeof schema.campaigns.$inferSelect;
+export type CampaignTemplateChoice = {
+  slug: string;
+  name: string;
+  versionId: number;
+  sections: TemplateSection[];
+};
 
 type CampaignEditorPageProps = {
   user: User;
@@ -17,6 +24,7 @@ type CampaignEditorPageProps = {
   tags: Tag[];
   subscribers: Subscriber[];
   campaign?: Campaign;
+  templates: CampaignTemplateChoice[];
 };
 
 function PreviewPanel({ campaignId }: { campaignId?: number }) {
@@ -41,6 +49,7 @@ function PreviewPanel({ campaignId }: { campaignId?: number }) {
         <div id="previewContainer" class="relative" style="width: 100%; max-width: 100%;">
           <iframe
             id="previewFrame"
+            sandbox=""
             style="min-height: calc(100vh - 80px); width: 100%; border: 0; background: white; transition: width 0.15s; display: block; margin: 0 auto;"
             {...(campaignId
               ? { src: `/admin/campaigns/${campaignId}/preview` }
@@ -67,7 +76,7 @@ function ImageModal() {
 }
 
 export function CampaignEditorPage(props: CampaignEditorPageProps) {
-  const { campaign, lists, tags, subscribers } = props;
+  const { campaign, lists, tags, subscribers, templates } = props;
   const mode = campaign?.audienceType === "subscribers" ? "specific" : campaign?.audienceType ?? "list";
   const selectedSubscriberIds = campaign?.audienceType === "subscribers" && campaign.audienceData
     ? JSON.parse(campaign.audienceData) as number[] : [];
@@ -75,6 +84,8 @@ export function CampaignEditorPage(props: CampaignEditorPageProps) {
   const scheduledLocal = campaign?.scheduledAt
     ? new Date(new Date(campaign.scheduledAt).getTime() - new Date().getTimezoneOffset() * 60_000).toISOString().slice(0, 16)
     : undefined;
+  const savedSections = campaign?.templateSections ? JSON.parse(campaign.templateSections) as Record<string, string> : {};
+  const selectedTemplateVersionId = campaign?.templateVersionId ?? templates[0]?.versionId;
 
   return <AdminLayout title={campaign ? `Edit: ${campaign.subject}` : "New Campaign"} user={props.user} flash={props.flash}>
     <PreviewPanel campaignId={campaign?.id} />
@@ -121,6 +132,23 @@ export function CampaignEditorPage(props: CampaignEditorPageProps) {
             <input type="hidden" name="subscriberIds" id="subscriberIds" value={selectedSubscriberIds.join(",")} />
           </div>
 
+          <FormGroup>
+            <Label for="templateVersionId">Email template</Label>
+            <Select id="templateVersionId" name="templateVersionId" required>
+              {templates.map((template) => <option value={String(template.versionId)} selected={template.versionId === selectedTemplateVersionId}>{template.name}</option>)}
+            </Select>
+          </FormGroup>
+          <div id="templateSections" data-template-sections={JSON.stringify(templates)}>
+            {templates.flatMap((template) => template.sections.filter((section) => section.key !== "content").map((section) => (
+              <div data-template-version={String(template.versionId)} class={template.versionId === selectedTemplateVersionId ? "" : "hidden"}>
+                <FormGroup>
+                  <Label>{section.name}{section.required ? "" : " (optional)"}</Label>
+                  <Textarea data-template-section={section.key} data-format={section.format} required={section.required}>{savedSections[section.key] ?? ""}</Textarea>
+                </FormGroup>
+              </div>
+            )))}
+          </div>
+          <input type="hidden" name="templateSectionsJson" id="templateSectionsJson" value={JSON.stringify(savedSections)} />
           <FormGroup>
             <Label for="fromPersona">From</Label>
             <Select id="fromPersona" name="fromPersona">

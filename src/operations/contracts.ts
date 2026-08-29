@@ -26,6 +26,8 @@ const campaignBaseInput = z.object({
   bodyMarkdown: z.string().min(1),
   fromAddress: z.email(),
   fromName: z.string().optional().nullable(),
+  templateSlug: z.string().min(1).optional(),
+  templateSections: z.record(z.string(), z.string()).optional(),
 });
 
 export const campaignCreateInput = z.discriminatedUnion("audienceType", [
@@ -49,6 +51,62 @@ export const campaignCreateInput = z.discriminatedUnion("audienceType", [
 ]);
 
 export const campaignSendInput = idInput.extend({ confirm: z.literal(true) });
+
+export const templateSectionInput = z.object({
+  key: z.string().regex(/^[a-z][a-z0-9_-]*$/),
+  name: z.string().min(1).max(120),
+  format: z.enum(["markdown", "html", "text"]),
+  required: z.boolean().default(false),
+}).strict();
+
+export const templateSourceInput = z.object({
+  sourceFormat: z.enum(["html", "mjml", "text"]),
+  subjectSource: z.string().optional().nullable(),
+  htmlSource: z.string().optional().nullable(),
+  textSource: z.string().min(1),
+  sections: z.array(templateSectionInput),
+  partials: z.record(z.string(), z.string()).default({}),
+}).strict();
+
+export const templateCreateInput = templateSourceInput.extend({
+  slug: z.string().regex(/^[a-z][a-z0-9-]*$/).max(80),
+  name: z.string().min(1).max(120),
+  description: z.string().max(500).optional().nullable(),
+}).strict();
+export const templateUpdateInput = templateSourceInput.extend({
+  slug: z.string().regex(/^[a-z][a-z0-9-]*$/).max(80),
+  name: z.string().min(1).max(120).optional(),
+  description: z.string().max(500).optional().nullable(),
+}).strict();
+export const templateSlugInput = z.object({ slug: z.string().min(1) }).strict();
+export const templateActivateInput = templateSlugInput.extend({ version: z.number().int().positive() });
+export const templateArchiveInput = templateSlugInput.extend({ confirm: z.literal(true) });
+export const templateDuplicateInput = templateSlugInput.extend({
+  newSlug: z.string().regex(/^[a-z][a-z0-9-]*$/).max(80),
+  newName: z.string().min(1).max(120).optional(),
+});
+export const templatePreviewInput = templateSlugInput.extend({
+  version: z.number().int().positive().optional(),
+  sectionSources: z.record(z.string(), z.string()).default({}),
+});
+
+export const templateSummaryOutput = z.object({
+  id: z.number(), slug: z.string(), name: z.string(), description: z.string().nullable(),
+  status: z.enum(["draft", "active", "archived"]), builtIn: z.boolean(),
+  currentVersionId: z.number().nullable(), createdAt: z.string(), updatedAt: z.string(),
+});
+export const templateVersionOutput = z.object({
+  id: z.number(), templateId: z.number(), version: z.number(),
+  sourceFormat: z.enum(["html", "mjml", "text"]), subjectSource: z.string().nullable(),
+  htmlSource: z.string().nullable(), textSource: z.string(), compiledHtml: z.string().nullable(),
+  sections: z.array(templateSectionInput), partials: z.record(z.string(), z.string()),
+  createdBy: z.number().nullable(), createdAt: z.string(),
+});
+export const templateDetailOutput = templateSummaryOutput.extend({ versions: z.array(templateVersionOutput) });
+export const templatePreviewOutput = z.object({
+  subject: z.string(), html: z.string().nullable(), text: z.string(), previewUrl: z.string(),
+});
+export const templateValidationOutput = z.object({ valid: z.literal(true), compiledHtml: z.string().nullable() });
 
 export const listOutput = z.object({
   id: z.number(),
@@ -86,6 +144,8 @@ export const campaignOutput = z.object({
   subject: z.string(),
   bodyMarkdown: z.string(),
   templateSlug: z.string(),
+  templateVersionId: z.number().nullable(),
+  templateSections: z.string(),
   fromAddress: z.string(),
   fromName: z.string().nullable(),
   audienceType: z.enum(["list", "tag", "all", "subscribers"]),

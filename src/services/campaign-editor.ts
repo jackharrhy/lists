@@ -5,6 +5,7 @@ import type { Db } from "../db";
 import { schema } from "../db";
 import { canAccessList } from "../auth";
 import { processPendingS3Images } from "./images";
+import { ensureBuiltInTemplate, renderTemplateVersion } from "./email-templates";
 
 const optionalPositiveInteger = z.union([z.literal(""), z.coerce.number().int().positive()]).default("")
   .transform((value) => value === "" ? null : value);
@@ -15,6 +16,14 @@ const pendingImages = z.string().default("{}").transform((value, context): Recor
     return z.record(z.string(), z.string()).parse(parsed);
   } catch {
     context.addIssue({ code: "custom", message: "Invalid pending image data" });
+    return z.NEVER;
+  }
+});
+const templateSections = z.string().default("{}").transform((value, context): Record<string, string> => {
+  try {
+    return z.record(z.string(), z.string()).parse(JSON.parse(value));
+  } catch {
+    context.addIssue({ code: "custom", message: "Invalid template section data" });
     return z.NEVER;
   }
 });
@@ -40,6 +49,8 @@ export const CampaignEditorFormSchema = z.object({
   batchSize: optionalPositiveInteger,
   batchInterval: optionalPositiveInteger,
   pendingImagesJson: pendingImages,
+  templateVersionId: z.union([z.literal(""), z.coerce.number().int().positive()]).default("").transform((value) => value === "" ? null : value),
+  templateSectionsJson: templateSections,
   fromPersona: z.string().optional(),
 }).transform((form, context) => {
   const invalid = (message: string): never => {
@@ -71,6 +82,8 @@ export const CampaignEditorFormSchema = z.object({
     batchSize: form.batchSize,
     batchInterval: form.batchInterval,
     pendingImages: form.pendingImagesJson,
+    templateVersionId: form.templateVersionId,
+    templateSections: form.templateSectionsJson,
   };
 });
 
@@ -116,7 +129,20 @@ function assertAudienceAccess(db: Db, user: { id: number; role: string }, audien
   }
 }
 
-function campaignValues(form: CampaignEditorForm, bodyMarkdown: string) {
+function resolveTemplate(db: Db, form: CampaignEditorForm, allowInactiveVersionId?: number | null) {
+  ensureBuiltInTemplate(db);
+  const version = form.templateVersionId
+    ? db.select().from(schema.emailTemplateVersions).where(eq(schema.emailTemplateVersions.id, form.templateVersionId)).get()
+    : db.select().from(schema.emailTemplateVersions)
+        .innerJoin(schema.emailTemplates, eq(schema.emailTemplates.currentVersionId, schema.emailTemplateVersions.id))
+        .where(eq(schema.emailTemplates.slug, "newsletter")).get()?.email_template_versions;
+  if (!version) throw new CampaignEditorReferenceError("Email template version not found");
+  const template = db.select().from(schema.emailTemplates).where(eq(schema.emailTemplates.id, version.templateId)).get();
+  if (!template || (template.status !== "active" && version.id !== allowInactiveVersionId)) throw new CampaignEditorReferenceError("Email template is not active");
+  return { version, template };
+}
+
+function campaignValues(form: CampaignEditorForm, bodyMarkdown: string, template: ReturnType<typeof resolveTemplate>) {
   return {
     ...audienceColumns(form.audience),
     fromAddress: form.fromAddress,
@@ -127,17 +153,34 @@ function campaignValues(form: CampaignEditorForm, bodyMarkdown: string) {
     batchSize: form.batchSize,
     batchInterval: form.batchInterval,
     status: form.scheduledAt ? "scheduled" as const : "draft" as const,
+    templateSlug: template.template.slug,
+    templateVersionId: template.version.id,
+    templateSections: JSON.stringify({ ...form.templateSections, content: bodyMarkdown }),
   };
+}
+
+async function validateCampaignContent(template: ReturnType<typeof resolveTemplate>, form: CampaignEditorForm) {
+  await renderTemplateVersion(template.version, {
+    subscriber: { email: "reader@example.com", firstName: "Jane", lastName: "Doe" },
+    campaign: { subject: form.subject }, list: { name: "Preview" },
+    links: { unsubscribe: "#unsubscribe", preferences: "#preferences" },
+    sectionSources: { ...form.templateSections, content: form.bodyMarkdown },
+  });
 }
 
 export async function createCampaignFromEditor(db: Db, config: Config, user: { id: number; role: string }, form: CampaignEditorForm) {
   assertAudienceAccess(db, user, form.audience);
-  const campaign = db.insert(schema.campaigns).values(campaignValues(form, form.bodyMarkdown)).returning().get();
+  const template = resolveTemplate(db, form);
+  await validateCampaignContent(template, form);
+  const campaign = db.insert(schema.campaigns).values(campaignValues(form, form.bodyMarkdown, template)).returning().get();
   try {
     const markdown = config.s3MediaBucket && Object.keys(form.pendingImages).length > 0
       ? await processPendingS3Images(form.bodyMarkdown, campaign.id, form.pendingImages, config)
       : form.bodyMarkdown;
-    if (markdown !== form.bodyMarkdown) db.update(schema.campaigns).set({ bodyMarkdown: markdown }).where(eq(schema.campaigns.id, campaign.id)).run();
+    if (markdown !== form.bodyMarkdown) db.update(schema.campaigns).set({
+      bodyMarkdown: markdown,
+      templateSections: JSON.stringify({ ...form.templateSections, content: markdown }),
+    }).where(eq(schema.campaigns.id, campaign.id)).run();
     return { ...campaign, bodyMarkdown: markdown };
   } catch (error) {
     db.delete(schema.campaigns).where(eq(schema.campaigns.id, campaign.id)).run();
@@ -147,8 +190,11 @@ export async function createCampaignFromEditor(db: Db, config: Config, user: { i
 
 export async function updateCampaignFromEditor(db: Db, config: Config, user: { id: number; role: string }, id: number, form: CampaignEditorForm) {
   assertAudienceAccess(db, user, form.audience);
+  const current = db.select({ templateVersionId: schema.campaigns.templateVersionId }).from(schema.campaigns).where(eq(schema.campaigns.id, id)).get();
+  const template = resolveTemplate(db, form, current?.templateVersionId);
+  await validateCampaignContent(template, form);
   const markdown = config.s3MediaBucket && Object.keys(form.pendingImages).length > 0
     ? await processPendingS3Images(form.bodyMarkdown, id, form.pendingImages, config)
     : form.bodyMarkdown;
-  db.update(schema.campaigns).set(campaignValues(form, markdown)).where(eq(schema.campaigns.id, id)).run();
+  db.update(schema.campaigns).set(campaignValues(form, markdown, template)).where(eq(schema.campaigns.id, id)).run();
 }
