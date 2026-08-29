@@ -102,7 +102,7 @@ export function Card({ children, class: cls }: { children: Child; class?: string
 export function PageHeader({ title, children }: { title: string; children?: Child }) {
   return (
     <div class="flex items-center justify-between mb-6">
-      <h1 class="text-2xl font-bold mt-0 mb-0">{title}</h1>
+      <h1 safe class="text-2xl font-bold mt-0 mb-0">{title}</h1>
       {children}
     </div>
   );
