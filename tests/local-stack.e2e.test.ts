@@ -30,6 +30,106 @@ async function login() {
   return response.headers.get("set-cookie")?.split(";")[0] ?? "";
 }
 
+async function capturedMessage(recipient: string, subject: string) {
+  return eventually(async () => {
+    const response = await fetch(`${mailpitUrl}/api/v1/messages`);
+    if (!response.ok) return;
+    const body = (await response.json()) as {
+      messages?: Array<{ ID: string; To?: Array<{ Address?: string }>; Subject?: string }>;
+    };
+    return body.messages?.find(
+      (message) => message.Subject === subject && message.To?.some((address) => address.Address === recipient),
+    );
+  });
+}
+
+localTest("API signup and draft editing reach Mailpit after confirmation", async () => {
+  const run = crypto.randomUUID().slice(0, 8);
+  const slug = `api-${run}`;
+  const recipient = `${slug}@example.test`;
+  const cookie = await login();
+  const createList = await fetch(`${appUrl}/admin/lists/new`, {
+    method: "POST",
+    redirect: "manual",
+    headers: { cookie, "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      slug,
+      name: `API ${run}`,
+      fromDomain: "lists.local",
+      fromAddress: "news@lists.local",
+    }),
+  });
+  expect(createList.status).toBe(302);
+
+  const tokenForm = new URLSearchParams({ name: `Local API ${run}` });
+  for (const scope of ["lists:read", "subscribers:write", "campaigns:read", "campaigns:write", "campaigns:send"])
+    tokenForm.append("scopes", scope);
+  const minted = await fetch(`${appUrl}/admin/tokens`, {
+    method: "POST",
+    headers: { cookie, "content-type": "application/x-www-form-urlencoded" },
+    body: tokenForm,
+  });
+  expect(minted.status).toBe(201);
+  const token = (await minted.text()).match(/lst_[a-f0-9]{64}/)?.[0];
+  expect(token).toBeDefined();
+  const headers = { authorization: `Bearer ${token}`, "content-type": "application/json" };
+
+  const listsResponse = await fetch(`${appUrl}/api/v1/lists`, { headers });
+  expect(listsResponse.status).toBe(200);
+  const lists = (await listsResponse.json()) as { data: Array<{ id: number; slug: string }> };
+  const list = lists.data.find((item) => item.slug === slug);
+  expect(list).toBeDefined();
+
+  const subscribe = await fetch(`${appUrl}/api/v1/subscribers`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ email: recipient, lists: [slug], sendConfirmation: true }),
+  });
+  expect(subscribe.status).toBe(201);
+  const confirmation = await capturedMessage(recipient, "Confirm your subscription");
+  const detailResponse = await fetch(`${mailpitUrl}/api/v1/message/${confirmation.ID}`);
+  expect(detailResponse.status).toBe(200);
+  const detail = (await detailResponse.json()) as { HTML: string };
+  const confirmUrl = detail.HTML.match(/http:\/\/localhost:\d+\/confirm\/[a-f0-9]+\/lists\.local/)?.[0];
+  expect(confirmUrl).toBeDefined();
+  const confirm = await fetch(`${appUrl}${new URL(confirmUrl!).pathname}`);
+  expect(confirm.status).toBe(200);
+
+  const draft = {
+    subject: `Initial ${run}`,
+    bodyMarkdown: "Initial local test copy.",
+    fromAddress: "news@lists.local",
+    audienceType: "list",
+    audienceId: list!.id,
+  };
+  const created = await fetch(`${appUrl}/api/v1/campaigns`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(draft),
+  });
+  expect(created.status).toBe(201);
+  const campaign = (await created.json()) as { data: { id: number } };
+  const revisedSubject = `Revised ${run}`;
+  const updated = await fetch(`${appUrl}/api/v1/campaigns/${campaign.data.id}`, {
+    method: "PUT",
+    headers,
+    body: JSON.stringify({ ...draft, subject: revisedSubject, bodyMarkdown: "Revised local test copy." }),
+  });
+  expect(updated.status).toBe(200);
+
+  const sent = await fetch(`${appUrl}/api/v1/campaigns/${campaign.data.id}/send`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ confirm: true }),
+  });
+  expect(sent.status).toBe(200);
+  const message = await capturedMessage(recipient, revisedSubject);
+  const campaignResponse = await fetch(`${mailpitUrl}/api/v1/message/${message.ID}`);
+  const campaignEmail = (await campaignResponse.json()) as { Text: string; ListUnsubscribe: { Header: string } };
+  expect(campaignEmail.Text).toContain("Revised local test copy.");
+  expect(campaignEmail.ListUnsubscribe.Header).toContain("unsubscribe");
+});
+
 localTest("compose stack captures outbound mail and processes inbound S3/SQS mail", async () => {
   const run = crypto.randomUUID().slice(0, 8);
   const slug = `e2e-${run}`;

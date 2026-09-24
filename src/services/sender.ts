@@ -291,6 +291,8 @@ export async function sendCampaign(db: Db, config: Config, campaignId: number) {
         const result = await sendEmail(
           config,
           new SendEmailCommand({
+            FromEmailAddress: campaign.fromAddress,
+            Destination: { ToAddresses: [subscriber.email] },
             Content: {
               Raw: {
                 Data: rawEmail,

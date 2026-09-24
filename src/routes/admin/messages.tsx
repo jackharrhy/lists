@@ -570,6 +570,8 @@ export function mountMessageRoutes(app: App, db: Db, config: Config) {
     const result = await sendEmail(
       config,
       new SendEmailCommand({
+        FromEmailAddress: fromAddr,
+        Destination: { ToAddresses: [toAddr] },
         Content: {
           Raw: {
             Data: info.message as Buffer,

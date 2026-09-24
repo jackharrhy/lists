@@ -14,7 +14,14 @@ export async function sendEmail(config: Config, input: SendEmailCommandInput): P
   const transport = nodemailer.createTransport(config.smtpUrl);
   const raw = input.Content?.Raw?.Data;
   if (raw) {
-    const info = await transport.sendMail({ raw: Buffer.from(raw) });
+    const from = input.FromEmailAddress;
+    const to = [
+      ...(input.Destination?.ToAddresses ?? []),
+      ...(input.Destination?.CcAddresses ?? []),
+      ...(input.Destination?.BccAddresses ?? []),
+    ];
+    if (!from || to.length === 0) throw new Error("Raw email requires a sender and recipient for local SMTP");
+    const info = await transport.sendMail({ raw: Buffer.from(raw), envelope: { from, to } });
     return { MessageId: info.messageId };
   }
 
