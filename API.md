@@ -28,7 +28,7 @@ The versioned base path is `/api/v1`.
 | GET, POST        | `/subscribers`                   | `subscribers:read` / `subscribers:write` |
 | GET, DELETE      | `/subscribers/:id`               | `subscribers:read` / `subscribers:write` |
 | GET, POST        | `/campaigns`                     | `campaigns:read` / `campaigns:write`     |
-| GET              | `/campaigns/:id`                 | `campaigns:read`                         |
+| GET, PUT         | `/campaigns/:id`                 | `campaigns:read` / `campaigns:write`     |
 | POST             | `/campaigns/:id/send`            | `campaigns:send`                         |
 | GET              | `/deliverability`                | `deliverability:read`                    |
 | GET              | `/dmarc`                         | `dmarc:read`                             |
@@ -39,6 +39,19 @@ The versioned base path is `/api/v1`.
 Destructive actions and sending require explicit confirmation. Campaign send bodies must contain
 `{"confirm":true}`; subscriber deletion requires `?confirm=true`.
 
+`POST /subscribers` accepts optional `sendConfirmation: true`. Without it, membership creation is
+unchanged: new and resubscribed memberships start unconfirmed and no mail is sent. With it, Lists
+sends one double-opt-in confirmation per sending domain for requested unconfirmed memberships.
+An explicit repeat call with `sendConfirmation: true` resends to still-unconfirmed memberships,
+including after a provider failure; confirmed memberships never trigger another email. A blocked
+subscriber cannot receive a confirmation. A provider failure returns an error and leaves the
+membership unconfirmed for retry.
+
+`PUT /campaigns/:id` replaces a draft using the same JSON body as `POST /campaigns`. The campaign
+must still be a draft, and the caller must have access to both its current and requested audience.
+The operation validates the selected active template and never sends mail. Sent, sending, scheduled,
+and failed campaigns cannot be changed through this endpoint.
+
 ## MCP
 
 The stateless Streamable HTTP endpoint is `/mcp/`. It supports `initialize`, `tools/list`, and
@@ -46,8 +59,8 @@ The stateless Streamable HTTP endpoint is `/mcp/`. It supports `initialize`, `to
 REST operations:
 
 - `lists_list`
-- `subscribers_list`, `subscriber_get`, `subscriber_delete`
-- `campaigns_list`, `campaign_get`, `campaign_create_draft`, `campaign_send`
+- `subscribers_list`, `subscriber_get`, `subscriber_create`, `subscriber_delete`
+- `campaigns_list`, `campaign_get`, `campaign_create_draft`, `campaign_update_draft`, `campaign_send`
 - `deliverability_summary`, `dmarc_summary`
 - `email_templates_list`, `email_template_get`, `email_template_create`, `email_template_update`
 - `email_template_validate`, `email_template_preview`, `email_template_duplicate`

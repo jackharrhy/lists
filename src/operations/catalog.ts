@@ -12,6 +12,7 @@ import {
   listLists,
   listSubscribers,
   sendCampaignOperation,
+  updateCampaignDraft,
 } from ".";
 import {
   archiveTemplate,
@@ -28,6 +29,7 @@ import {
   campaignDetailOutput,
   campaignOutput,
   campaignSendInput,
+  campaignUpdateInput,
   deliverabilityOutput,
   dmarcOutput,
   emptyInput,
@@ -104,7 +106,8 @@ export const operationCatalog = {
   }),
   subscriberCreate: defineOperation({
     mcpName: "subscriber_create",
-    description: "Create or resubscribe a subscriber to one or more lists. Memberships start unconfirmed.",
+    description:
+      "Create or resubscribe a subscriber to one or more lists. Memberships start unconfirmed; sendConfirmation=true emails requested unconfirmed memberships.",
     input: subscriberCreateInput,
     output: subscriberCreatedOutput,
     run: createSubscriberOperation,
@@ -136,6 +139,13 @@ export const operationCatalog = {
     input: campaignCreateInput,
     output: campaignOutput,
     run: createCampaignDraft,
+  }),
+  campaignUpdateDraft: defineOperation({
+    mcpName: "campaign_update_draft",
+    description: "Replace a campaign draft's content and audience. This never sends mail.",
+    input: campaignUpdateInput,
+    output: campaignOutput,
+    run: updateCampaignDraft,
   }),
   campaignSend: defineOperation({
     mcpName: "campaign_send",

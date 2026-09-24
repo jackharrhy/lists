@@ -11,6 +11,7 @@ import {
   campaignCreateInput,
   campaignOutput,
   campaignSendInput,
+  campaignUpdateInput,
   dataOutput,
   deliverabilityOutput,
   dmarcOutput,
@@ -154,6 +155,21 @@ export function apiRoutes(db: Db, config: Config) {
             body: campaignCreateInput,
             response: { 201: dataOutput(campaignOutput), ...errorResponses },
             detail: { summary: "Create a campaign draft", tags: ["Campaigns"], ...authenticatedRoute },
+          },
+        )
+        .put(
+          "/v1/campaigns/:id",
+          async ({ principal, params, body }) => ({
+            data: await operationCatalog.campaignUpdateDraft.run(context(principal), {
+              id: params.id,
+              campaign: body,
+            }),
+          }),
+          {
+            params: idInput,
+            body: campaignUpdateInput.shape.campaign,
+            response: { 200: dataOutput(campaignOutput), ...errorResponses },
+            detail: { summary: "Replace a campaign draft", tags: ["Campaigns"], ...authenticatedRoute },
           },
         )
         .post(

@@ -4,6 +4,7 @@ import { schema } from "../db";
 import type { Config } from "../config";
 import { sendCampaign } from "../services/sender";
 import { createSubscriber } from "../services/subscriber";
+import { sendSubscriptionConfirmations } from "../services/subscription-confirmation";
 import {
   assertListAccess,
   assertScope,
@@ -11,7 +12,7 @@ import {
   AccessDeniedError,
   type Principal,
 } from "../services/access";
-import type { CreateCampaignDraftInput, CreateSubscriberInput } from "./contracts";
+import type { CreateCampaignDraftInput, CreateSubscriberInput, UpdateCampaignDraftInput } from "./contracts";
 import { renderTemplate } from "../services/email-templates";
 
 export class NotFoundError extends Error {
@@ -104,13 +105,23 @@ export function getSubscriber(ctx: OperationContext, id: number) {
   return { ...subscriber, memberships };
 }
 
-export function createSubscriberOperation(ctx: OperationContext, input: CreateSubscriberInput) {
+export async function createSubscriberOperation(ctx: OperationContext, input: CreateSubscriberInput) {
   assertScope(ctx.principal, "subscribers:write");
   const listSlugs = [...new Set(input.lists)];
+  const selectedLists: (typeof schema.lists.$inferSelect)[] = [];
   for (const slug of listSlugs) {
-    const list = ctx.db.select({ id: schema.lists.id }).from(schema.lists).where(eq(schema.lists.slug, slug)).get();
+    const list = ctx.db.select().from(schema.lists).where(eq(schema.lists.slug, slug)).get();
     if (!list) throw new InvalidOperationError(`Unknown list slug: ${slug}`);
     assertListAccess(ctx.principal, list.id);
+    selectedLists.push(list);
+  }
+  const existing = ctx.db
+    .select()
+    .from(schema.subscribers)
+    .where(eq(schema.subscribers.email, input.email.toLowerCase().trim()))
+    .get();
+  if (input.sendConfirmation && existing?.status === "blocklisted") {
+    throw new InvalidOperationError("Cannot send confirmation to a blocklisted subscriber");
   }
   const subscriber = createSubscriber(
     ctx.db,
@@ -119,6 +130,19 @@ export function createSubscriberOperation(ctx: OperationContext, input: CreateSu
     input.lastName ?? null,
     listSlugs,
   );
+  if (input.sendConfirmation) {
+    const memberships = ctx.db
+      .select()
+      .from(schema.subscriberLists)
+      .where(eq(schema.subscriberLists.subscriberId, subscriber.id))
+      .all();
+    const unconfirmedIds = new Set(memberships.filter((row) => row.status === "unconfirmed").map((row) => row.listId));
+    await sendSubscriptionConfirmations(
+      ctx.config,
+      subscriber,
+      selectedLists.filter((list) => unconfirmedIds.has(list.id)),
+    );
+  }
   return { id: subscriber.id, email: subscriber.email };
 }
 
@@ -174,8 +198,7 @@ export function getCampaign(ctx: OperationContext, id: number) {
   return { ...campaign, deliveryCounts: Object.fromEntries(counts.map((row) => [row.status, row.count])) };
 }
 
-export async function createCampaignDraft(ctx: OperationContext, input: CreateCampaignDraftInput) {
-  assertScope(ctx.principal, "campaigns:write");
+async function validateCampaignDraft(ctx: OperationContext, input: CreateCampaignDraftInput) {
   if (!input.subject.trim() || !input.bodyMarkdown.trim() || !input.fromAddress.trim()) {
     throw new InvalidOperationError("subject, bodyMarkdown, and fromAddress are required");
   }
@@ -203,22 +226,46 @@ export async function createCampaignDraft(ctx: OperationContext, input: CreateCa
     links: { unsubscribe: "#unsubscribe", preferences: "#preferences" },
     sectionSources: { ...input.templateSections, content: input.bodyMarkdown },
   });
+  return {
+    subject: input.subject.trim(),
+    bodyMarkdown: input.bodyMarkdown,
+    fromAddress: input.fromAddress.trim(),
+    fromName: input.fromName?.trim() || null,
+    audienceType: input.audienceType,
+    audienceId: input.audienceId ?? null,
+    audienceData: input.audienceType === "subscribers" ? JSON.stringify(input.audienceData) : null,
+    templateSlug: template.slug,
+    templateSections: JSON.stringify({ ...input.templateSections, content: input.bodyMarkdown }),
+  };
+}
+
+export async function createCampaignDraft(ctx: OperationContext, input: CreateCampaignDraftInput) {
+  assertScope(ctx.principal, "campaigns:write");
+  const values = await validateCampaignDraft(ctx, input);
   return ctx.db
     .insert(schema.campaigns)
-    .values({
-      subject: input.subject.trim(),
-      bodyMarkdown: input.bodyMarkdown,
-      fromAddress: input.fromAddress.trim(),
-      fromName: input.fromName?.trim() || null,
-      audienceType: input.audienceType,
-      audienceId: input.audienceId ?? null,
-      audienceData: input.audienceType === "subscribers" ? JSON.stringify(input.audienceData) : null,
-      status: "draft",
-      templateSlug: template.slug,
-      templateSections: JSON.stringify({ ...input.templateSections, content: input.bodyMarkdown }),
-    })
+    .values({ ...values, status: "draft" })
     .returning()
     .get();
+}
+
+export async function updateCampaignDraft(ctx: OperationContext, input: UpdateCampaignDraftInput) {
+  assertScope(ctx.principal, "campaigns:write");
+  const existing = ctx.db.select().from(schema.campaigns).where(eq(schema.campaigns.id, input.id)).get();
+  if (!existing) throw new NotFoundError("Campaign not found");
+  if (existing.audienceType === "list" && existing.audienceId) assertListAccess(ctx.principal, existing.audienceId);
+  if (ctx.principal.listIds !== "all" && existing.audienceType !== "list")
+    throw new AccessDeniedError("Campaign access denied");
+  if (existing.status !== "draft") throw new InvalidOperationError("Only draft campaigns can be updated");
+  const values = await validateCampaignDraft(ctx, input.campaign);
+  const updated = ctx.db
+    .update(schema.campaigns)
+    .set(values)
+    .where(and(eq(schema.campaigns.id, input.id), eq(schema.campaigns.status, "draft")))
+    .returning()
+    .get();
+  if (!updated) throw new InvalidOperationError("Only draft campaigns can be updated");
+  return updated;
 }
 
 export async function sendCampaignOperation(ctx: OperationContext, id: number, confirm: boolean) {

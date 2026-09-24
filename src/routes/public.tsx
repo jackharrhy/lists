@@ -12,10 +12,7 @@ import {
   getSubscriberPreferences,
   updatePreferences,
 } from "../services/subscriber";
-import { buildConfirmUrl } from "../compliance";
-import { renderConfirmation } from "../../emails/render";
-import { SendEmailCommand } from "@aws-sdk/client-sesv2";
-import { sendEmail } from "../services/mailer";
+import { sendSubscriptionConfirmations } from "../services/subscription-confirmation";
 import { assetUrl } from "../assets";
 
 function Layout({ children }: { children: any }) {
@@ -234,42 +231,7 @@ export function publicRoutes(db: Db, config: Config) {
     // Look up selected lists and group by domain
     const allLists = db.select().from(schema.lists).all();
     const selectedLists = allLists.filter((l) => listSlugs.includes(l.slug));
-
-    const byDomain = new Map<string, typeof selectedLists>();
-    for (const list of selectedLists) {
-      if (!byDomain.has(list.fromDomain)) byDomain.set(list.fromDomain, []);
-      byDomain.get(list.fromDomain)!.push(list);
-    }
-
-    // Send one confirmation per domain
-    const domainsSent: string[] = [];
-
-    for (const [domain, lists] of byDomain) {
-      const listNames = lists.map((l) => l.name);
-      const confirmUrl = buildConfirmUrl(config.baseUrl, subscriber.unsubscribeToken, domain);
-      const { html } = await renderConfirmation({ confirmUrl, listNames });
-
-      await sendEmail(
-        config,
-        new SendEmailCommand({
-          FromEmailAddress: `noreply@${domain}`,
-          Destination: { ToAddresses: [email] },
-          Content: {
-            Simple: {
-              Subject: { Data: "Confirm your subscription" },
-              Body: { Html: { Data: html } },
-            },
-          },
-          ConfigurationSetName: config.sesConfigSet || undefined,
-          EmailTags: [
-            { Name: "subscriber_id", Value: String(subscriber.id) },
-            { Name: "message_kind", Value: "confirmation" },
-          ],
-        }).input,
-      );
-      domainsSent.push(domain);
-    }
-
+    const domainsSent = await sendSubscriptionConfirmations(config, subscriber, selectedLists);
     const multipleConfirms = domainsSent.length > 1;
 
     return c.html(

@@ -20,6 +20,7 @@ export const subscriberCreateInput = z
     lastName: z.string().max(255).optional(),
     name: z.string().max(255).optional(),
     lists: z.array(z.string().min(1)).min(1),
+    sendConfirmation: z.boolean().optional(),
   })
   .strict();
 
@@ -63,6 +64,7 @@ export const campaignCreateInput = z.discriminatedUnion("audienceType", [
 ]);
 
 export const campaignSendInput = idInput.extend({ confirm: z.literal(true) });
+export const campaignUpdateInput = z.object({ id: idInput.shape.id, campaign: campaignCreateInput }).strict();
 
 const templateSourceText = z.string().max(1_000_000);
 const templatePartialsInput = z
@@ -235,3 +237,4 @@ export const dataOutput = <S extends z.ZodType>(schema: S) => z.object({ data: s
 
 export type CreateSubscriberInput = z.output<typeof subscriberCreateInput>;
 export type CreateCampaignDraftInput = z.output<typeof campaignCreateInput>;
+export type UpdateCampaignDraftInput = z.output<typeof campaignUpdateInput>;

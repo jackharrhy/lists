@@ -1,4 +1,6 @@
-import { describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
+import { mockClient } from "aws-sdk-client-mock";
+import { SESv2Client, SendEmailCommand } from "@aws-sdk/client-sesv2";
 import { eq } from "drizzle-orm";
 import { createHttpApp } from "../src/http";
 import { apiRoutes } from "../src/routes/api";
@@ -11,6 +13,9 @@ import { apiOpenApi } from "../src/openapi";
 import { createTestDb, seedList } from "./helpers";
 import * as schema from "../src/db/schema";
 import type { Config } from "../src/config";
+
+const sesMock = mockClient(SESv2Client);
+beforeEach(() => sesMock.reset());
 
 const config: Config = {
   awsRegion: "us-east-1",
@@ -191,6 +196,67 @@ describe("scoped API and MCP", () => {
     ).toEqual(["unconfirmed", "unconfirmed"]);
   });
 
+  test("optionally sends confirmation for unconfirmed memberships but not confirmed ones", async () => {
+    const { app, db, user } = setup();
+    const { token } = mintApiToken(db, user.id, "writer", ["subscribers:write"]);
+    sesMock.on(SendEmailCommand).resolves({ MessageId: "confirmation" });
+    const input = { email: "signup@example.com", lists: ["news"], sendConfirmation: true };
+
+    const first = await app.request("/api/v1/subscribers", {
+      method: "POST",
+      headers: { ...bearer(token), "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    });
+    expect(first.status).toBe(201);
+    expect(sesMock.commandCalls(SendEmailCommand)).toHaveLength(1);
+    expect(sesMock.commandCalls(SendEmailCommand)[0]!.args[0].input.FromEmailAddress).toBe("noreply@example.com");
+
+    const repeated = await mcpCall(app, token, "subscriber_create", input);
+    expect(repeated.result.isError).toBeUndefined();
+    expect(sesMock.commandCalls(SendEmailCommand)).toHaveLength(2);
+
+    const subscriber = db.select().from(schema.subscribers).where(eq(schema.subscribers.email, input.email)).get()!;
+    db.update(schema.subscriberLists)
+      .set({ status: "confirmed" })
+      .where(eq(schema.subscriberLists.subscriberId, subscriber.id))
+      .run();
+    const confirmed = await mcpCall(app, token, "subscriber_create", input);
+    expect(confirmed.result.isError).toBeUndefined();
+    expect(sesMock.commandCalls(SendEmailCommand)).toHaveLength(2);
+
+    db.update(schema.subscriberLists)
+      .set({ status: "unsubscribed" })
+      .where(eq(schema.subscriberLists.subscriberId, subscriber.id))
+      .run();
+    const resubscribed = await mcpCall(app, token, "subscriber_create", input);
+    expect(resubscribed.result.isError).toBeUndefined();
+    expect(sesMock.commandCalls(SendEmailCommand)).toHaveLength(3);
+    expect(db.select().from(schema.subscriberLists).get()?.status).toBe("unconfirmed");
+  });
+
+  test("propagates confirmation provider errors and leaves membership unconfirmed", async () => {
+    const { app, db, user } = setup();
+    const { token } = mintApiToken(db, user.id, "writer", ["subscribers:write"]);
+    sesMock.on(SendEmailCommand).rejects(new Error("SES unavailable"));
+    const response = await app.request("/api/v1/subscribers", {
+      method: "POST",
+      headers: { ...bearer(token), "Content-Type": "application/json" },
+      body: JSON.stringify({ email: "failed@example.com", lists: ["news"], sendConfirmation: true }),
+    });
+    expect(response.status).toBe(500);
+    expect(db.select().from(schema.subscriberLists).get()?.status).toBe("unconfirmed");
+
+    sesMock.reset();
+    sesMock.on(SendEmailCommand).resolves({ MessageId: "retry" });
+    const retry = await app.request("/api/v1/subscribers", {
+      method: "POST",
+      headers: { ...bearer(token), "Content-Type": "application/json" },
+      body: JSON.stringify({ email: "failed@example.com", lists: ["news"], sendConfirmation: true }),
+    });
+    expect(retry.status).toBe(201);
+    expect(sesMock.commandCalls(SendEmailCommand)).toHaveLength(1);
+  });
+
   test("rejects invalid subscriber input consistently without writing data", async () => {
     const { app, db, user } = setup();
     const { token } = mintApiToken(db, user.id, "writer", ["subscribers:write"]);
@@ -253,6 +319,94 @@ describe("scoped API and MCP", () => {
     const mcp = await mcpCall(app, token, "campaign_create_draft", input);
     expect(mcp.result.isError).toBe(true);
     expect(db.select().from(schema.campaigns).all()).toEqual([]);
+  });
+
+  test("replaces only accessible drafts through REST and MCP without sending", async () => {
+    const { app, db, user } = setup();
+    const list = db.select().from(schema.lists).where(eq(schema.lists.slug, "news")).get()!;
+    const { token } = mintApiToken(db, user.id, "writer", ["campaigns:write"]);
+    const draft = {
+      subject: "Initial",
+      bodyMarkdown: "Initial body",
+      fromAddress: "news@example.com",
+      audienceType: "list" as const,
+      audienceId: list.id,
+    };
+    const created = await app.request("/api/v1/campaigns", {
+      method: "POST",
+      headers: { ...bearer(token), "Content-Type": "application/json" },
+      body: JSON.stringify(draft),
+    });
+    expect(created.status).toBe(201);
+    const id = ((await created.json()) as any).data.id;
+    const changed = { ...draft, subject: "Revised", bodyMarkdown: "Revised body" };
+    const rest = await app.request(`/api/v1/campaigns/${id}`, {
+      method: "PUT",
+      headers: { ...bearer(token), "Content-Type": "application/json" },
+      body: JSON.stringify(changed),
+    });
+    expect(rest.status).toBe(200);
+    expect(((await rest.json()) as any).data.subject).toBe("Revised");
+    const mcp = await mcpCall(app, token, "campaign_update_draft", {
+      id,
+      campaign: { ...changed, subject: "Final" },
+    });
+    expect(mcp.result.structuredContent.subject).toBe("Final");
+    expect(db.select().from(schema.campaigns).where(eq(schema.campaigns.id, id)).get()?.subject).toBe("Final");
+    expect(sesMock.commandCalls(SendEmailCommand)).toHaveLength(0);
+
+    db.update(schema.campaigns).set({ status: "sent" }).where(eq(schema.campaigns.id, id)).run();
+    const sent = await app.request(`/api/v1/campaigns/${id}`, {
+      method: "PUT",
+      headers: { ...bearer(token), "Content-Type": "application/json" },
+      body: JSON.stringify(changed),
+    });
+    expect(sent.status).toBe(400);
+    expect(db.select().from(schema.campaigns).where(eq(schema.campaigns.id, id)).get()?.subject).toBe("Final");
+  });
+
+  test("rejects draft updates without write scope or access to either audience", async () => {
+    const { app, db, user } = setup();
+    const news = db.select().from(schema.lists).where(eq(schema.lists.slug, "news")).get()!;
+    const hidden = seedList(db, { slug: "hidden", name: "Hidden" });
+    const campaign = db
+      .insert(schema.campaigns)
+      .values({
+        subject: "Protected",
+        bodyMarkdown: "Body",
+        fromAddress: "news@example.com",
+        audienceType: "list",
+        audienceId: news.id,
+      })
+      .returning()
+      .get();
+    const input = {
+      subject: "Changed",
+      bodyMarkdown: "Body",
+      fromAddress: "news@example.com",
+      audienceType: "list",
+      audienceId: hidden.id,
+    };
+    const { token: readOnly } = mintApiToken(db, user.id, "reader", ["campaigns:read"]);
+    const noWrite = await app.request(`/api/v1/campaigns/${campaign.id}`, {
+      method: "PUT",
+      headers: { ...bearer(readOnly), "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    });
+    expect(noWrite.status).toBe(403);
+
+    const member = db
+      .insert(schema.users)
+      .values({ email: "member@example.com", passwordHash: "hash", role: "member" })
+      .returning()
+      .get();
+    db.insert(schema.userLists).values({ userId: member.id, listId: news.id }).run();
+    const { token: memberToken } = mintApiToken(db, member.id, "member writer", ["campaigns:write"]);
+    const forbidden = await mcpCall(app, memberToken, "campaign_update_draft", { id: campaign.id, campaign: input });
+    expect(forbidden.result.isError).toBe(true);
+    expect(db.select().from(schema.campaigns).where(eq(schema.campaigns.id, campaign.id)).get()?.subject).toBe(
+      "Protected",
+    );
   });
 
   test("revoked tokens stop authenticating", async () => {
