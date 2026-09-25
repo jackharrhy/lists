@@ -86,6 +86,7 @@ localTest("API signup and draft editing reach Mailpit after confirmation", async
     body: JSON.stringify({ email: recipient, lists: [slug], sendConfirmation: true }),
   });
   expect(subscribe.status).toBe(201);
+  const subscriber = (await subscribe.json()) as { data: { id: number } };
   const confirmation = await capturedMessage(recipient, "Confirm your subscription");
   const detailResponse = await fetch(`${mailpitUrl}/api/v1/message/${confirmation.ID}`);
   expect(detailResponse.status).toBe(200);
@@ -116,6 +117,15 @@ localTest("API signup and draft editing reach Mailpit after confirmation", async
     body: JSON.stringify({ ...draft, subject: revisedSubject, bodyMarkdown: "Revised local test copy." }),
   });
   expect(updated.status).toBe(200);
+
+  const testSend = await fetch(`${appUrl}/api/v1/campaigns/${campaign.data.id}/test-send`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ subscriberIds: [subscriber.data.id], confirm: true }),
+  });
+  expect(testSend.status).toBe(200);
+  const testMessage = await capturedMessage(recipient, `Test: ${revisedSubject}`);
+  expect(testMessage.ID).toBeDefined();
 
   const sent = await fetch(`${appUrl}/api/v1/campaigns/${campaign.data.id}/send`, {
     method: "POST",

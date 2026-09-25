@@ -8,6 +8,7 @@ import { mcpRoutes } from "../src/routes/mcp";
 import { oauthRoutes } from "../src/routes/oauth";
 import { createSession } from "../src/auth";
 import { mintApiToken as mintScopedToken } from "../src/services/api-tokens";
+import { createSubscriber } from "../src/services/subscriber";
 import { operationCatalog } from "../src/operations/catalog";
 import { apiOpenApi } from "../src/openapi";
 import { createTestDb, seedList } from "./helpers";
@@ -198,6 +199,7 @@ describe("scoped API and MCP", () => {
 
   test("optionally sends confirmation for unconfirmed memberships but not confirmed ones", async () => {
     const { app, db, user } = setup();
+    db.update(schema.lists).set({ fromAddress: "news@example.com" }).run();
     const { token } = mintApiToken(db, user.id, "writer", ["subscribers:write"]);
     sesMock.on(SendEmailCommand).resolves({ MessageId: "confirmation" });
     const input = { email: "signup@example.com", lists: ["news"], sendConfirmation: true };
@@ -209,7 +211,7 @@ describe("scoped API and MCP", () => {
     });
     expect(first.status).toBe(201);
     expect(sesMock.commandCalls(SendEmailCommand)).toHaveLength(1);
-    expect(sesMock.commandCalls(SendEmailCommand)[0]!.args[0].input.FromEmailAddress).toBe("noreply@example.com");
+    expect(sesMock.commandCalls(SendEmailCommand)[0]!.args[0].input.FromEmailAddress).toBe('"News" <news@example.com>');
 
     const repeated = await mcpCall(app, token, "subscriber_create", input);
     expect(repeated.result.isError).toBeUndefined();
@@ -270,6 +272,46 @@ describe("scoped API and MCP", () => {
     const mcp = await mcpCall(app, token, "subscriber_create", input);
     expect(mcp.result.isError).toBe(true);
     expect(db.select().from(schema.subscribers).all()).toEqual([]);
+  });
+
+  test("filters subscribers by accessible list and unsubscribes only that membership", async () => {
+    const { app, db } = setup();
+    const news = db.select().from(schema.lists).where(eq(schema.lists.slug, "news")).get()!;
+    const other = seedList(db, { slug: "other", name: "Other" });
+    const subscriber = createSubscriber(db, "reader@example.com", "Reader", null, ["news", "other"]);
+    db.update(schema.subscriberLists)
+      .set({ status: "confirmed" })
+      .where(eq(schema.subscriberLists.subscriberId, subscriber.id))
+      .run();
+    const member = db
+      .insert(schema.users)
+      .values({ email: "member@example.com", passwordHash: "hash", role: "member" })
+      .returning()
+      .get();
+    db.insert(schema.userLists).values({ userId: member.id, listId: news.id }).run();
+    const { token } = mintApiToken(db, member.id, "member", ["lists:read", "subscribers:read", "subscribers:write"]);
+
+    const listed = await app.request(`/api/v1/subscribers?listId=${news.id}&membershipStatus=confirmed&search=reader`, {
+      headers: bearer(token),
+    });
+    expect(listed.status).toBe(200);
+    expect(((await listed.json()) as any).data[0].membershipStatus).toBe("confirmed");
+    const stats = await app.request(`/api/v1/lists/${news.id}/stats`, { headers: bearer(token) });
+    expect(((await stats.json()) as any).data.confirmed).toBe(1);
+    expect((await app.request(`/api/v1/lists/${other.id}/stats`, { headers: bearer(token) })).status).toBe(403);
+
+    const unsubscribe = await mcpCall(app, token, "subscriber_unsubscribe", {
+      id: subscriber.id,
+      listId: news.id,
+      confirm: true,
+    });
+    expect(unsubscribe.result.structuredContent.status).toBe("unsubscribed");
+    expect(
+      db.select().from(schema.subscriberLists).where(eq(schema.subscriberLists.listId, other.id)).get()?.status,
+    ).toBe("confirmed");
+    expect(
+      db.select().from(schema.subscriberLists).where(eq(schema.subscriberLists.listId, news.id)).get()?.status,
+    ).toBe("unsubscribed");
   });
 
   test("enforces member list access for subscriber creation in both transports", async () => {
@@ -363,6 +405,64 @@ describe("scoped API and MCP", () => {
     });
     expect(sent.status).toBe(400);
     expect(db.select().from(schema.campaigns).where(eq(schema.campaigns.id, id)).get()?.subject).toBe("Final");
+  });
+
+  test("previews a draft and sends a test copy only to selected confirmed list members", async () => {
+    const { app, db } = setup();
+    const list = db.select().from(schema.lists).where(eq(schema.lists.slug, "news")).get()!;
+    const selected = createSubscriber(db, "selected@example.com", null, null, ["news"]);
+    const unselected = createSubscriber(db, "other@example.com", null, null, ["news"]);
+    db.update(schema.subscriberLists).set({ status: "confirmed" }).run();
+    const member = db
+      .insert(schema.users)
+      .values({ email: "member@example.com", passwordHash: "hash", role: "member" })
+      .returning()
+      .get();
+    db.insert(schema.userLists).values({ userId: member.id, listId: list.id }).run();
+    const { token } = mintApiToken(db, member.id, "member sender", [
+      "campaigns:read",
+      "campaigns:write",
+      "campaigns:send",
+    ]);
+    sesMock.on(SendEmailCommand).resolves({ MessageId: "test-send" });
+    const created = await app.request("/api/v1/campaigns", {
+      method: "POST",
+      headers: { ...bearer(token), "Content-Type": "application/json" },
+      body: JSON.stringify({
+        subject: "Harbour update",
+        bodyMarkdown: "A local update.",
+        fromAddress: "news@example.com",
+        audienceType: "list",
+        audienceId: list.id,
+      }),
+    });
+    expect(created.status).toBe(201);
+    const id = ((await created.json()) as any).data.id;
+    const preview = await app.request(`/api/v1/campaigns/${id}/preview`, { headers: bearer(token) });
+    expect(preview.status).toBe(200);
+    expect(((await preview.json()) as any).data.text).toContain("A local update.");
+
+    const sent = await app.request(`/api/v1/campaigns/${id}/test-send`, {
+      method: "POST",
+      headers: { ...bearer(token), "Content-Type": "application/json" },
+      body: JSON.stringify({ subscriberIds: [selected.id], confirm: true }),
+    });
+    expect(sent.status).toBe(200);
+    expect(sesMock.commandCalls(SendEmailCommand)).toHaveLength(1);
+    expect(sesMock.commandCalls(SendEmailCommand)[0]!.args[0].input.Destination?.ToAddresses).toEqual([selected.email]);
+    expect(db.select().from(schema.campaigns).where(eq(schema.campaigns.id, id)).get()?.status).toBe("draft");
+
+    db.update(schema.subscriberLists)
+      .set({ status: "unsubscribed" })
+      .where(eq(schema.subscriberLists.subscriberId, unselected.id))
+      .run();
+    const rejected = await mcpCall(app, token, "campaign_test_send", {
+      id,
+      subscriberIds: [unselected.id],
+      confirm: true,
+    });
+    expect(rejected.result.isError).toBe(true);
+    expect(sesMock.commandCalls(SendEmailCommand)).toHaveLength(1);
   });
 
   test("rejects draft updates without write scope or access to either audience", async () => {

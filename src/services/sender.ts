@@ -1,6 +1,7 @@
 import { SendEmailCommand } from "@aws-sdk/client-sesv2";
 import { eq, and, inArray } from "drizzle-orm";
 import * as nodemailer from "nodemailer";
+import { z } from "zod";
 import type Mail from "nodemailer/lib/mailer";
 import type { Config } from "../config";
 import { type Db, schema } from "../db";
@@ -162,6 +163,14 @@ export async function sendCampaign(db: Db, config: Config, campaignId: number) {
     switch (campaign.audienceType) {
       case "list":
         subscribers = getConfirmedSubscribers(db, campaign.audienceId!);
+        if (campaign.audienceData) {
+          const testAudience = z
+            .object({ testSubscriberIds: z.array(z.number().int().positive()).min(1).max(20) })
+            .strict()
+            .parse(JSON.parse(campaign.audienceData));
+          const testIds = new Set(testAudience.testSubscriberIds);
+          subscribers = subscribers.filter((subscriber) => testIds.has(subscriber.id));
+        }
         break;
       case "tag":
         if (!campaign.audienceId) throw new Error("Tag audience requires audienceId");

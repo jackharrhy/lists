@@ -10,13 +10,16 @@ import {
   campaignDetailOutput,
   campaignCreateInput,
   campaignOutput,
+  campaignPreviewOutput,
   campaignSendInput,
+  campaignTestSendInput,
   campaignUpdateInput,
   dataOutput,
   deliverabilityOutput,
   dmarcOutput,
   idInput,
   listOutput,
+  listStatsOutput,
   paginationInput,
   subscriberCreateInput,
   subscriberCreatedOutput,
@@ -24,6 +27,8 @@ import {
   subscriberListInput,
   subscriberOutput,
   subscriberSummaryOutput,
+  subscriberUnsubscribeInput,
+  subscriberUnsubscribedOutput,
   templateCreateInput,
   templateDetailOutput,
   templateDuplicateInput,
@@ -75,6 +80,15 @@ export function apiRoutes(db: Db, config: Config) {
           },
         )
         .get(
+          "/v1/lists/:id/stats",
+          async ({ principal, params }) => ({ data: await operationCatalog.listStats.run(context(principal), params) }),
+          {
+            params: idInput,
+            response: { 200: dataOutput(listStatsOutput), ...errorResponses },
+            detail: { summary: "Get subscriber counts for a list", tags: ["Lists"], ...authenticatedRoute },
+          },
+        )
+        .get(
           "/v1/subscribers",
           async ({ principal, query }) => ({
             data: await operationCatalog.subscribersList.run(context(principal), query),
@@ -123,6 +137,21 @@ export function apiRoutes(db: Db, config: Config) {
             detail: { summary: "Delete a subscriber", tags: ["Subscribers"], ...authenticatedRoute },
           },
         )
+        .post(
+          "/v1/subscribers/:id/unsubscribe",
+          async ({ principal, params, body }) => ({
+            data: await operationCatalog.subscriberUnsubscribe.run(context(principal), {
+              id: params.id,
+              ...body,
+            }),
+          }),
+          {
+            params: idInput,
+            body: subscriberUnsubscribeInput.omit({ id: true }),
+            response: { 200: dataOutput(subscriberUnsubscribedOutput), ...errorResponses },
+            detail: { summary: "Unsubscribe from one list", tags: ["Subscribers"], ...authenticatedRoute },
+          },
+        )
         .get(
           "/v1/campaigns",
           async ({ principal, query }) => ({
@@ -143,6 +172,17 @@ export function apiRoutes(db: Db, config: Config) {
             params: idInput,
             response: { 200: dataOutput(campaignDetailOutput), ...errorResponses },
             detail: { summary: "Get a campaign", tags: ["Campaigns"], ...authenticatedRoute },
+          },
+        )
+        .get(
+          "/v1/campaigns/:id/preview",
+          async ({ principal, params }) => ({
+            data: await operationCatalog.campaignPreview.run(context(principal), params),
+          }),
+          {
+            params: idInput,
+            response: { 200: dataOutput(campaignPreviewOutput), ...errorResponses },
+            detail: { summary: "Preview a campaign", tags: ["Campaigns"], ...authenticatedRoute },
           },
         )
         .post(
@@ -185,6 +225,21 @@ export function apiRoutes(db: Db, config: Config) {
             body: campaignSendInput.pick({ confirm: true }),
             response: { 200: dataOutput(campaignDetailOutput), ...errorResponses },
             detail: { summary: "Send a campaign", tags: ["Campaigns"], ...authenticatedRoute },
+          },
+        )
+        .post(
+          "/v1/campaigns/:id/test-send",
+          async ({ principal, params, body }) => ({
+            data: await operationCatalog.campaignTestSend.run(context(principal), {
+              id: params.id,
+              ...body,
+            }),
+          }),
+          {
+            params: idInput,
+            body: campaignTestSendInput.omit({ id: true }),
+            response: { 200: dataOutput(campaignDetailOutput), ...errorResponses },
+            detail: { summary: "Send a limited campaign test", tags: ["Campaigns"], ...authenticatedRoute },
           },
         )
         .get(

@@ -1,10 +1,12 @@
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, like, sql } from "drizzle-orm";
 import type { Db } from "../db";
 import { schema } from "../db";
 import type { Config } from "../config";
 import { sendCampaign } from "../services/sender";
-import { createSubscriber } from "../services/subscriber";
+import { createSubscriber, getConfirmedSubscribers } from "../services/subscriber";
 import { sendSubscriptionConfirmations } from "../services/subscription-confirmation";
+import { renderCampaignMessage } from "../services/campaign-renderer";
+import { logEvent } from "../services/events";
 import {
   assertListAccess,
   assertScope,
@@ -37,11 +39,45 @@ export function listLists(ctx: OperationContext) {
     : ctx.db.select().from(schema.lists).all();
 }
 
+export function getListStats(ctx: OperationContext, listId: number) {
+  assertScope(ctx.principal, "lists:read");
+  assertListAccess(ctx.principal, listId);
+  const list = ctx.db.select({ id: schema.lists.id }).from(schema.lists).where(eq(schema.lists.id, listId)).get();
+  if (!list) throw new NotFoundError("List not found");
+  const counts = ctx.db
+    .select({
+      status: schema.subscriberLists.status,
+      count: sql<number>`count(*)`,
+    })
+    .from(schema.subscriberLists)
+    .innerJoin(schema.subscribers, eq(schema.subscribers.id, schema.subscriberLists.subscriberId))
+    .where(and(eq(schema.subscriberLists.listId, listId), eq(schema.subscribers.status, "active")))
+    .groupBy(schema.subscriberLists.status)
+    .all();
+  const byStatus = Object.fromEntries(counts.map((row) => [row.status, row.count]));
+  return {
+    listId,
+    confirmed: byStatus.confirmed ?? 0,
+    unconfirmed: byStatus.unconfirmed ?? 0,
+    unsubscribed: byStatus.unsubscribed ?? 0,
+  };
+}
+
 export function listSubscribers(
   ctx: OperationContext,
-  input: { limit?: number; offset?: number; status?: string } = {},
+  input: {
+    limit?: number;
+    offset?: number;
+    status?: string;
+    listId?: number;
+    membershipStatus?: string;
+    search?: string;
+  } = {},
 ) {
   assertScope(ctx.principal, "subscribers:read");
+  if (input.membershipStatus && !input.listId)
+    throw new InvalidOperationError("listId is required when filtering by membership status");
+  if (input.listId) assertListAccess(ctx.principal, input.listId);
   const limit = Math.min(Math.max(input.limit ?? 50, 1), 200);
   const offset = Math.max(input.offset ?? 0, 0);
   const ids = visibleListIds(ctx);
@@ -51,7 +87,15 @@ export function listSubscribers(
   if (input.status === "active" || input.status === "blocklisted") {
     conditions.push(eq(schema.subscribers.status, input.status));
   }
-  if (ids) conditions.push(inArray(schema.subscriberLists.listId, ids));
+  if (input.listId) conditions.push(eq(schema.subscriberLists.listId, input.listId));
+  else if (ids) conditions.push(inArray(schema.subscriberLists.listId, ids));
+  if (
+    input.membershipStatus === "confirmed" ||
+    input.membershipStatus === "unconfirmed" ||
+    input.membershipStatus === "unsubscribed"
+  )
+    conditions.push(eq(schema.subscriberLists.status, input.membershipStatus));
+  if (input.search) conditions.push(like(schema.subscribers.email, `%${input.search}%`));
 
   const rows = ctx.db
     .select({
@@ -61,6 +105,7 @@ export function listSubscribers(
       lastName: schema.subscribers.lastName,
       status: schema.subscribers.status,
       createdAt: schema.subscribers.createdAt,
+      membershipStatus: schema.subscriberLists.status,
     })
     .from(schema.subscribers)
     .leftJoin(schema.subscriberLists, eq(schema.subscriberLists.subscriberId, schema.subscribers.id))
@@ -70,7 +115,7 @@ export function listSubscribers(
     .limit(limit)
     .offset(offset)
     .all();
-  return rows;
+  return rows.map((row) => ({ ...row, membershipStatus: input.listId ? row.membershipStatus : null }));
 }
 
 export function getSubscriber(ctx: OperationContext, id: number) {
@@ -102,7 +147,31 @@ export function getSubscriber(ctx: OperationContext, id: number) {
     .where(eq(schema.subscriberLists.subscriberId, id))
     .all()
     .filter((row) => ctx.principal.listIds === "all" || ctx.principal.listIds.has(row.listId));
-  return { ...subscriber, memberships };
+  return { ...subscriber, membershipStatus: null, memberships };
+}
+
+export function unsubscribeSubscriber(ctx: OperationContext, id: number, listId: number, confirm: boolean) {
+  assertScope(ctx.principal, "subscribers:write");
+  if (!confirm) throw new InvalidOperationError("Unsubscribing requires confirm=true");
+  assertListAccess(ctx.principal, listId);
+  const membership = ctx.db
+    .select({ id: schema.subscriberLists.subscriberId })
+    .from(schema.subscriberLists)
+    .where(and(eq(schema.subscriberLists.subscriberId, id), eq(schema.subscriberLists.listId, listId)))
+    .get();
+  if (!membership) throw new NotFoundError("Subscriber membership not found");
+  ctx.db
+    .update(schema.subscriberLists)
+    .set({ status: "unsubscribed" })
+    .where(and(eq(schema.subscriberLists.subscriberId, id), eq(schema.subscriberLists.listId, listId)))
+    .run();
+  logEvent(ctx.db, {
+    type: "subscriber.unsubscribed",
+    detail: `Subscriber ${id} unsubscribed from list ${listId} by user ${ctx.principal.userId}`,
+    subscriberId: id,
+    userId: ctx.principal.userId,
+  });
+  return { id, listId, status: "unsubscribed" as const };
 }
 
 export async function createSubscriberOperation(ctx: OperationContext, input: CreateSubscriberInput) {
@@ -198,6 +267,20 @@ export function getCampaign(ctx: OperationContext, id: number) {
   return { ...campaign, deliveryCounts: Object.fromEntries(counts.map((row) => [row.status, row.count])) };
 }
 
+export async function previewCampaign(ctx: OperationContext, id: number) {
+  const campaign = getCampaign(ctx, id);
+  const list =
+    campaign.audienceType === "list" && campaign.audienceId
+      ? ctx.db.select().from(schema.lists).where(eq(schema.lists.id, campaign.audienceId)).get()
+      : null;
+  return renderCampaignMessage(ctx.db, {
+    campaign,
+    subscriber: { email: "reader@example.com", firstName: "Jane", lastName: "Doe" },
+    list: { name: list?.name ?? "Newsletter" },
+    links: { unsubscribe: "#unsubscribe", preferences: "#preferences" },
+  });
+}
+
 async function validateCampaignDraft(ctx: OperationContext, input: CreateCampaignDraftInput) {
   if (!input.subject.trim() || !input.bodyMarkdown.trim() || !input.fromAddress.trim()) {
     throw new InvalidOperationError("subject, bodyMarkdown, and fromAddress are required");
@@ -282,6 +365,48 @@ export async function sendCampaignOperation(ctx: OperationContext, id: number, c
   return getCampaign(
     { ...ctx, principal: { ...ctx.principal, scopes: new Set([...ctx.principal.scopes, "campaigns:read"]) } },
     id,
+  );
+}
+
+export async function sendCampaignTestOperation(
+  ctx: OperationContext,
+  id: number,
+  subscriberIds: number[],
+  confirm: boolean,
+) {
+  assertScope(ctx.principal, "campaigns:send");
+  if (!confirm) throw new InvalidOperationError("Test sending requires confirm=true");
+  const campaign = getCampaign(
+    { ...ctx, principal: { ...ctx.principal, scopes: new Set([...ctx.principal.scopes, "campaigns:read"]) } },
+    id,
+  );
+  if (campaign.status !== "draft" || campaign.audienceType !== "list" || !campaign.audienceId)
+    throw new InvalidOperationError("Only list campaign drafts can be test sent");
+  const ids = [...new Set(subscriberIds)];
+  if (ids.length === 0 || ids.length > 20) throw new InvalidOperationError("Select 1 to 20 test subscribers");
+  const eligible = new Set(getConfirmedSubscribers(ctx.db, campaign.audienceId).map((subscriber) => subscriber.id));
+  if (ids.some((subscriberId) => !eligible.has(subscriberId)))
+    throw new InvalidOperationError("All test recipients must be active, confirmed members of the campaign list");
+  const testCampaign = ctx.db
+    .insert(schema.campaigns)
+    .values({
+      subject: `Test: ${campaign.subject}`,
+      bodyMarkdown: campaign.bodyMarkdown,
+      fromAddress: campaign.fromAddress,
+      fromName: campaign.fromName,
+      audienceType: "list",
+      audienceId: campaign.audienceId,
+      audienceData: JSON.stringify({ testSubscriberIds: ids }),
+      status: "draft",
+      templateSlug: campaign.templateSlug,
+      templateSections: campaign.templateSections,
+    })
+    .returning()
+    .get();
+  await sendCampaign(ctx.db, ctx.config, testCampaign.id);
+  return getCampaign(
+    { ...ctx, principal: { ...ctx.principal, scopes: new Set([...ctx.principal.scopes, "campaigns:read"]) } },
+    testCampaign.id,
   );
 }
 

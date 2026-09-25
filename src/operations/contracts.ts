@@ -11,6 +11,9 @@ export const paginationInput = z
 
 export const subscriberListInput = paginationInput.extend({
   status: z.enum(["active", "blocklisted"]).optional(),
+  listId: z.coerce.number().int().positive().optional(),
+  membershipStatus: z.enum(["unconfirmed", "confirmed", "unsubscribed"]).optional(),
+  search: z.string().trim().max(255).optional(),
 });
 
 export const subscriberCreateInput = z
@@ -25,6 +28,10 @@ export const subscriberCreateInput = z
   .strict();
 
 export const subscriberDeleteInput = idInput.extend({ confirm: z.literal(true) });
+export const subscriberUnsubscribeInput = idInput.extend({
+  listId: z.coerce.number().int().positive(),
+  confirm: z.literal(true),
+});
 
 const campaignBaseInput = z.object({
   subject: z.string().min(1),
@@ -64,6 +71,10 @@ export const campaignCreateInput = z.discriminatedUnion("audienceType", [
 ]);
 
 export const campaignSendInput = idInput.extend({ confirm: z.literal(true) });
+export const campaignTestSendInput = idInput.extend({
+  subscriberIds: z.array(z.coerce.number().int().positive()).min(1).max(20),
+  confirm: z.literal(true),
+});
 export const campaignUpdateInput = z.object({ id: idInput.shape.id, campaign: campaignCreateInput }).strict();
 
 const templateSourceText = z.string().max(1_000_000);
@@ -177,6 +188,7 @@ export const subscriberSummaryOutput = z.object({
   lastName: z.string().nullable(),
   status: z.enum(["active", "blocklisted"]),
   createdAt: z.string(),
+  membershipStatus: z.enum(["unconfirmed", "confirmed", "unsubscribed"]).nullable(),
 });
 
 export const subscriberOutput = subscriberSummaryOutput.extend({
@@ -193,6 +205,18 @@ export const subscriberOutput = subscriberSummaryOutput.extend({
 
 export const subscriberCreatedOutput = z.object({ id: z.number(), email: z.string() });
 export const subscriberDeletedOutput = z.object({ id: z.number(), deleted: z.literal(true) });
+export const subscriberUnsubscribedOutput = z.object({
+  id: z.number(),
+  listId: z.number(),
+  status: z.literal("unsubscribed"),
+});
+
+export const listStatsOutput = z.object({
+  listId: z.number(),
+  confirmed: z.number(),
+  unconfirmed: z.number(),
+  unsubscribed: z.number(),
+});
 
 export const campaignOutput = z.object({
   id: z.number(),
@@ -217,6 +241,7 @@ export const campaignOutput = z.object({
 export const campaignDetailOutput = campaignOutput.extend({
   deliveryCounts: z.record(z.string(), z.number()),
 });
+export const campaignPreviewOutput = z.object({ subject: z.string(), html: z.string().nullable(), text: z.string() });
 
 export const deliverabilityOutput = z.object({
   sends: z.record(z.string(), z.number()),

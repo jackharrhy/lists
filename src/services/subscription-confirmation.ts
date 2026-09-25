@@ -19,10 +19,15 @@ export async function sendSubscriptionConfirmations(config: Config, subscriber: 
   for (const [domain, domainLists] of byDomain) {
     const confirmUrl = buildConfirmUrl(config.baseUrl, subscriber.unsubscribeToken, domain);
     const { html } = await renderConfirmation({ confirmUrl, listNames: domainLists.map((list) => list.name) });
+    const senderList = domainLists[0]!;
+    const senderName = senderList.name.replace(/[\r\n"<>]/g, "");
+    const senderAddress = senderList.fromAddress.toLowerCase().endsWith(`@${domain.toLowerCase()}`)
+      ? senderList.fromAddress
+      : `noreply@${domain}`;
     await sendEmail(
       config,
       new SendEmailCommand({
-        FromEmailAddress: `noreply@${domain}`,
+        FromEmailAddress: `"${senderName}" <${senderAddress}>`,
         Destination: { ToAddresses: [subscriber.email] },
         Content: {
           Simple: {
