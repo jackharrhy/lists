@@ -241,6 +241,17 @@ export const campaignOutput = z.object({
 export const campaignDetailOutput = campaignOutput.extend({
   deliveryCounts: z.record(z.string(), z.number()),
 });
+export const campaignSendsInput = idInput.extend(paginationInput.shape);
+export const campaignSendOutput = z.object({
+  id: z.number(),
+  subscriberId: z.number(),
+  email: z.string().nullable(),
+  status: z.string(),
+  attemptCount: z.number(),
+  acceptedAt: z.string().nullable(),
+  deliveredAt: z.string().nullable(),
+  lastError: z.string().nullable(),
+});
 export const campaignPreviewOutput = z.object({ subject: z.string(), html: z.string().nullable(), text: z.string() });
 
 export const deliverabilityOutput = z.object({

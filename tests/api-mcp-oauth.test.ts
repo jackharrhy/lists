@@ -133,6 +133,54 @@ describe("scoped API and MCP", () => {
     expect(db.select().from(schema.apiTokens).get()!.tokenHash).not.toContain(token);
   });
 
+  test("campaign send records expose recipient emails only within the member's list", async () => {
+    const { app, db } = setup();
+    const list = db.select().from(schema.lists).where(eq(schema.lists.slug, "news")).get()!;
+    const other = seedList(db, { slug: "other", name: "Other" });
+    const member = db
+      .insert(schema.users)
+      .values({ email: "member@example.com", passwordHash: "hash", role: "member" })
+      .returning()
+      .get();
+    db.insert(schema.userLists).values({ userId: member.id, listId: list.id }).run();
+    const { token } = mintApiToken(db, member.id, "campaign reader", ["campaigns:read"]);
+    const recipient = createSubscriber(db, "pilot@example.com", null, null, [list.slug]);
+    const visible = db
+      .insert(schema.campaigns)
+      .values({
+        subject: "Pilot",
+        bodyMarkdown: "Body",
+        fromAddress: "news@example.com",
+        audienceType: "list",
+        audienceId: list.id,
+      })
+      .returning()
+      .get();
+    const hidden = db
+      .insert(schema.campaigns)
+      .values({
+        subject: "Other",
+        bodyMarkdown: "Body",
+        fromAddress: "news@example.com",
+        audienceType: "list",
+        audienceId: other.id,
+      })
+      .returning()
+      .get();
+    db.insert(schema.campaignSends)
+      .values({ campaignId: visible.id, subscriberId: recipient.id, status: "delivered" })
+      .run();
+
+    const path = `/api/v1/campaigns/${visible.id}/sends`;
+    const rest = await app.request(path, { headers: bearer(token) });
+    expect(rest.status).toBe(200);
+    expect(((await rest.json()) as any).data).toMatchObject([{ email: "pilot@example.com", status: "delivered" }]);
+    const mcp = await mcpCall(app, token, "campaign_sends", { id: visible.id });
+    expect(mcp.result.structuredContent).toMatchObject([{ email: "pilot@example.com", status: "delivered" }]);
+    expect((await app.request(`${path}?limit=1&offset=1`, { headers: bearer(token) })).status).toBe(200);
+    expect((await app.request(`/api/v1/campaigns/${hidden.id}/sends`, { headers: bearer(token) })).status).toBe(403);
+  });
+
   test("advertises every canonical operation as an MCP tool", async () => {
     const { app, db, user } = setup();
     const { token } = mintApiToken(db, user.id, "agent", ["lists:read"]);

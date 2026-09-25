@@ -32,6 +32,7 @@ The versioned base path is `/api/v1`.
 | GET, POST        | `/campaigns`                     | `campaigns:read` / `campaigns:write`     |
 | GET, PUT         | `/campaigns/:id`                 | `campaigns:read` / `campaigns:write`     |
 | GET              | `/campaigns/:id/preview`         | `campaigns:read`                         |
+| GET              | `/campaigns/:id/sends`           | `campaigns:read`                         |
 | POST             | `/campaigns/:id/send`            | `campaigns:send`                         |
 | POST             | `/campaigns/:id/test-send`       | `campaigns:send`                         |
 | GET              | `/deliverability`                | `deliverability:read`                    |
@@ -62,6 +63,8 @@ can query only assigned lists. `GET /lists/:id/stats` returns active subscriber 
 status. `POST /subscribers/:id/unsubscribe` takes `{"listId":1,"confirm":true}` and changes only
 that list membership; it does not delete the subscriber.
 
+`GET /campaigns/:id/sends` lists actual recipient send records (email, status, attempts, and delivery timestamps) with `limit` and `offset`. It applies the same list access check as campaign detail.
+
 `GET /campaigns/:id/preview` renders HTML and plain text with sample subscriber data. Preview
 HTML must be displayed in a sandboxed frame. `POST /campaigns/:id/test-send` takes
 `{"subscriberIds":[1,2],"confirm":true}` and sends a separate test copy to 1–20 active, confirmed
@@ -77,7 +80,7 @@ REST operations:
 - `lists_list`
 - `list_stats`
 - `subscribers_list`, `subscriber_get`, `subscriber_create`, `subscriber_unsubscribe`, `subscriber_delete`
-- `campaigns_list`, `campaign_get`, `campaign_preview`, `campaign_create_draft`, `campaign_update_draft`, `campaign_send`, `campaign_test_send`
+- `campaigns_list`, `campaign_get`, `campaign_sends`, `campaign_preview`, `campaign_create_draft`, `campaign_update_draft`, `campaign_send`, `campaign_test_send`
 - `deliverability_summary`, `dmarc_summary`
 - `email_templates_list`, `email_template_get`, `email_template_create`, `email_template_update`
 - `email_template_validate`, `email_template_preview`, `email_template_duplicate`

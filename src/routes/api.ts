@@ -10,6 +10,7 @@ import {
   campaignDetailOutput,
   campaignCreateInput,
   campaignOutput,
+  campaignSendOutput,
   campaignPreviewOutput,
   campaignSendInput,
   campaignTestSendInput,
@@ -172,6 +173,18 @@ export function apiRoutes(db: Db, config: Config) {
             params: idInput,
             response: { 200: dataOutput(campaignDetailOutput), ...errorResponses },
             detail: { summary: "Get a campaign", tags: ["Campaigns"], ...authenticatedRoute },
+          },
+        )
+        .get(
+          "/v1/campaigns/:id/sends",
+          async ({ principal, params, query }) => ({
+            data: await operationCatalog.campaignSends.run(context(principal), { id: params.id, ...query }),
+          }),
+          {
+            params: idInput,
+            query: paginationInput,
+            response: { 200: dataOutput(z.array(campaignSendOutput)), ...errorResponses },
+            detail: { summary: "List campaign send records", tags: ["Campaigns"], ...authenticatedRoute },
           },
         )
         .get(

@@ -267,6 +267,30 @@ export function getCampaign(ctx: OperationContext, id: number) {
   return { ...campaign, deliveryCounts: Object.fromEntries(counts.map((row) => [row.status, row.count])) };
 }
 
+export function listCampaignSends(ctx: OperationContext, input: { id: number; limit?: number; offset?: number }) {
+  getCampaign(ctx, input.id);
+  const limit = Math.min(Math.max(input.limit ?? 50, 1), 200);
+  const offset = Math.max(input.offset ?? 0, 0);
+  return ctx.db
+    .select({
+      id: schema.campaignSends.id,
+      subscriberId: schema.campaignSends.subscriberId,
+      email: schema.subscribers.email,
+      status: schema.campaignSends.status,
+      attemptCount: schema.campaignSends.attemptCount,
+      acceptedAt: schema.campaignSends.acceptedAt,
+      deliveredAt: schema.campaignSends.deliveredAt,
+      lastError: schema.campaignSends.lastError,
+    })
+    .from(schema.campaignSends)
+    .leftJoin(schema.subscribers, eq(schema.subscribers.id, schema.campaignSends.subscriberId))
+    .where(eq(schema.campaignSends.campaignId, input.id))
+    .orderBy(schema.campaignSends.id)
+    .limit(limit)
+    .offset(offset)
+    .all();
+}
+
 export async function previewCampaign(ctx: OperationContext, id: number) {
   const campaign = getCampaign(ctx, id);
   const list =
