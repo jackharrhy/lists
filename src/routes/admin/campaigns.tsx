@@ -33,6 +33,7 @@ import { CampaignEditorPage } from "./campaign-form";
 import type { CampaignTemplateChoice } from "./campaign-form";
 import { TemplateValidationError, type TemplateSection } from "../../services/email-templates";
 import { renderCampaignMessage } from "../../services/campaign-renderer";
+import { testSubscriberIds } from "../../services/campaign-audience";
 
 const CAMPAIGNS_PAGE_SIZE = 25;
 const CampaignListQuerySchema = z.object({
@@ -439,8 +440,14 @@ export function mountCampaignRoutes(app: App, db: Db, config: Config) {
     const detailTags = db.select().from(schema.tags).all();
     const detailTagMap = new Map(detailTags.map((t) => [t.id, t.name]));
     const audienceDesc = describeAudience(campaign, detailListMap, detailTagMap);
+    const selectedTestIds = testSubscriberIds(campaign.audienceType, campaign.audienceData);
 
-    const sends = db.select().from(schema.campaignSends).where(eq(schema.campaignSends.campaignId, id)).all();
+    const sends = db
+      .select({ send: schema.campaignSends, email: schema.subscribers.email })
+      .from(schema.campaignSends)
+      .leftJoin(schema.subscribers, eq(schema.subscribers.id, schema.campaignSends.subscriberId))
+      .where(eq(schema.campaignSends.campaignId, id))
+      .all();
 
     const inboundReplies = db
       .select()
@@ -453,6 +460,10 @@ export function mountCampaignRoutes(app: App, db: Db, config: Config) {
     let previewSubscribers: { id: number; email: string }[];
     if (campaign.audienceType === "list" && campaign.audienceId) {
       previewSubscribers = getConfirmedSubscribers(db, campaign.audienceId);
+      if (selectedTestIds) {
+        const selected = new Set(selectedTestIds);
+        previewSubscribers = previewSubscribers.filter((subscriber) => selected.has(subscriber.id));
+      }
     } else if (campaign.audienceType === "tag" && campaign.audienceId) {
       previewSubscribers = db
         .selectDistinct({
@@ -511,6 +522,14 @@ export function mountCampaignRoutes(app: App, db: Db, config: Config) {
             Audience: {audienceDesc} &middot; From: {campaign.fromAddress}
           </span>
         </div>
+
+        {selectedTestIds && (
+          <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4 text-sm text-blue-800">
+            Test campaign for {selectedTestIds.length} selected{" "}
+            {selectedTestIds.length === 1 ? "subscriber" : "subscribers"}. The send records below show who actually
+            received it. This campaign was not sent to the full list.
+          </div>
+        )}
 
         {campaign.scheduledAt && (
           <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4 text-sm text-blue-800">
@@ -590,7 +609,7 @@ export function mountCampaignRoutes(app: App, db: Db, config: Config) {
             <Table>
               <thead>
                 <tr>
-                  <Th>Subscriber ID</Th>
+                  <Th>Subscriber</Th>
                   <Th>Status</Th>
                   <Th>Attempts</Th>
                   <Th>Accepted / Delivered</Th>
@@ -598,9 +617,14 @@ export function mountCampaignRoutes(app: App, db: Db, config: Config) {
                 </tr>
               </thead>
               <tbody>
-                {sends.map((send) => (
+                {sends.map(({ send, email }) => (
                   <tr>
-                    <Td>{send.subscriberId}</Td>
+                    <Td>
+                      <a href={`/admin/subscribers/${send.subscriberId}`} class="text-blue-600 hover:text-blue-800">
+                        {email ? Html.escapeHtml(email) : `Subscriber #${send.subscriberId}`}
+                      </a>
+                      <span class="block text-xs text-gray-500">ID {send.subscriberId}</span>
+                    </Td>
                     <Td>{send.status}</Td>
                     <Td>{send.attemptCount}</Td>
                     <Td>

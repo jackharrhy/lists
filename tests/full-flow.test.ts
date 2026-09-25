@@ -89,6 +89,42 @@ async function authGet(app: App, path: string, cookie: string) {
 // Test 1: Full campaign create → send flow (list audience)
 // ---------------------------------------------------------------------------
 describe("Full HTTP flow: campaign create+send (list audience)", () => {
+  test("test campaign detail shows its limited audience and recipient emails", async () => {
+    const db = createTestDb();
+    await seedOwner(db);
+    const list = seedList(db, { slug: "newsletter", name: "Newsletter", fromDomain: "example.com" });
+    const selected = createSubscriber(db, "selected@example.com", "Selected", null, ["newsletter"]);
+    const other = createSubscriber(db, "other@example.com", "Other", null, ["newsletter"]);
+    confirmSubscriber(db, selected.unsubscribeToken);
+    confirmSubscriber(db, other.unsubscribeToken);
+    const campaign = db
+      .insert(schema.campaigns)
+      .values({
+        subject: "Test: Pilot",
+        bodyMarkdown: "Pilot content",
+        fromAddress: "news@example.com",
+        audienceType: "list",
+        audienceId: list.id,
+        audienceData: JSON.stringify({ testSubscriberIds: [selected.id] }),
+        status: "sent",
+      })
+      .returning()
+      .get();
+    db.insert(schema.campaignSends)
+      .values({ campaignId: campaign.id, subscriberId: selected.id, status: "delivered" })
+      .run();
+
+    const app = createApp(db);
+    const cookie = await login(app);
+    const response = await authGet(app, `/admin/campaigns/${campaign.id}`, cookie);
+    const html = await response.text();
+    expect(response.status).toBe(200);
+    expect(html).toContain("Test: 1 selected from Newsletter");
+    expect(html).toContain("This campaign was not sent to the full list");
+    expect(html).toContain("selected@example.com");
+    expect(html).not.toContain("other@example.com");
+  });
+
   test("POST /admin/campaigns/new with audienceMode=list creates correct DB row and sends", async () => {
     const db = createTestDb();
     await seedOwner(db);

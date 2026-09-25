@@ -1,6 +1,7 @@
 import { Html } from "@elysia/html";
 import { schema } from "../../db";
 import { assetUrl } from "../../assets";
+import { testSubscriberIds } from "../../services/campaign-audience";
 
 // ---------------------------------------------------------------------------
 // Flash helpers
@@ -233,7 +234,11 @@ export function describeAudience(
   lists: Map<number, string>,
   tags: Map<number, string>,
 ): string {
-  if (campaign.audienceType === "list") return lists.get(campaign.audienceId!) ?? "Unknown list";
+  if (campaign.audienceType === "list") {
+    const listName = lists.get(campaign.audienceId!) ?? "Unknown list";
+    const ids = testSubscriberIds(campaign.audienceType, campaign.audienceData);
+    return ids ? `Test: ${ids.length} selected from ${listName}` : listName;
+  }
   if (campaign.audienceType === "all") return "All subscribers";
   if (campaign.audienceType === "tag") return `Tag: ${tags.get(campaign.audienceId!) ?? "Unknown"}`;
   if (campaign.audienceType === "subscribers") {
